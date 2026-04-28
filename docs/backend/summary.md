@@ -40,7 +40,6 @@ MVP で重要な API 群:
 - `POST /api/v1/runs/plan`
 - `POST /api/v1/board-runs`
 - `POST /api/v1/board-runs/{board_run_id}/artifact-bundles/import`
-- `POST /api/v1/board-runs/{board_run_id}/complete`（通常経路ではなく補助API）
 - `POST /api/v1/board-runs/{board_run_id}/fail`
 - Web UI 向け read API
 - Artifact ダウンロード / プレビュー用 API
@@ -86,10 +85,11 @@ MVP で特に重要な識別:
 - BoardProject の同一性は `github_repository_id + project_path`
 - 外部公開用 ID は `bp_...`、`br_...` などの prefix を持たせる
 - 内部主キーは UUID または ULID を採用する
-- BoardCI API token は repository 単位で `installation_id + github_repository_id` に紐づける
+- BoardFlow API token は repository 単位で `installation_id + github_repository_id` に紐づける
 
 `board_project_snapshots.file_hashes_json` のような差分追跡用データは、MVP でも持つ価値が高い。
 `board_projects.latest_successful_run_id` のような名前はDRC/ERC成功と混同しやすいため、artifact import成功を表す `latest_completed_run_id` に寄せる。
+Web UI の通常一覧には `latest_completed_run_id` がある BoardProject のみ表示する。
 close済みIssueから新Issueへ切り替える場合に備え、過去Issueは `board_project_issue_history` 相当の履歴テーブルに残す。
 
 BoardRun の状態は成果物生成、upload、import の状態を表し、DRC/ERC の成功失敗とは分ける。
@@ -100,9 +100,12 @@ uploading
 importing
 completed
 failed
+timed_out
 ```
 
-DRC/ERC が failed でも、artifact import が成功して成果物とチェック結果を保存できた場合、BoardRun は `completed` として扱う。
+DRC/ERC が failed でも、manifest とチェック結果を保存できた場合、BoardRun は `completed` として扱う。
+BoardRun 作成から12時間以内に `completed` または `failed` へ到達しない場合、worker が `timed_out` に遷移させる。
+`board_project_id + github_run_id + github_run_attempt` は冪等キーとして扱い、同一 attempt の再送は既存 BoardRun を返す。
 
 ## 6. Queue / Worker
 
@@ -131,6 +134,7 @@ artifact import job は、少なくとも以下の段階を持つ。
 - DB への run summary / review data / snapshot 保存
 - BoardRun の `completed` または `failed` への遷移
 - `latest_tree_hash` と `latest_completed_run_id` の更新
+- 初回 completed run で Issue 未作成の場合の Issue 作成ジョブ enqueue
 - Dashboardコメント更新やRun Resultコメント作成ジョブのenqueue
 
 ## 7. Artifact Storage
@@ -152,15 +156,19 @@ MVP では、成果物は individual file upload ではなく staging zip import
 backend は zip を受け取っただけでは完了扱いにせず、以下を行ってから確定する。
 
 - manifest の schema 検証
-- required artifact の有無確認
+- root の `manifest.json` と DRC / ERC check 結果の保存
+- 期待 artifact ごとの `available` / `missing` / `failed` / `skipped` 状態保存
 - path traversal や危険な entry 名の拒否
-- sha256 / size / content type の検証
-- 展開後 artifact の final bucket への保存
+- `available` artifact の sha256 / size / content type の検証
+- 展開後 `available` artifact の final bucket への保存
 - artifact metadata / run summary / snapshot の DB 保存
 - DRC / ERC のレビュー用明細の DB 保存
 
 zip bundle 内の manifest は root の `manifest.json` を正本にする。
-manifest の各 artifact は `type`、`path`、`content_type`、`sha256`、`size_bytes` を必須とし、zip entry と一致検証する。
+manifest の各 artifact は `type` と `status` を必須とする。
+`available` artifact のみ `path`、`content_type`、`sha256`、`size_bytes` を必須とし、zip entry と一致検証する。
+import 成功済みの staging bundle は24時間以内、failed / timed_out run の staging bundle は7日後に削除対象とする。
+final bucket の artifact は MVP では無期限保存とする。
 
 private artifact 前提なので、配信時は以下を前提にする。
 
@@ -177,7 +185,7 @@ MVP では GitHub 中心の構成にする。
 
 - ユーザーログイン: GitHub OAuth
 - リポジトリ連携: GitHub App installation
-- Action から SaaS への認証: BoardCI API token
+- Action から SaaS への認証: BoardFlow API token
 
 考慮点:
 
@@ -189,6 +197,8 @@ MVP では GitHub 中心の構成にする。
 
 GitHub App installation が解除済み、権限不足、または repository 不一致の場合、plan API は build/skip decision ではなく認可エラーを返す。
 
+Plan API では Issue 作成ジョブを enqueue しない。
+Issue 作成は初回 `BoardRun.status = completed` 後に行う。
 Issue はユーザーが発注などの区切りで close する運用を許容する。
 BoardProject 設定 `recreate_issue_on_update` が有効で、active Issue が closed かつ `tree_hash` が変わった場合、backend は既存Issueをreopenせず新しいIssueを作成する。
 Issueタイトルや本文のユーザー編集は上書きせず、GitHub APIジョブ実行時にIssue/commentの404や削除を検出して必要な再作成を行う。
@@ -220,7 +230,7 @@ Artifact は public bucket として直接公開しない。
 
 Docker Action 側は以下を担当する。
 
-- `.boardci.yml` 探索
+- `.boardflow.yml` 探索
 - project_path 決定
 - tree hash / manifest 生成
 - KiCad / iBOM 実行
@@ -260,7 +270,11 @@ MVP の backend test は以下を基準にする。
 - worker idempotency test
 - artifact import worker test
 - DRC / ERC parser test
-- repository-scoped BoardCI token の認可 test
+- repository-scoped BoardFlow token の認可 test
+- 初回 completed run 後に Issue 作成ジョブが enqueue される test
+- 12時間超過した未完了 BoardRun が timed_out になる test
+- 同一 `github_run_id + github_run_attempt` の BoardRun 作成が既存 run を返す test
+- artifact 欠損が `available` / `missing` / `failed` / `skipped` として保存される test
 - DRC/ERC failed でも import 成功時は BoardRun completed になる test
 - close済みIssueと `recreate_issue_on_update` の組み合わせ test
 - Dashboardコメント削除時の再作成 test
@@ -291,5 +305,5 @@ Action 連携、OpenAPI 管理、worker 共有を考えると責務が濁る。
 - `board_runs` / `artifacts` / `snapshots` の詳細 schema
 - queue 実装を自前にするか既存ライブラリを使うか
 - zip intake / staging import の失敗回復設計
-- GitHub App と BoardCI token のライフサイクル
+- GitHub App と BoardFlow token のライフサイクル
 - artifact proxy を置くか、署名付き URL のみで始めるか
