@@ -25,7 +25,7 @@ KiCad、iBOM、Python依存関係、フォント、ライブラリなどの実�
 
 SaaS側は以下のみを担当する。
 
-* 成果物の受信
+* staging zip の受け付けと import
 * 成果物の保存
 * Webでの表示
 * BoardProject / BoardRun / Artifact の管理
@@ -228,8 +228,10 @@ Docker Actionは以下を行う。
 7. kicad-cli によるERC/DRC/成果物生成
 8. iBOM生成
 9. 成果物manifest作成
-10. SaaSへの成果物アップロード
-11. GitHub Actions Job Summary出力
+10. 成果物 zip bundle 作成
+11. staging bucket へのzip upload
+12. import API 呼び出し
+13. GitHub Actions Job Summary出力
 ```
 
 ### 5.2 Action inputs
@@ -560,6 +562,33 @@ manifest
 }
 ```
 
+### 7.5 zip bundle仕様
+
+Actionは、生成した成果物群を単一の zip bundle として送信する。
+
+想定レイアウト:
+
+```text
+bundle.zip
+  manifest.json
+  review/
+  assembly/
+  fabrication/
+  checks/
+  metadata/
+```
+
+backend は zip bundle を展開前に検証し、少なくとも以下を満たすものだけを受理する。
+
+```text
+- manifest.json が存在する
+- manifest と zip 内 entry の一覧が一致する
+- entry path が相対パスであり、.. や絶対パスを含まない
+- artifact type ごとの許可拡張子 / content type に一致する
+- sha256 と size が manifest と一致する
+- bundle / entry ごとの上限サイズを超えない
+```
+
 ---
 
 ## 8. SaaS API仕様
@@ -584,7 +613,7 @@ POST /api/v1/runs/plan
 
 ### 8.2 BoardRun作成API
 
-成果物アップロード前に、BoardRunを作成する。
+成果物 intake 前に、BoardRunを作成する。
 
 ```http
 POST /api/v1/board-runs
@@ -636,24 +665,57 @@ POST /api/v1/board-runs
 ```json
 {
   "board_run_id": "br_abc123",
-  "upload_urls": [
-    {
-      "artifact_type": "schematic_pdf",
-      "url": "https://storage.example.com/...",
-      "method": "PUT"
-    },
-    {
-      "artifact_type": "ibom",
-      "url": "https://storage.example.com/...",
-      "method": "PUT"
-    }
-  ]
+  "artifact_bundle": {
+    "upload_mode": "staging_s3",
+    "object_key": "staging/runs/br_abc123/bundle.zip",
+    "upload_url": "https://storage.example.com/...",
+    "method": "PUT",
+    "expires_at": "2026-04-28T12:00:00Z"
+  }
 }
 ```
 
-### 8.3 BoardRun完了API
+### 8.3 Artifact Bundle Import API
 
-成果物アップロード完了後に呼び出す。
+staging bucket に置いた zip を backend に読ませる経路。
+
+```http
+POST /api/v1/board-runs/{board_run_id}/artifact-bundles/import
+```
+
+リクエスト例:
+
+```json
+{
+  "staging_object_key": "staging/runs/br_abc123/bundle.zip",
+  "bundle_sha256": "sha256:...",
+  "bundle_size_bytes": 12345678
+}
+```
+
+主な処理:
+
+```text
+- staging object の存在確認
+- artifact_bundles レコード作成
+- artifact import job を queue に積む
+- 受理レスポンスを返す
+- 実際の zip 読み出し、検証、解析、final bucket 反映、DB 保存は worker が行う
+- staging object の削除または TTL 管理
+```
+
+レスポンス例:
+
+```json
+{
+  "bundle_id": "ab_abc123",
+  "status": "queued"
+}
+```
+
+### 8.4 BoardRun完了API
+
+zip の検証と artifact 登録完了後に completed にする。
 
 ```http
 POST /api/v1/board-runs/{board_run_id}/complete
@@ -682,7 +744,10 @@ POST /api/v1/board-runs/{board_run_id}/complete
 - 必要ならRun Resultコメント作成ジョブをenqueueする
 ```
 
-### 8.4 失敗API
+MVP では、通常は artifact import worker が import 成功時に `complete` 相当の更新を行う。
+`complete` API は明示的な finalize が必要な場合の互換経路として残してもよい。
+
+### 8.5 失敗API
 
 ビルドやアップロードに失敗した場合に呼び出す。
 
@@ -758,9 +823,12 @@ board_runs
 - drc_status
 - drc_errors
 - drc_warnings
+- review_status
 - created_at
 - completed_at
 ```
+
+`board_runs` には一覧や絞り込みに必要な集計値を持たせ、UI で使う詳細な review data は別テーブルに正規化して保存する。
 
 ### 9.4 artifacts
 
@@ -774,10 +842,83 @@ artifacts
 - storage_key
 - sha256
 - size_bytes
+- source_bundle_id
 - created_at
 ```
 
-### 9.5 board_project_snapshots
+### 9.5 artifact_bundles
+
+zip intake 自体の追跡用テーブル。
+
+```text
+artifact_bundles
+- id
+- board_run_id
+- intake_mode
+- staging_object_key
+- original_filename
+- sha256
+- size_bytes
+- status
+- error_message
+- received_at
+- validated_at
+```
+
+### 9.6 run_checks
+
+DRC / ERC の集計情報。
+
+```text
+run_checks
+- id
+- board_run_id
+- check_kind          # erc | drc
+- tool_name
+- tool_version
+- status
+- error_count
+- warning_count
+- notice_count
+- report_artifact_id
+- raw_summary_json
+- created_at
+```
+
+### 9.7 run_check_findings
+
+レビュー UI で直接使う明細。
+
+```text
+run_check_findings
+- id
+- run_check_id
+- severity            # error | warning | notice
+- rule_code
+- title
+- message
+- subject_kind        # schematic | pcb | net | footprint | symbol
+- subject_ref
+- sheet_path
+- pcb_layer
+- x_um
+- y_um
+- bbox_json
+- raw_payload_json
+- sort_index
+- created_at
+```
+
+方針:
+
+```text
+- board_runs には集計を保持する
+- run_checks には ERC / DRC 単位の結果を保持する
+- run_check_findings には UI で一覧・フィルタ・詳細表示する行データを保持する
+- parser が取りこぼしたくない項目は raw JSON も併せて保持する
+```
+
+### 9.8 board_project_snapshots
 
 将来的な差分表示用に、ファイルハッシュ一覧を保存する。
 
@@ -794,7 +935,7 @@ board_project_snapshots
 
 MVPでは `latest_tree_hash` のみでもよいが、拡張性を考えると保存しておく価値がある。
 
-### 9.6 github_jobs
+### 9.9 github_jobs
 
 GitHub API操作を非同期化するためのキュー。
 

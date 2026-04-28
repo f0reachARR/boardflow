@@ -39,6 +39,7 @@ MVP で重要な API 群:
 
 - `POST /api/v1/runs/plan`
 - `POST /api/v1/board-runs`
+- `POST /api/v1/board-runs/{board_run_id}/artifact-bundles/import`
 - `POST /api/v1/board-runs/{board_run_id}/complete`
 - `POST /api/v1/board-runs/{board_run_id}/fail`
 - Web UI 向け read API
@@ -90,7 +91,7 @@ MVP で特に重要な識別:
 
 ## 6. Queue / Worker
 
-GitHub API 操作はすべて非同期 worker で処理する。
+GitHub API 操作と artifact import / 解析は非同期 worker で処理する。
 
 MVP で PostgreSQL backed queue を推す理由:
 
@@ -106,17 +107,40 @@ Redis は以下の補助に限定する。
 - worker 間の軽量 lock
 - 一時的な idempotency cache
 
+artifact import job は、少なくとも以下の段階を持つ。
+
+- staging object の存在確認
+- zip / manifest の検証
+- artifact 展開と final bucket への保存
+- DRC / ERC / manifest の解析
+- DB への run summary / review data / snapshot 保存
+- BoardRun の completed または failed への遷移
+
 ## 7. Artifact Storage
 
-成果物本体は S3 互換オブジェクトストレージに保存し、DB には metadata と storage key のみを保存する。
+成果物の正本は S3 互換オブジェクトストレージに保存し、DB には metadata と storage key のみを保存する。
 
 推奨構成:
 
 - 本番: S3-compatible object storage
 - ローカル: MinIO
-- アップロード: presigned URL を API が発行し、Action が直接 PUT
+- staging bucket: Action が zip bundle を一時配置するために使う
+- final bucket: backend が検証済み artifact を保存する
 
-この方式なら、API サーバーを大きな ZIP や PDF の中継点にしなくて済む。
+MVP では、成果物は individual file upload ではなく staging zip import を基本にする。
+
+- API が発行した presigned URL で Action が staging bucket に zip を置く
+- Action は import API を呼び、backend は artifact import job を queue に積む
+
+backend は zip を受け取っただけでは完了扱いにせず、以下を行ってから確定する。
+
+- manifest の schema 検証
+- required artifact の有無確認
+- path traversal や危険な entry 名の拒否
+- sha256 / size / content type の検証
+- 展開後 artifact の final bucket への保存
+- artifact metadata / run summary / snapshot の DB 保存
+- DRC / ERC のレビュー用明細の DB 保存
 
 private artifact 前提なので、配信時は以下を前提にする。
 
@@ -174,8 +198,10 @@ Docker Action 側は以下を担当する。
 - tree hash / manifest 生成
 - KiCad / iBOM 実行
 - plan API 呼び出し
-- Artifact upload
-- run complete / fail 通知
+- zip bundle 作成
+- staging upload
+- import 要求
+- run fail 通知
 
 backend 側は、Action の入出力契約と冪等性を守る責務を持つ。
 
@@ -204,6 +230,8 @@ MVP の backend test は以下を基準にする。
 - DB repository test with PostgreSQL
 - GitHub webhook signature verification test
 - worker idempotency test
+- artifact import worker test
+- DRC / ERC parser test
 
 Action を含む重い E2E は nightly または手動でもよいが、OpenAPI 契約テストは早めに固めたい。
 
@@ -230,6 +258,6 @@ Action 連携、OpenAPI 管理、worker 共有を考えると責務が濁る。
 - OpenAPI ファイルの分割方針
 - `board_runs` / `artifacts` / `snapshots` の詳細 schema
 - queue 実装を自前にするか既存ライブラリを使うか
-- presigned upload の失敗回復設計
+- zip intake / staging import の失敗回復設計
 - GitHub App と BoardCI token のライフサイクル
 - artifact proxy を置くか、署名付き URL のみで始めるか

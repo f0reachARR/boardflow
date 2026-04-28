@@ -24,7 +24,8 @@ MVP では、以下の責務分担を前提にする。
 ```text
 GitHub Actions (Docker Action)
   -> OpenAPI-based SaaS API
-  -> presigned upload to object storage
+  -> presigned upload to staging object storage
+  -> import request to SaaS API
 
 SaaS
   - Next.js frontend
@@ -46,7 +47,7 @@ SaaS
 | DB | PostgreSQL + sqlc + pgx |
 | Worker | PostgreSQL backed queue |
 | Redis | rate limit / debounce / lock / short-lived state |
-| Artifact 保存 | S3-compatible object storage |
+| Artifact 保存 | S3-compatible object storage + staging zip import |
 | Frontend | Next.js App Router + TypeScript |
 | UI | Chakra UI + lucide-react |
 | 認証 | GitHub OAuth + GitHub App |
@@ -87,7 +88,7 @@ Go + chi + oapi-codegen
 PostgreSQL + sqlc + pgx
 PostgreSQL backed worker queue
 Redis for rate/debounce/lock
-S3-compatible object storage + presigned upload/download
+S3-compatible object storage + staging zip import/queued validation
 Next.js App Router + TypeScript
 Chakra UI + lucide-react
 GitHub OAuth + GitHub App
