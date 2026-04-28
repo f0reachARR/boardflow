@@ -77,7 +77,9 @@ Issue作成やコメント更新はSaaS側のGitHub Appが行うため、基本�
 
 MVPでは `push` と `workflow_dispatch` のみを正式対象とする。
 `pull_request` や fork からの pull request は、secret や権限境界が複雑になるため対象外とする。
-Action が `pull_request` event で実行された場合は、unsupported event として早期終了または明示的に失敗させる。
+Action が `pull_request` event で実行された場合は、KiCad実行やSaaS API呼び出しを行わず、unsupported event として成功扱いで早期終了する。
+この場合、GitHub Actions Job Summary に `unsupported event: pull_request` を表示し、PR が常に失敗状態になることを避ける。
+fork PR、PR用artifact review、PRコメント連携はMVPでは扱わない。
 
 ---
 
@@ -121,6 +123,7 @@ Docker Actionは、リポジトリ内の `.boardflow.yml` を探索する。
 MVPでは、`.boardflow.yml` が存在するKiCadプロジェクトのみを対象とする。
 `.boardflow.yml` が存在してもBoardProject候補にできないものはSaaSへ送らず、BoardProjectも作成しない。
 複数BoardProjectのうち一部に検出エラーがあっても、処理可能なBoardProjectは継続する。
+ただし、検出エラーが1件でもある場合、最終的なGitHub Actions jobは失敗とする。
 
 ### 3.3 BoardProjectの識別
 
@@ -162,6 +165,11 @@ boards/motor_driver/motor_driver.kicad_pro
 
 `.boardflow.yml` は、KiCadプロジェクトをBoardFlow対象として認識させるためのマーカーであり、同時にプロジェクト固有の最小設定を持つ。
 
+MVPでは厳格にschema検証する。
+`version` は必須で、対応する値は `1` のみとする。
+未知フィールド、型不一致、非対応versionは検出エラーとして扱う。
+検出エラーになったBoardProject候補はSaaSへ送らず、他の処理可能なBoardProjectは継続する。
+
 ### 4.1 MVP設定例
 
 ```yaml
@@ -201,6 +209,8 @@ exclude_paths:
 comments:
   run_results: on_change
 ```
+
+上記の `checks` や `comments` は将来的な拡張例であり、MVPの厳格schemaでは未対応フィールドとして検出エラーになる。
 
 ### 4.3 設定ファイルに含めないもの
 
@@ -314,7 +324,8 @@ project:hardware/motor_driver/motor_driver.kicad_pro
 差分判定はSaaS側に寄せる。
 
 Docker Actionは、各BoardProject候補について対象ファイルのハッシュを計算し、SaaSへ送信する。
-SaaSは過去に成功したBoardRunのハッシュと比較し、buildすべきかskipすべきかを返す。
+SaaSは `latest_completed_run_id` に紐づく `latest_tree_hash` と比較し、buildすべきかskipすべきかを返す。
+ここで `completed` は artifact import が成立したことを表し、DRC/ERCの成功を意味しない。
 
 ### 6.2 ハッシュ対象
 
@@ -331,6 +342,9 @@ MVPでは、対象は `project_dir` 配下のファイルとする。
 ```
 
 共通ライブラリ、外部フットプリント、外部3Dモデルなどの依存関係は、MVPでは厳密に追跡しない。
+これらの共通依存を変更した場合、MVPでは自動で差分検出されない可能性がある。
+共通依存の変更を反映したい場合は、`workflow_dispatch` で `mode: all` を指定して全BoardProjectをbuildする運用を推奨する。
+`.boardflow.yml` の `include_paths` やKiCad依存関係の自動解析は将来拡張とする。
 
 ### 6.3 built-in excludes案
 
@@ -439,6 +453,9 @@ tree_hash = sha256(
 | `previous_failed`      | 前回の成果物生成が失敗している           |
 | `no_previous_snapshot` | 比較対象のsnapshotがない          |
 
+`previous_failed` は、前回のBoardRunが `failed` または `timed_out` で、比較に使える completed snapshot がない場合などに使う。
+DRC/ERC failed でもBoardRunが `completed` になっている場合は、差分判定上は `latest_tree_hash` の比較対象になり得る。
+
 ---
 
 ## 7. 成果物生成仕様
@@ -522,10 +539,12 @@ BoardRunを `completed` にできる最低条件は以下とする。
 
 ```text
 - rootの manifest.json を検証し保存できる
-- ERC / DRC のcheck結果を保存できる
+- ERC / DRC のcheck結果、または skipped 状態を保存できる
 ```
 
+BoardRunの `completed` は artifact import が成立したことを表す。
 DRC/ERCの結果がfailedでも、結果を保存できる場合はBoardRun自体は `completed` とする。
+ERC/DRCがプロジェクト構成上実行不能、対象外、または将来の設定で無効化されている場合は、`run_checks.status = skipped` として保存する。
 
 ### 7.5 manifest例
 
@@ -625,7 +644,8 @@ backend は zip bundle を展開前に検証し、少なくとも以下を満た
 
 ```text
 - rootのmanifest.json が存在する
-- `available` なartifactについて、manifest と zip 内 entry の一覧が一致する
+- manifest未記載のzip entryは原則拒否する
+- 例外として、rootのmanifest.jsonと、仕様で許可した補助ファイルのみmanifest未記載でも許可する
 - entry path が相対パスであり、.. や絶対パスを含まない
 - artifact type ごとの許可拡張子 / content type に一致する
 - manifest内の各artifactに type / status がある
@@ -662,6 +682,8 @@ Issueは初回 `BoardRun.status = completed` 後に作成する。
 
 BoardFlow API token は repository 単位で発行する。
 SaaSは、Actionから送られた `github_repository_id` をそのまま信用せず、tokenに紐づく `installation_id + github_repository_id` と一致するか必ず検証する。
+token はDBにhashのみ保存し、成功した認証時のみ `last_used_at` を更新する。
+revoke済みtokenは Plan API、BoardRun作成API、Artifact Bundle Import API、失敗APIのすべてで認可エラーにする。
 GitHub App installation が解除済み、権限不足、またはrepository不一致の場合、Plan APIはbuild/skip decisionではなく認可エラーを返す。
 
 ### 8.2 BoardRun作成API
@@ -693,6 +715,7 @@ POST /api/v1/board-runs
 ```json
 {
   "board_run_id": "br_abc123",
+  "status": "created",
   "artifact_bundle": {
     "upload_mode": "staging_s3",
     "object_key": "staging/runs/br_abc123/bundle.zip",
@@ -710,7 +733,10 @@ KiCad実行失敗、zip作成失敗、upload失敗、import要求前の失敗は
 
 同じ `board_project_id + github_run_id + github_run_attempt` のBoardRun作成リクエストが再送された場合、SaaSは新規作成せず既存のBoardRunを返す。
 これにより、Action側のAPI再送や一時的なネットワーク失敗に対して冪等に扱える。
+既存BoardRunが `completed`、`failed`、`timed_out` のいずれかのterminal状態の場合も、SaaSは新しいBoardRunや新しいupload URLを作らず、既存BoardRunの `status` を返す。
+Actionはterminal状態の既存BoardRunを受け取った場合、追加のbuild、upload、import要求を行わない。
 BoardRun作成から12時間以内に `completed` または `failed` へ到達しない場合、workerが `timed_out` に遷移させる。
+GitHub Actionsのcancel、runner停止、Actionプロセス異常終了などでfail APIを呼べなかった場合も、MVPでは原因を細分化せず `timed_out` に集約する。
 
 ### 8.3 Artifact Bundle Import API
 
@@ -760,7 +786,7 @@ zip の検証、artifact登録、checks保存、snapshot保存、BoardRun完了�
 
 ```text
 - rootのmanifest.jsonを検証して保存する
-- ERC / DRC のcheck結果を保存する
+- ERC / DRC のcheck結果、または skipped 状態を保存する
 - 期待artifactごとに available / missing / failed / skipped を保存する
 - BoardRunをcompletedにする
 - BoardProject.latest_tree_hashを更新する
@@ -770,7 +796,7 @@ zip の検証、artifact登録、checks保存、snapshot保存、BoardRun完了�
 - 必要ならRun Resultコメント作成ジョブをenqueueする
 ```
 
-DRC/ERCがfailedでも、manifestとチェック結果を保存できた場合は `BoardRun.status = completed` とする。
+DRC/ERCがfailedでも、manifestとチェック結果または skipped 状態を保存できた場合は `BoardRun.status = completed` とする。
 DRC/ERCの結果は `run_checks.status` または `board_runs.erc_status` / `board_runs.drc_status` で表す。
 import成功済みのstaging bundleは24時間以内に削除対象とする。
 failedまたはtimed_outになったrunのstaging bundleは7日後に削除対象とする。
@@ -834,7 +860,8 @@ board_projects
 
 `repository_id + project_path` にunique制約を置く。
 `recreate_issue_on_update` はSaaS側のBoardProject設定として持ち、`.boardflow.yml` には含めない。
-Web UIの通常一覧には `latest_completed_run_id` があるBoardProjectのみ表示する。
+Web UIの通常一覧には、初回completed前のBoardProjectも状態付きで表示する。
+Plan APIで作成されたが成果物未完成のBoardProjectも、ユーザーがWeb UIから原因を追えるようにする。
 
 ### 9.3 board_runs
 
@@ -876,8 +903,10 @@ timed_out
 ```
 
 DRC/ERCの成功失敗はBoardRun自体の成功失敗とは分ける。
-DRC/ERCがfailedでも、manifestとチェック結果のimportが成功した場合は `completed` として扱い、差分判定の基準になる `latest_tree_hash` を更新する。
+`completed` は artifact import が成立したことを表し、DRC/ERCの成功を意味しない。
+DRC/ERCがfailedでも、manifestとチェック結果または skipped 状態のimportが成功した場合は `completed` として扱い、差分判定の基準になる `latest_tree_hash` を更新する。
 `created`、`uploading`、`importing` のまま12時間を超えたBoardRunはworkerが `timed_out` に遷移させる。
+GitHub Actionsのcancel、runner停止、fail API未送信の異常終了もMVPでは `timed_out` に集約する。
 `board_project_id + github_run_id + github_run_attempt` にunique制約を置き、同一attemptの再送は既存BoardRunを返す。
 
 ### 9.4 artifacts
@@ -955,6 +984,17 @@ run_checks
 - created_at
 ```
 
+`status` は少なくとも以下を取る。
+
+```text
+passed
+failed
+skipped
+```
+
+`skipped` は、ERC/DRCがプロジェクト構成上実行不能、対象外、または設定で無効化された場合に使う。
+`skipped` の場合、`error_count`、`warning_count`、`notice_count` は0として扱い、`raw_summary_json` に理由を保存する。
+
 ### 9.7 run_check_findings
 
 レビュー UI で直接使う明細。
@@ -1005,7 +1045,28 @@ board_project_snapshots
 
 MVPでは `latest_tree_hash` のみでもよいが、拡張性を考えると保存しておく価値がある。
 
-### 9.9 github_jobs
+### 9.9 boardflow_api_tokens
+
+ActionからSaaS APIを呼び出すためのrepository単位token。
+tokenの平文は作成時のみ表示し、DBにはhashのみ保存する。
+
+```text
+boardflow_api_tokens
+- id
+- installation_id
+- repository_id
+- name
+- token_hash
+- created_at
+- last_used_at
+- revoked_at
+```
+
+revoke済みtokenは認可に使えない。
+`last_used_at` は認証に成功したAPI呼び出しでのみ更新する。
+複数tokenの高度な管理UI、ローテーション専用UX、自動失効ポリシーはMVPでは扱わない。
+
+### 9.10 github_jobs
 
 GitHub API操作を非同期化するためのキュー。
 
@@ -1037,7 +1098,7 @@ update_dashboard_comment
 create_run_result_comment
 ```
 
-### 9.10 board_project_issue_history
+### 9.11 board_project_issue_history
 
 BoardProjectに紐づいていた過去Issueを履歴として保持する。
 active Issueは `board_projects` の `issue_number` / `issue_node_id` / `issue_url` が指す。
@@ -1080,7 +1141,7 @@ Issues: Read & Write
 
 BoardProjectに対応するIssueが存在しない場合でも、Plan API時点ではIssue作成ジョブをenqueueしない。
 初回 `BoardRun.status = completed` になった後、SaaSはIssue作成ジョブをenqueueする。
-初回completed run前のBoardProjectはWeb UIの通常一覧には表示しない。
+初回completed run前のBoardProjectもWeb UIの通常一覧には表示するが、Issueは作成しない。
 
 Issue作成はキューで処理し、レートリミットや大量基板登録に備える。
 
@@ -1355,13 +1416,25 @@ retry-after がある:
 ### 13.1 Repositoryページ
 
 リポジトリ内のBoardProject一覧を表示する。
-通常一覧には `latest_completed_run_id` があるBoardProjectのみ表示し、Plan APIで作成されたが初回completed runがないBoardProjectは表示しない。
+通常一覧には初回completed前のBoardProjectも表示する。
+Plan APIで作成されたが成果物未完成のBoardProject、初回importに失敗したBoardProject、timeoutしたBoardProjectも、状態付きで表示して原因を追えるようにする。
+
+一覧上の状態は、少なくとも以下を区別する。
+
+```text
+detected    # Plan APIで検出済みだが、まだBoardRunがない
+building    # created / uploading / importing のBoardRunがある
+failed      # 最新BoardRunが failed
+timed_out   # 最新BoardRunが timed_out。中断または未完了の可能性あり
+completed   # latest_completed_run_id がある
+```
 
 表示項目:
 
 ```text
 - display_name
 - project_path
+- BoardProject状態
 - 最新run
 - 最新commit
 - ERC状態
@@ -1477,6 +1550,10 @@ Actionは、GitHub ActionsのJob Summaryに結果を出力する。
 ```markdown
 # BoardFlow Summary
 
+## Unsupported
+
+- `pull_request` event is not supported in MVP. Skipped without calling BoardFlow API.
+
 ## Built
 
 - `hardware/motor_driver/motor_driver.kicad_pro` — hash changed
@@ -1505,6 +1582,8 @@ Actionは、GitHub ActionsのJob Summaryに結果を出力する。
 
 SaaSへのアップロードURLやBoardProjectページも表示する。
 複数BoardProjectのうち一部のみ失敗した場合も、成功、skip、build/upload/import失敗、check失敗、artifact欠損、検出エラーを分けて表示する。
+`pull_request` event の場合は、KiCad実行やSaaS API呼び出しを行わず、unsupported として表示したうえで job は成功扱いにする。
+共通ライブラリ、外部フットプリント、外部3Dモデルなどを変更した場合は、MVPでは自動検知できない可能性があるため、`workflow_dispatch` で `mode: all` を指定する案内を表示してよい。
 検出不備、成果物生成失敗、upload失敗、import要求失敗が1件でもある場合、最終的なGitHub Actions jobは失敗とする。
 個別artifactの `missing`、`failed`、`skipped` はJob Summaryに警告として表示するが、manifestとDRC/ERC結果を保存できる限り、それだけではGitHub Actions jobを失敗にしない。
 DRC/ERCのfailedをjob失敗にするかは `fail-on-drc` / `fail-on-erc` に従う。
@@ -1519,6 +1598,7 @@ DRC/ERCのfailedをjob失敗にするかは `fail-on-drc` / `fail-on-erc` に従
 - Docker Action提供
 - KiCad 9.0系環境の固定
 - .boardflow.yml 自動検出
+- .boardflow.yml の厳格schema検証
 - 同階層 .kicad_pro の検出
 - 1リポジトリ複数KiCadプロジェクト対応
 - project_pathベースのBoardProject識別
@@ -1530,13 +1610,15 @@ DRC/ERCのfailedをjob失敗にするかは `fail-on-drc` / `fail-on-erc` に従
 - iBOM生成
 - 成果物アップロード
 - 欠損artifactの状態管理
+- ERC/DRC skipped状態の管理
 - BoardRunの12時間timeout
-- Webでの成果物表示
+- 初回completed前を含むBoardProjectのWeb表示
 - 初回completed run後のGitHub AppによるIssue自動作成
 - close済みIssueに対する設定ON時の新Issue作成
 - Dashboardコメントの作成・編集
 - DRC/ERC結果コメントの条件付き追記
 - GitHub API操作のキュー処理
+- BoardFlow API tokenの最小ライフサイクル管理
 ```
 
 ### 15.2 やらないこと
@@ -1547,26 +1629,34 @@ DRC/ERCのfailedをjob失敗にするかは `fail-on-drc` / `fail-on-erc` に従
 - issue numberのユーザー設定
 - project_path変更の追従
 - 共通ライブラリ変更の厳密な影響解析
+- include_paths / 共通依存の自動解析
 - SaaS側でのKiCad実行
 - 高度なKiCad差分ビューア
 - 部品調達API連携
 - BoardProjectの手動統合
 - PR中心のレビュー機能
 - pull_request / fork PR 対応
+- PR artifact review / PRコメント連携
 - GitHub Issue上でのprivate artifact直接表示
 - final artifact保存期限のプラン別制御
+- 複数tokenの高度な管理UIや自動ローテーション
 ```
 
 ### 15.3 MVP受け入れシナリオ
 
 ```text
-- Plan APIで新規BoardProjectが作られても、初回completed run前はIssueもWeb UI通常一覧も作られない
+- pull_request eventではActionがKiCad実行もAPI呼び出しもせず、job成功でunsupported summaryを出す
+- Plan APIで新規BoardProjectが作られた時点でWeb UI通常一覧に detected として表示されるが、初回completed run前はIssueを作らない
+- .boardflow.yml に未知フィールドがあるBoardProjectは検出エラーになり、他の正常BoardProjectは処理されるがjob全体は失敗する
 - 初回artifact import completed後にIssue作成ジョブとDashboardコメントジョブがenqueueされる
+- ERCが対象外のプロジェクトで run_checks.status=skipped が保存され、manifest import成功ならBoardRunはcompletedになる
 - fabrication ZIP生成失敗時、BoardRunはcompleted、artifact行はfailed、Job Summaryは警告になる
 - DRC failedかつ fail-on-drc=false の場合、BoardRunはcompleted、GitHub Actions jobは成功する
 - DRC failedかつ fail-on-drc=true の場合、BoardRunはcompleted、GitHub Actions jobは失敗する
 - BoardRun作成から12時間を超えた未完了runはtimed_outになる
-- 同一 github_run_id + github_run_attempt のBoardRun作成再送は既存runを返す
+- 同一 github_run_id + github_run_attempt のBoardRun作成再送は既存runを返し、terminal状態なら新upload URLを作らない
+- manifest未記載のzip entryを含むbundleは、許可済み補助ファイルを除いてimport failedになる
+- revoke済みtokenでPlan APIを呼ぶと認可エラーになり、last_used_atは成功認証時のみ更新される
 - import成功済みstaging bundleは24時間以内に削除対象、timed_out/failed bundleは7日後に削除対象になる
 ```
 

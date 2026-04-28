@@ -89,7 +89,7 @@ MVP で特に重要な識別:
 
 `board_project_snapshots.file_hashes_json` のような差分追跡用データは、MVP でも持つ価値が高い。
 `board_projects.latest_successful_run_id` のような名前はDRC/ERC成功と混同しやすいため、artifact import成功を表す `latest_completed_run_id` に寄せる。
-Web UI の通常一覧には `latest_completed_run_id` がある BoardProject のみ表示する。
+Web UI の通常一覧には初回 completed 前の BoardProject も状態付きで表示し、検出済み、処理中、失敗、timeout、completed を追えるようにする。
 close済みIssueから新Issueへ切り替える場合に備え、過去Issueは `board_project_issue_history` 相当の履歴テーブルに残す。
 
 BoardRun の状態は成果物生成、upload、import の状態を表し、DRC/ERC の成功失敗とは分ける。
@@ -103,9 +103,11 @@ failed
 timed_out
 ```
 
-DRC/ERC が failed でも、manifest とチェック結果を保存できた場合、BoardRun は `completed` として扱う。
+`completed` は artifact import が成立したことを表し、DRC/ERC の成功を意味しない。
+DRC/ERC が failed でも、manifest とチェック結果または skipped 状態を保存できた場合、BoardRun は `completed` として扱う。
 BoardRun 作成から12時間以内に `completed` または `failed` へ到達しない場合、worker が `timed_out` に遷移させる。
-`board_project_id + github_run_id + github_run_attempt` は冪等キーとして扱い、同一 attempt の再送は既存 BoardRun を返す。
+GitHub Actions の cancel、runner 停止、fail API 未送信の異常終了も MVP では `timed_out` に集約する。
+`board_project_id + github_run_id + github_run_attempt` は冪等キーとして扱い、同一 attempt の再送は terminal 状態を含めて既存 BoardRun を返す。
 
 ## 6. Queue / Worker
 
@@ -156,7 +158,7 @@ MVP では、成果物は individual file upload ではなく staging zip import
 backend は zip を受け取っただけでは完了扱いにせず、以下を行ってから確定する。
 
 - manifest の schema 検証
-- root の `manifest.json` と DRC / ERC check 結果の保存
+- root の `manifest.json` と DRC / ERC check 結果または skipped 状態の保存
 - 期待 artifact ごとの `available` / `missing` / `failed` / `skipped` 状態保存
 - path traversal や危険な entry 名の拒否
 - `available` artifact の sha256 / size / content type の検証
@@ -167,6 +169,7 @@ backend は zip を受け取っただけでは完了扱いにせず、以下を�
 zip bundle 内の manifest は root の `manifest.json` を正本にする。
 manifest の各 artifact は `type` と `status` を必須とする。
 `available` artifact のみ `path`、`content_type`、`sha256`、`size_bytes` を必須とし、zip entry と一致検証する。
+manifest 未記載の zip entry は原則拒否し、root の `manifest.json` と仕様で許可した補助ファイルのみ例外として扱う。
 import 成功済みの staging bundle は24時間以内、failed / timed_out run の staging bundle は7日後に削除対象とする。
 final bucket の artifact は MVP では無期限保存とする。
 
@@ -191,6 +194,8 @@ MVP では GitHub 中心の構成にする。
 
 - token は hash のみ DB 保存
 - token は repository 単位で発行し、plan API と BoardRun API では token に紐づく `installation_id + github_repository_id` と request repository を一致検証する
+- token は `name`、`created_at`、`last_used_at`、`revoked_at` を持ち、revoke済みtokenは認可エラーにする
+- `last_used_at` は認証成功時のみ更新する
 - GitHub App webhook は MVP から含める
 - installation 情報同期と権限確認を backend の責務にする
 - Web UI の閲覧可否は GitHub 権限と揃える

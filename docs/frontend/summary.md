@@ -67,7 +67,8 @@ BoardFlow は制作物そのものより、制作物の状態変化を追う画�
 - GitHub Issue と BoardProject の関係が自然に理解できること
 
 一覧画面では、カードよりも表形式やセクション分割の方が相性がよい可能性が高い。特に MVP では、視覚的な派手さよりも運用時の読みやすさを優先する。
-Repository / BoardProject の通常一覧には、初回 completed run がある BoardProject のみ表示する。
+Repository / BoardProject の通常一覧には、初回 completed run 前の BoardProject も状態付きで表示する。
+Plan APIで検出済み、処理中、失敗、timeout、completed を区別し、初回 import 失敗や未完了のBoardProjectもWeb UIから原因を追えるようにする。
 
 ## 5. 認証と権限
 
@@ -114,8 +115,9 @@ MVP の frontend test は次を基準にする。
 - 主要コンポーネントの component test
 - Playwright による主要導線の smoke test
 - 権限なし時のガード確認
-- 初回 completed run がない BoardProject が通常一覧に表示されないこと
+- 初回 completed run がない BoardProject も通常一覧に状態付きで表示されること
 - artifact 欠損状態が一覧と詳細で表示されること
+- timed_out のBoardProjectに「中断または未完了の可能性」が分かる表示を出すこと
 - Run 一覧から成果物表示までの代表導線確認
 
 重いビジュアル回帰テストは後回しでよいが、artifact preview 周りは早めに一度自動化したい。
