@@ -244,12 +244,13 @@ Docker Actionは以下を行う。
 7. build対象のKiCadプロジェクトのみ処理
 8. kicad-cli によるERC/DRC/成果物生成
 9. iBOM生成
-10. 成果物manifest作成
-11. 成果物 zip bundle 作成
-12. staging bucket へのzip upload
-13. import API 呼び出し
-14. 生成失敗、upload失敗、import要求前失敗のfail API通知
-15. GitHub Actions Job Summary出力
+10. 差分レビュー用メタデータ生成
+11. 成果物manifest作成
+12. 成果物 zip bundle 作成
+13. staging bucket へのzip upload
+14. import API 呼び出し
+15. 生成失敗、upload失敗、import要求前失敗のfail API通知
+16. GitHub Actions Job Summary出力
 ```
 
 複数BoardProjectのうち一部が失敗しても、処理可能なBoardProjectは継続する。
@@ -458,9 +459,139 @@ DRC/ERC failed でもBoardRunが `completed` になっている場合は、差�
 
 ---
 
-## 7. 成果物生成仕様
+## 7. BoardRun差分レビュー仕様
 
-### 7.1 使用ツール
+### 7.1 位置づけ
+
+MVPでは、pushごとに生成されたBoardRunを同一BoardProjectの直近 `completed` BoardRunと比較し、Web上で確認できる軽量な差分レビューを提供する。
+
+この差分レビューは、6章のbuild skip用差分判定とは別の機能である。
+6章の差分判定はKiCad実行前に行う `tree_hash` 比較であり、BoardRun差分レビューはartifact import後に保存済みrun同士を比較する。
+
+PR用途では、MVPでは `pull_request` eventでActionを実行しない。
+同一リポジトリbranchへのpushで生成された差分ページを、PR本文、GitHub Issue、Dashboardコメント、Run Resultコメントから参照する運用を基本とする。
+fork PR対応、PR artifact review、PRへの自動コメント、GitHub Pull Request Review Commentへの行単位投稿は将来拡張とする。
+
+### 7.2 比較基準
+
+比較元は以下で決定する。
+
+```text
+base_run = 同一BoardProjectの、現在runより前の直近 completed BoardRun
+head_run = 現在import中またはimport完了したBoardRun
+```
+
+初回completed runで比較元がない場合は、差分なしではなく `no_baseline` として保存・表示する。
+比較元runはあるが、必要なartifactやsnapshotが欠損して比較できない場合は `unavailable` として保存・表示する。
+前回runが `failed` または `timed_out` の場合、それ自体は比較元にしない。
+比較可能な過去の `completed` runが見つからない場合は `no_baseline` とする。
+
+### 7.3 差分status
+
+`board_run_diffs.status` は少なくとも以下を取る。
+
+```text
+ready         # 差分サマリを作成できた
+no_baseline   # 初回runなどで比較元がない
+unavailable   # 比較元または現在runの必要データが不足している
+failed        # 差分作成処理自体が失敗した
+```
+
+差分作成に失敗しても、manifest、artifact、checksのimportが成立している場合はBoardRun自体を `completed` にしてよい。
+この場合、差分statusは `failed` としてWeb UIとJob Summaryに表示する。
+
+### 7.4 MVPで比較する内容
+
+MVPの差分は、人がレビューを開始できる軽量サマリに限定する。
+
+```text
+- ファイルハッシュ差分
+  - added / removed / changed / unchanged counts
+  - 変更された主要ファイルの一覧
+- BOM差分
+  - 部品行のadded / removed / changed counts
+  - designator、value、footprint、quantityなど正規化できる列の変更
+- ERC / DRC集計差分
+  - status変化
+  - error / warning / notice件数の増減
+- 主要artifact状態差分
+  - available / missing / failed / skipped の変化
+- PCB / Schematic preview差分サマリ
+  - 前回/今回のSVGまたはPNG previewへの導線
+  - MVPでは画像の重ね合わせやピクセル差分は必須にしない
+```
+
+KiCadのsemantic diff、回路図PDFの高精度差分、PCBレンダリングの画像重ね合わせ、部品ネット単位の高度な解析、Board outlineの幾何差分はMVPでは扱わない。
+
+### 7.5 差分用メタデータ
+
+Actionは、既存artifactに加えて、差分レビューに使う正規化メタデータをbundleへ含める。
+SaaS側ではKiCadを実行しないため、KiCad由来の比較材料はすべてAction側で生成する。
+
+想定レイアウト:
+
+```text
+diff/
+  file_hashes.json
+  bom_summary.json
+  checks_summary.json
+  artifacts_summary.json
+  previews.json
+```
+
+`file_hashes.json` は `board_project_snapshots.file_hashes_json` の保存元として使う。
+`bom_summary.json` は行単位比較ができるよう、BOM CSVを正規化した配列またはmapを持つ。
+`previews.json` は比較に使える `pcb_top_svg`、`pcb_bottom_svg`、`schematic_pdf`、将来のPNG previewなどのartifact typeとpathを列挙する。
+
+manifestでは、差分メタデータをartifactとは別の `diff_metadata` として表現する。
+差分メタデータはprivate artifactとして直接表示せず、import workerが検証してDBへ保存する。
+
+例:
+
+```json
+{
+  "diff_metadata": {
+    "file_hashes": {
+      "path": "diff/file_hashes.json",
+      "sha256": "sha256:...",
+      "size_bytes": 12345
+    },
+    "bom_summary": {
+      "path": "diff/bom_summary.json",
+      "sha256": "sha256:...",
+      "size_bytes": 23456
+    },
+    "previews": {
+      "path": "diff/previews.json",
+      "sha256": "sha256:...",
+      "size_bytes": 3456
+    }
+  }
+}
+```
+
+### 7.6 import workerでの差分作成
+
+artifact import workerは、manifest、artifact、checks、snapshotの保存後、BoardRun完了処理の一部として差分サマリを作成する。
+
+処理順:
+
+```text
+1. head_runのdiff_metadataを検証して保存する
+2. 同一BoardProjectのbase_runを探す
+3. base_runがない場合は board_run_diffs.status = no_baseline
+4. base_runまたはhead_runの比較材料が不足している場合は unavailable
+5. 比較できる場合は summary_json を作成し ready
+6. 差分ページURLをDashboardコメントまたはRun Resultコメントのpayloadへ含める
+```
+
+`latest_completed_run_id` を更新する前にbase_runを決定し、現在run自身を比較元にしない。
+
+---
+
+## 8. 成果物生成仕様
+
+### 8.1 使用ツール
 
 MVPでは以下を使用する。
 
@@ -471,7 +602,7 @@ MVPでは以下を使用する。
 - Python製の補助CLI
 ```
 
-### 7.2 生成する成果物
+### 8.2 生成する成果物
 
 MVPの `outputs.preset: default` で期待する成果物は以下。
 Fabrication ZIPまでMVP対象に含めるが、個別artifactを生成できない場合は欠損として記録し、最低条件を満たす限りBoardRun自体は失敗扱いにしない。
@@ -496,9 +627,16 @@ fabrication/
 checks/
   erc.json または erc.rpt
   drc.json または drc.rpt
+
+diff/
+  file_hashes.json
+  bom_summary.json
+  checks_summary.json
+  artifacts_summary.json
+  previews.json
 ```
 
-### 7.3 成果物種別
+### 8.3 成果物種別
 
 SaaSでは、Artifactに以下のようなtypeを持たせる。
 
@@ -520,8 +658,10 @@ manifest
 
 `manifest` はDB上のArtifact typeとして扱うが、zip bundle内ではrootの `manifest.json` を正本とする。
 `metadata/manifest.json` はMVPでは使わない。
+`diff/` 配下のファイルは差分レビュー用メタデータであり、通常のArtifact typeとしてダウンロード導線を出さない。
+backendが検証・解析してsnapshotやdiff summaryとしてDBへ保存する。
 
-### 7.4 Artifact状態
+### 8.4 Artifact状態
 
 SaaSは、実体があるartifactだけでなく、default outputsで期待されるartifactごとの状態も保存する。
 
@@ -546,7 +686,7 @@ BoardRunの `completed` は artifact import が成立したことを表す。
 DRC/ERCの結果がfailedでも、結果を保存できる場合はBoardRun自体は `completed` とする。
 ERC/DRCがプロジェクト構成上実行不能、対象外、または将来の設定で無効化されている場合は、`run_checks.status = skipped` として保存する。
 
-### 7.5 manifest例
+### 8.5 manifest例
 
 ```json
 {
@@ -572,6 +712,33 @@ ERC/DRCがプロジェクト構成上実行不能、対象外、または将来�
   },
   "hash": {
     "tree_hash": "sha256:..."
+  },
+  "diff_metadata": {
+    "file_hashes": {
+      "path": "diff/file_hashes.json",
+      "sha256": "sha256:...",
+      "size_bytes": 12345
+    },
+    "bom_summary": {
+      "path": "diff/bom_summary.json",
+      "sha256": "sha256:...",
+      "size_bytes": 23456
+    },
+    "checks_summary": {
+      "path": "diff/checks_summary.json",
+      "sha256": "sha256:...",
+      "size_bytes": 3456
+    },
+    "artifacts_summary": {
+      "path": "diff/artifacts_summary.json",
+      "sha256": "sha256:...",
+      "size_bytes": 4567
+    },
+    "previews": {
+      "path": "diff/previews.json",
+      "sha256": "sha256:...",
+      "size_bytes": 5678
+    }
   },
   "checks": {
     "erc": {
@@ -625,7 +792,7 @@ ERC/DRCがプロジェクト構成上実行不能、対象外、または将来�
 }
 ```
 
-### 7.6 zip bundle仕様
+### 8.6 zip bundle仕様
 
 Actionは、生成した成果物群を単一の zip bundle として送信する。
 
@@ -638,6 +805,7 @@ bundle.zip
   assembly/
   fabrication/
   checks/
+  diff/
 ```
 
 backend は zip bundle を展開前に検証し、少なくとも以下を満たすものだけを受理する。
@@ -652,13 +820,14 @@ backend は zip bundle を展開前に検証し、少なくとも以下を満た
 - `available` なartifactには path / content_type / sha256 / size_bytes がある
 - `available` なartifactの sha256 と size_bytes が zip entry と一致する
 - bundle / entry ごとの上限サイズを超えない
+- diff_metadataに記載された補助ファイルは path / sha256 / size_bytes が zip entry と一致する
 ```
 
 ---
 
-## 8. SaaS API仕様
+## 9. SaaS API仕様
 
-### 8.1 Plan API
+### 9.1 Plan API
 
 Actionが、検出したBoardProject候補とハッシュ情報をSaaSへ送信し、build対象を問い合わせる。
 
@@ -686,7 +855,7 @@ token はDBにhashのみ保存し、成功した認証時のみ `last_used_at` �
 revoke済みtokenは Plan API、BoardRun作成API、Artifact Bundle Import API、失敗APIのすべてで認可エラーにする。
 GitHub App installation が解除済み、権限不足、またはrepository不一致の場合、Plan APIはbuild/skip decisionではなく認可エラーを返す。
 
-### 8.2 BoardRun作成API
+### 9.2 BoardRun作成API
 
 build対象になったBoardProjectについて、KiCad実行前にBoardRunを作成する。
 BoardRunは「成果物生成を試みた記録」であり、DRC/ERCの成功失敗とは別に管理する。
@@ -738,7 +907,7 @@ Actionはterminal状態の既存BoardRunを受け取った場合、追加のbuil
 BoardRun作成から12時間以内に `completed` または `failed` へ到達しない場合、workerが `timed_out` に遷移させる。
 GitHub Actionsのcancel、runner停止、Actionプロセス異常終了などでfail APIを呼べなかった場合も、MVPでは原因を細分化せず `timed_out` に集約する。
 
-### 8.3 Artifact Bundle Import API
+### 9.3 Artifact Bundle Import API
 
 staging bucket に置いた zip を backend に読ませる経路。
 
@@ -777,7 +946,7 @@ POST /api/v1/board-runs/{board_run_id}/artifact-bundles/import
 }
 ```
 
-### 8.4 BoardRun完了処理
+### 9.4 BoardRun完了処理
 
 MVPでは `complete` API を提供しない。
 zip の検証、artifact登録、checks保存、snapshot保存、BoardRun完了処理は artifact import worker が行う。
@@ -788,6 +957,8 @@ zip の検証、artifact登録、checks保存、snapshot保存、BoardRun完了�
 - rootのmanifest.jsonを検証して保存する
 - ERC / DRC のcheck結果、または skipped 状態を保存する
 - 期待artifactごとに available / missing / failed / skipped を保存する
+- 差分レビュー用メタデータを保存する
+- 直近completed runとの差分サマリを作成し、board_run_diffsへ保存する
 - BoardRunをcompletedにする
 - BoardProject.latest_tree_hashを更新する
 - BoardProject.latest_completed_run_idを更新する
@@ -802,7 +973,7 @@ import成功済みのstaging bundleは24時間以内に削除対象とする。
 failedまたはtimed_outになったrunのstaging bundleは7日後に削除対象とする。
 final bucketに保存されたartifactはMVPでは無期限保存とする。
 
-### 8.5 失敗API
+### 9.5 失敗API
 
 ビルド、zip作成、アップロード、import要求前の失敗時に呼び出す。
 
@@ -822,9 +993,9 @@ POST /api/v1/board-runs/{board_run_id}/fail
 
 ---
 
-## 9. SaaSデータモデル案
+## 10. SaaSデータモデル案
 
-### 9.1 repositories
+### 10.1 repositories
 
 ```text
 repositories
@@ -837,7 +1008,7 @@ repositories
 - updated_at
 ```
 
-### 9.2 board_projects
+### 10.2 board_projects
 
 ```text
 board_projects
@@ -863,7 +1034,7 @@ board_projects
 Web UIの通常一覧には、初回completed前のBoardProjectも状態付きで表示する。
 Plan APIで作成されたが成果物未完成のBoardProjectも、ユーザーがWeb UIから原因を追えるようにする。
 
-### 9.3 board_runs
+### 10.3 board_runs
 
 ```text
 board_runs
@@ -883,6 +1054,7 @@ board_runs
 - drc_errors
 - drc_warnings
 - review_status
+- diff_status
 - expires_at
 - timed_out_at
 - created_at
@@ -909,7 +1081,7 @@ DRC/ERCがfailedでも、manifestとチェック結果または skipped 状態�
 GitHub Actionsのcancel、runner停止、fail API未送信の異常終了もMVPでは `timed_out` に集約する。
 `board_project_id + github_run_id + github_run_attempt` にunique制約を置き、同一attemptの再送は既存BoardRunを返す。
 
-### 9.4 artifacts
+### 10.4 artifacts
 
 ```text
 artifacts
@@ -940,7 +1112,7 @@ skipped
 `available` のartifactのみ `storage_key`、`sha256`、`size_bytes` を必須とする。
 `missing`、`failed`、`skipped` のartifactは実体ファイルを持たないが、期待artifactごとの欠損状態をWeb UIとJob Summaryに表示するためDBに行を作る。
 
-### 9.5 artifact_bundles
+### 10.5 artifact_bundles
 
 zip intake 自体の追跡用テーブル。
 
@@ -964,7 +1136,7 @@ import成功済みのstaging bundleは24時間以内に削除対象とする。
 failedまたはtimed_outになったrunのstaging bundleは7日後に削除対象とする。
 final bucketのartifactはMVPでは無期限保存とする。
 
-### 9.6 run_checks
+### 10.6 run_checks
 
 DRC / ERC の集計情報。
 
@@ -995,7 +1167,7 @@ skipped
 `skipped` は、ERC/DRCがプロジェクト構成上実行不能、対象外、または設定で無効化された場合に使う。
 `skipped` の場合、`error_count`、`warning_count`、`notice_count` は0として扱い、`raw_summary_json` に理由を保存する。
 
-### 9.7 run_check_findings
+### 10.7 run_check_findings
 
 レビュー UI で直接使う明細。
 
@@ -1028,9 +1200,9 @@ run_check_findings
 - parser が取りこぼしたくない項目は raw JSON も併せて保持する
 ```
 
-### 9.8 board_project_snapshots
+### 10.8 board_project_snapshots
 
-将来的な差分表示用に、ファイルハッシュ一覧を保存する。
+pushごとのBoardRun差分レビューと将来の差分表示用に、ファイルハッシュ一覧を保存する。
 
 ```text
 board_project_snapshots
@@ -1043,9 +1215,47 @@ board_project_snapshots
 - created_at
 ```
 
-MVPでは `latest_tree_hash` のみでもよいが、拡張性を考えると保存しておく価値がある。
+MVPでも、BoardRun差分レビューのファイル差分サマリを作るため保存する。
 
-### 9.9 boardflow_api_tokens
+### 10.9 board_run_diff_metadata
+
+Actionが生成した差分レビュー用メタデータを保存する。
+
+```text
+board_run_diff_metadata
+- id
+- board_run_id
+- file_hashes_json
+- bom_summary_json
+- checks_summary_json
+- artifacts_summary_json
+- previews_json
+- created_at
+```
+
+このテーブルはActionから受け取った正規化済みデータの保存先であり、ユーザー向けの差分結果そのものは `board_run_diffs` に保存する。
+
+### 10.10 board_run_diffs
+
+BoardRun間の軽量差分サマリを保存する。
+
+```text
+board_run_diffs
+- id
+- board_run_id
+- base_board_run_id
+- status              # ready | no_baseline | unavailable | failed
+- summary_json
+- error_message
+- created_at
+```
+
+`board_run_id` にはunique制約を置き、1つのBoardRunに対する標準差分サマリは1件とする。
+`base_board_run_id` は `no_baseline` の場合nullにできる。
+`summary_json` には、ファイル差分、BOM差分、ERC/DRC集計差分、artifact状態差分、preview導線を保存する。
+差分作成失敗はBoardRun import全体を失敗させず、`status = failed` として残す。
+
+### 10.11 boardflow_api_tokens
 
 ActionからSaaS APIを呼び出すためのrepository単位token。
 tokenの平文は作成時のみ表示し、DBにはhashのみ保存する。
@@ -1066,7 +1276,7 @@ revoke済みtokenは認可に使えない。
 `last_used_at` は認証に成功したAPI呼び出しでのみ更新する。
 複数tokenの高度な管理UI、ローテーション専用UX、自動失効ポリシーはMVPでは扱わない。
 
-### 9.10 github_jobs
+### 10.12 github_jobs
 
 GitHub API操作を非同期化するためのキュー。
 
@@ -1098,7 +1308,7 @@ update_dashboard_comment
 create_run_result_comment
 ```
 
-### 9.11 board_project_issue_history
+### 10.13 board_project_issue_history
 
 BoardProjectに紐づいていた過去Issueを履歴として保持する。
 active Issueは `board_projects` の `issue_number` / `issue_node_id` / `issue_url` が指す。
@@ -1117,15 +1327,15 @@ board_project_issue_history
 
 ---
 
-## 10. GitHub App連携仕様
+## 11. GitHub App連携仕様
 
-### 10.1 GitHub Appの役割
+### 11.1 GitHub Appの役割
 
 GitHub Issueの作成、コメント作成、コメント編集はSaaS側のGitHub Appが行う。
 
 Actions側にはGitHub Issue書き込み権限を持たせない。
 
-### 10.2 必要権限
+### 11.2 必要権限
 
 MVPで必要なRepository permissionsは以下。
 
@@ -1136,8 +1346,10 @@ Issues: Read & Write
 ```
 
 `Contents: Read` は必須ではない可能性もあるが、リポジトリ情報の確認や将来拡張を考慮してMVPでは付与してよい。
+PRへの自動コメントやPull Request Review Comment投稿を将来対応する場合は、GitHub Appに `Pull requests: Read & Write` 権限を追加する。
+MVPではPRコメント連携を行わないため、この権限は要求しない。
 
-### 10.3 Issue自動作成
+### 11.3 Issue自動作成
 
 BoardProjectに対応するIssueが存在しない場合でも、Plan API時点ではIssue作成ジョブをenqueueしない。
 初回 `BoardRun.status = completed` になった後、SaaSはIssue作成ジョブをenqueueする。
@@ -1148,7 +1360,7 @@ Issue作成はキューで処理し、レートリミットや大量基板登録
 Issueは基板の設計、発注、実装、検査の管理単位として使う。
 発注などで基板が固まったタイミングでIssueがcloseされる運用を想定するため、close済みIssueを自動でreopenしない。
 
-### 10.4 Issueタイトル
+### 11.4 Issueタイトル
 
 基本形式:
 
@@ -1174,7 +1386,7 @@ hardware/motor_driver/motor_driver.kicad_pro
 
 同名の衝突が懸念される場合、本文に正規の `project_path` を記録するため、MVPではタイトル重複は許容する。
 
-### 10.5 Issue本文
+### 11.5 Issue本文
 
 ```markdown
 <!-- boardflow:repository_id=123456789 -->
@@ -1193,9 +1405,13 @@ This issue tracks design, fabrication, assembly, and verification for this board
 Latest board page:
 
 https://boardflow.example.com/repositories/123456789/boards/bp_abc123
+
+Latest diff page:
+
+https://boardflow.example.com/repositories/123456789/boards/bp_abc123/runs/br_abc123/diff
 ```
 
-### 10.6 Issue作成の冪等性
+### 11.6 Issue作成の冪等性
 
 `board_projects` に以下のunique制約を置く。
 
@@ -1215,7 +1431,7 @@ failed
 
 Issue作成ジョブの重複を避けるため、同一BoardProjectに対する `create_issue` ジョブは同時に複数作らない。
 
-### 10.7 Issueライフサイクル
+### 11.7 Issueライフサイクル
 
 Issueのタイトルや本文がユーザーにより編集された場合、BoardFlowは原則として上書きしない。
 Issueは `issue_node_id` / `issue_number` で追跡する。
@@ -1230,7 +1446,7 @@ Issueが削除済みまたは404相当の場合は、GitHub API更新ジョブ�
 
 ---
 
-## 11. Issueコメント仕様
+## 12. Issueコメント仕様
 
 Issueコメントは2種類に分ける。
 
@@ -1238,15 +1454,17 @@ Issueコメントは2種類に分ける。
 A. Dashboardコメント
   - SaaSのBoardProjectページへのリンク
   - 最新Runページへのリンク
+  - 最新差分ページへのリンク
   - 最新ステータス
   - 既存コメントを編集する
 
 B. Run Resultコメント
   - DRC/ERCなどCI要素の強い情報
+  - 必要に応じて差分サマリ
   - 重要なrunごとに追記する
 ```
 
-### 11.1 Dashboardコメント
+### 12.1 Dashboardコメント
 
 DashboardコメントはBoardProjectごとに1つだけ作成し、以後は編集更新する。
 private artifact はGitHub Issueへ直接表示しない。
@@ -1265,6 +1483,7 @@ Latest run: `abc1234` on `board/motor-driver-v2`
 | Item | Link |
 |---|---|
 | Board page | https://boardflow.example.com/... |
+| Latest diff | https://boardflow.example.com/... |
 | Schematic PDF | https://boardflow.example.com/... |
 | PCB Preview | https://boardflow.example.com/... |
 | Interactive BOM | https://boardflow.example.com/... |
@@ -1278,6 +1497,10 @@ Latest run: `abc1234` on `board/motor-driver-v2`
 | ERC | ✅ 0 errors, 2 warnings |
 | DRC | ❌ 1 error, 4 warnings |
 
+### Latest diff
+
+2 files changed, 3 BOM rows changed, DRC errors +1.
+
 Last updated by BoardFlow.
 ```
 
@@ -1285,7 +1508,7 @@ Last updated by BoardFlow.
 コメントが手動削除された場合は、GitHub API更新ジョブ実行時に検出する。
 active IssueがopenでIssue連携が有効な場合はDashboardコメントを再作成し、`dashboard_comment_id` を更新する。
 
-### 11.2 Run Resultコメント
+### 12.2 Run Resultコメント
 
 DRC/ERCなど、CIとしての履歴を残したい情報はrunごとに追記する。
 
@@ -1300,6 +1523,7 @@ DRC/ERCなど、CIとしての履歴を残したい情報はrunごとに追記�
 Commit: `abc1234`  
 Branch: `board/motor-driver-v2`  
 Run: https://boardflow.example.com/...
+Diff: https://boardflow.example.com/...
 
 | Check | Result |
 |---|---|
@@ -1310,9 +1534,15 @@ Run: https://boardflow.example.com/...
 
 - Clearance violation near U3 pin 12
 - Track too close to board edge near J1
+
+### Diff summary
+
+- Files changed: 2
+- BOM rows changed: 3
+- Artifact status changed: fabrication_zip failed
 ```
 
-### 11.3 Run Resultコメントの追記条件
+### 12.3 Run Resultコメントの追記条件
 
 MVPでは、以下の場合に追記する。
 
@@ -1320,6 +1550,7 @@ MVPでは、以下の場合に追記する。
 - 新しいDRC/ERC errorが発生した
 - 前回成功 → 今回失敗
 - 前回失敗 → 今回成功
+- 差分サマリにレビュー上重要な変化がある
 - 手動実行で明示的に記録対象になったrun
 ```
 
@@ -1343,9 +1574,9 @@ comments:
 
 ---
 
-## 12. GitHub APIキューとレートリミット対応
+## 13. GitHub APIキューとレートリミット対応
 
-### 12.1 GitHub API操作はすべてジョブ化する
+### 13.1 GitHub API操作はすべてジョブ化する
 
 SaaS側では、GitHub Issue作成・コメント作成・コメント更新を直接同期的に行わず、キューに積む。
 
@@ -1353,6 +1584,7 @@ SaaS側では、GitHub Issue作成・コメント作成・コメント更新を�
 BoardRun completed
   -> Issue状態確認
   -> 初回completed runでIssue未作成ならcreate issue job
+  -> 差分ページURLを含めたpayload作成
   -> updateまたはcreate dashboard comment job
   -> create run result comment job if needed
 ```
@@ -1362,6 +1594,7 @@ Issueがまだない場合:
 ```text
 BoardRun completed
   -> create issue job
+  -> 差分ページURLを含めたpayload作成
   -> create dashboard comment job
   -> create run result comment job if needed
 ```
@@ -1370,7 +1603,7 @@ GitHub APIジョブは、実行時にactive IssueとDashboardコメントの現�
 Issueがclosedの場合は `recreate_issue_on_update` と `tree_hash` 変更有無に基づき、新Issue作成またはIssue更新停止を選ぶ。
 Issueやコメントが404相当の場合は、未作成または削除済みとして扱い、必要に応じて再作成する。
 
-### 12.2 並列数制御
+### 13.2 並列数制御
 
 以下の単位で並列数を制限する。
 
@@ -1382,7 +1615,7 @@ Issueやコメントが404相当の場合は、未作成または削除済みと
 
 特に、Issue作成やコメント作成は通知が発生するため低速にする。
 
-### 12.3 Dashboardコメント更新のdebounce
+### 13.3 Dashboardコメント更新のdebounce
 
 同じBoardProjectに対して短時間に複数runが完了した場合、Dashboardコメント更新ジョブは最新状態にまとめる。
 
@@ -1391,7 +1624,7 @@ Issueやコメントが404相当の場合は、未作成または削除済みと
   payloadを最新runに置き換える
 ```
 
-### 12.4 レートリミット時の挙動
+### 13.4 レートリミット時の挙動
 
 GitHub APIのレスポンスヘッダーを確認し、以下を行う。
 
@@ -1411,9 +1644,9 @@ retry-after がある:
 
 ---
 
-## 13. Web UI仕様
+## 14. Web UI仕様
 
-### 13.1 Repositoryページ
+### 14.1 Repositoryページ
 
 リポジトリ内のBoardProject一覧を表示する。
 通常一覧には初回completed前のBoardProjectも表示する。
@@ -1443,7 +1676,7 @@ completed   # latest_completed_run_id がある
 - Issueリンク
 ```
 
-### 13.2 BoardProjectページ
+### 14.2 BoardProjectページ
 
 1つの基板に対応するページ。
 
@@ -1457,11 +1690,12 @@ iBOM
 BOM
 Fabrication
 Checks
+Diff
 Runs
 History
 ```
 
-### 13.3 Overview
+### 14.3 Overview
 
 表示内容:
 
@@ -1473,9 +1707,10 @@ History
 - ERC/DRC概要
 - GitHub Issueリンク
 - 最新成果物リンク
+- 最新差分ページリンク
 ```
 
-### 13.4 PCB Preview
+### 14.4 PCB Preview
 
 表示内容:
 
@@ -1485,7 +1720,7 @@ History
 - PDFリンク
 ```
 
-### 13.5 iBOM
+### 14.5 iBOM
 
 表示内容:
 
@@ -1494,7 +1729,7 @@ History
 - iframe表示可否はセキュリティ設定次第
 ```
 
-### 13.6 Fabrication
+### 14.6 Fabrication
 
 表示内容:
 
@@ -1509,7 +1744,7 @@ artifact状態は `available`、`missing`、`failed`、`skipped` を表示する
 `available` の場合のみダウンロードまたはプレビューへの導線を出す。
 `missing`、`failed`、`skipped` の場合は理由を表示する。
 
-### 13.7 Checks
+### 14.7 Checks
 
 表示内容:
 
@@ -1521,7 +1756,29 @@ artifact状態は `available`、`missing`、`failed`、`skipped` を表示する
 - レポートファイル
 ```
 
-### 13.8 Runs
+### 14.8 Diff
+
+直近completed runとの軽量差分サマリを表示する。
+
+表示内容:
+
+```text
+- 比較元run / 比較先run
+- diff status
+- 共有可能な差分ページURL
+- ファイルのadded / removed / changed件数と主要ファイル一覧
+- BOMのadded / removed / changed件数と主要変更一覧
+- ERC / DRC statusと件数の増減
+- artifact状態変化
+- 前回/今回のPCB Preview、Schematic、BOMへの導線
+```
+
+`no_baseline` の場合は「初回completed runのため比較元がない」ことを表示する。
+`unavailable` の場合は、比較元または現在runの必要artifactやdiff metadataが不足していることを表示する。
+`failed` の場合でも、Run詳細やartifact閲覧は継続して利用できるようにする。
+PR用途では、この画面のURLをPR本文やコメントに貼れることを前提にする。
+
+### 14.9 Runs
 
 過去のBoardRun一覧を表示する。
 
@@ -1541,7 +1798,7 @@ Run詳細やartifact一覧では、期待artifactごとに `available`、`missin
 
 ---
 
-## 14. GitHub Actions Job Summary
+## 15. GitHub Actions Job Summary
 
 Actionは、GitHub ActionsのJob Summaryに結果を出力する。
 
@@ -1575,12 +1832,17 @@ Actionは、GitHub ActionsのJob Summaryに結果を出力する。
 
 - `hardware/motor_driver/motor_driver.kicad_pro` — fabrication_zip failed
 
+## Diff
+
+- `hardware/motor_driver/motor_driver.kicad_pro` — 2 files changed, 3 BOM rows changed
+- Diff page: https://boardflow.example.com/...
+
 ## Detection errors
 
 - `hardware/broken_board/.boardflow.yml` — no .kicad_pro in same directory
 ```
 
-SaaSへのアップロードURLやBoardProjectページも表示する。
+SaaSへのアップロードURL、BoardProjectページ、差分ページも表示する。
 複数BoardProjectのうち一部のみ失敗した場合も、成功、skip、build/upload/import失敗、check失敗、artifact欠損、検出エラーを分けて表示する。
 `pull_request` event の場合は、KiCad実行やSaaS API呼び出しを行わず、unsupported として表示したうえで job は成功扱いにする。
 共通ライブラリ、外部フットプリント、外部3Dモデルなどを変更した場合は、MVPでは自動検知できない可能性があるため、`workflow_dispatch` で `mode: all` を指定する案内を表示してよい。
@@ -1590,9 +1852,9 @@ DRC/ERCのfailedをjob失敗にするかは `fail-on-drc` / `fail-on-erc` に従
 
 ---
 
-## 15. MVPでやること・やらないこと
+## 16. MVPでやること・やらないこと
 
-### 15.1 やること
+### 16.1 やること
 
 ```text
 - Docker Action提供
@@ -1606,6 +1868,9 @@ DRC/ERCのfailedをjob失敗にするかは `fail-on-drc` / `fail-on-erc` に従
 - ファイルハッシュ / tree_hash計算
 - SaaS plan APIによる差分判定
 - 変更がある基板のみbuild
+- pushごとのBoardRun差分レビュー用メタデータ生成
+- pushごとのBoardRun差分サマリ保存
+- Web UIでの軽量差分ページ表示
 - kicad-cliによる成果物生成
 - iBOM生成
 - 成果物アップロード
@@ -1617,11 +1882,12 @@ DRC/ERCのfailedをjob失敗にするかは `fail-on-drc` / `fail-on-erc` に従
 - close済みIssueに対する設定ON時の新Issue作成
 - Dashboardコメントの作成・編集
 - DRC/ERC結果コメントの条件付き追記
+- DashboardコメントまたはRun Resultコメントへの差分ページURL掲載
 - GitHub API操作のキュー処理
 - BoardFlow API tokenの最小ライフサイクル管理
 ```
 
-### 15.2 やらないこと
+### 16.2 やらないこと
 
 ```text
 - グローバル設定ファイル
@@ -1632,23 +1898,30 @@ DRC/ERCのfailedをjob失敗にするかは `fail-on-drc` / `fail-on-erc` に従
 - include_paths / 共通依存の自動解析
 - SaaS側でのKiCad実行
 - 高度なKiCad差分ビューア
+- KiCad semantic diff
+- 画像重ね合わせやピクセル差分を必須とするPCB差分ビュー
 - 部品調達API連携
 - BoardProjectの手動統合
 - PR中心のレビュー機能
 - pull_request / fork PR 対応
 - PR artifact review / PRコメント連携
+- GitHub Pull Request Review Commentへの行単位投稿
 - GitHub Issue上でのprivate artifact直接表示
 - final artifact保存期限のプラン別制御
 - 複数tokenの高度な管理UIや自動ローテーション
 ```
 
-### 15.3 MVP受け入れシナリオ
+### 16.3 MVP受け入れシナリオ
 
 ```text
 - pull_request eventではActionがKiCad実行もAPI呼び出しもせず、job成功でunsupported summaryを出す
 - Plan APIで新規BoardProjectが作られた時点でWeb UI通常一覧に detected として表示されるが、初回completed run前はIssueを作らない
 - .boardflow.yml に未知フィールドがあるBoardProjectは検出エラーになり、他の正常BoardProjectは処理されるがjob全体は失敗する
 - 初回artifact import completed後にIssue作成ジョブとDashboardコメントジョブがenqueueされる
+- 初回completed runでは board_run_diffs.status=no_baseline になり、Web UIで比較元がないことを表示する
+- 連続pushでBOM、PCB、DRC/ERC、artifact有無が変わった場合、board_run_diffs.summary_json に軽量差分サマリが保存される
+- 前回runが failed / timed_out、または比較artifact欠損の場合も、差分statusは no_baseline または unavailable になり、BoardRun import全体は失敗しない
+- DashboardコメントまたはRun Resultコメントに差分ページURLが含まれる
 - ERCが対象外のプロジェクトで run_checks.status=skipped が保存され、manifest import成功ならBoardRunはcompletedになる
 - fabrication ZIP生成失敗時、BoardRunはcompleted、artifact行はfailed、Job Summaryは警告になる
 - DRC failedかつ fail-on-drc=false の場合、BoardRunはcompleted、GitHub Actions jobは成功する
@@ -1662,9 +1935,9 @@ DRC/ERCのfailedをjob失敗にするかは `fail-on-drc` / `fail-on-erc` に従
 
 ---
 
-## 16. 将来拡張
+## 17. 将来拡張
 
-### 16.1 BoardProjectの移行・統合
+### 17.1 BoardProjectの移行・統合
 
 MVPではproject_path変更を別BoardProjectとして扱うが、将来的にはSaaS UI上で以下を提供する。
 
@@ -1674,7 +1947,7 @@ MVPではproject_path変更を別BoardProjectとして扱うが、将来的に�
 - 旧Issueから新Issueへのリンク付与
 ```
 
-### 16.2 共通ライブラリ変更への対応
+### 17.2 共通ライブラリ変更への対応
 
 将来的に `.boardflow.yml` に `include_paths` を追加する。
 
@@ -1685,20 +1958,23 @@ include_paths:
   - "../../3dmodels/**"
 ```
 
-### 16.3 差分レビュー
+### 17.3 差分レビュー
 
-BoardRun間で以下を比較する。
+MVPの軽量差分レビューを超えて、BoardRun間で以下を比較する。
 
 ```text
 - 回路図PDF差分
 - PCBレンダリング差分
-- BOM差分
+- 画像重ね合わせやピクセル差分
+- KiCad semantic diff
 - 部品定数変更
 - フットプリント変更
 - Board outline変更
+- PRへの自動コメント
+- GitHub Pull Request Review Commentへの行単位投稿
 ```
 
-### 16.4 Fab Ready管理
+### 17.4 Fab Ready管理
 
 特定BoardRunを製造固定版として扱う。
 
@@ -1711,7 +1987,7 @@ Fab Ready Revision
 - created_at
 ```
 
-### 16.5 実装・検査管理
+### 17.5 実装・検査管理
 
 IssueやSaaS上で以下を管理する。
 
@@ -1726,7 +2002,7 @@ IssueやSaaS上で以下を管理する。
 
 ---
 
-## 17. コンセプトまとめ
+## 18. コンセプトまとめ
 
 このサービスは、単なるKiCad CIではなく、以下を実現する。
 
