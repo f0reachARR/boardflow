@@ -1,0 +1,124 @@
+# Frontend 技術方針サマリ
+
+BoardFlow の frontend は、GitHub Actions が生成した成果物を人が見て判断しやすくするための UI を担当する。MVP では、装飾よりも一覧性、状態把握、成果物への到達しやすさを優先する。
+
+## 1. 役割
+
+frontend の責務は以下に絞る。
+
+- Repository / BoardProject / BoardRun の一覧・詳細表示
+- 成果物プレビューとダウンロード導線の提供
+- 差分や最新状態を把握しやすい画面構成
+- GitHub 権限に沿った閲覧体験の提供
+
+KiCad 実行、成果物生成、GitHub Issue 更新などの副作用は backend に寄せる。
+
+## 2. 採用スタック
+
+| 領域 | 採用方針 | 理由 |
+|---|---|---|
+| フレームワーク | Next.js App Router + TypeScript | 読み取り中心画面を Server Components で素直に組みやすい |
+| UI | Chakra UI | SaaS 管理画面を短期間で組みやすく、アクセシビリティも確保しやすい |
+| アイコン | lucide-react | 軽量で一覧画面や状態表示に合わせやすい |
+| API 型 | `openapi-typescript` などの生成型 | OpenAPI と UI の齟齬を減らせる |
+| E2E | Playwright | 主要導線の smoke test に向く |
+
+## 3. 画面アーキテクチャ
+
+基本は Server Components を優先し、ブラウザ状態が必要な部分だけ Client Components に切り出す。
+
+### Server Components に寄せる画面
+
+- Repository 一覧
+- Repository 詳細
+- BoardProject 詳細
+- Run 一覧
+- Run 詳細の静的な情報表示
+
+### Client Components に寄せる画面要素
+
+- タブ切り替え
+- フィルタ、ソート、検索
+- iBOM iframe の状態制御
+- 画像比較や成果物切り替え
+- 軽いインタラクションを伴う preview UI
+
+推奨ディレクトリの叩き台:
+
+```text
+app/
+  repositories/[repositoryId]/page.tsx
+  repositories/[repositoryId]/boards/[boardProjectId]/page.tsx
+  repositories/[repositoryId]/boards/[boardProjectId]/runs/page.tsx
+  repositories/[repositoryId]/boards/[boardProjectId]/runs/[boardRunId]/page.tsx
+components/
+lib/api/
+```
+
+## 4. UI の重点
+
+BoardFlow は制作物そのものより、制作物の状態変化を追う画面が重要になる。そのため UI では以下を重視する。
+
+- 今どの BoardProject が正常か失敗中かをすぐ把握できること
+- 最新 Run と過去 Run の差が追いやすいこと
+- PDF / SVG / iBOM / ZIP へ迷わず到達できること
+- GitHub Issue と BoardProject の関係が自然に理解できること
+
+一覧画面では、カードよりも表形式やセクション分割の方が相性がよい可能性が高い。特に MVP では、視覚的な派手さよりも運用時の読みやすさを優先する。
+
+## 5. 認証と権限
+
+ログインは GitHub OAuth を前提にする。frontend で扱うべき主な要件は以下。
+
+- GitHub ログイン済みユーザーだけが画面に入れる
+- GitHub App installation と repository 権限に基づいて閲覧可否を切り替える
+- 閲覧権限のない repository や artifact には到達できないようにする
+
+認可判定の最終責務は backend に置き、frontend はその結果を自然に表示する。
+
+## 6. Artifact 表示方針
+
+Artifact は private 前提で、S3 互換ストレージから直接 public 配信しない。
+
+frontend で意識する点:
+
+- ダウンロード URL は短命である前提で扱う
+- iBOM HTML は通常の app domain とは分離された artifact domain 上で表示する
+- iframe 利用時はレイアウト崩れやクロスドメイン制約を前提に設計する
+- 画像や PDF の preview は「すぐ見られること」を優先し、重い比較 UI は後回しにしてよい
+
+## 7. API 連携
+
+frontend は backend の OpenAPI 契約に追従する。
+
+最低限必要な read API の例:
+
+- repository 一覧取得
+- repository 詳細取得
+- BoardProject 詳細取得
+- BoardRun 一覧取得
+- BoardRun 詳細取得
+- Artifact 一覧取得
+- Artifact 表示用の短命 URL 取得
+
+OpenAPI から TypeScript 型を生成して、画面側の props と API response をなるべく一致させる。
+
+## 8. テスト方針
+
+MVP の frontend test は次を基準にする。
+
+- 主要コンポーネントの component test
+- Playwright による主要導線の smoke test
+- 権限なし時のガード確認
+- Run 一覧から成果物表示までの代表導線確認
+
+重いビジュアル回帰テストは後回しでよいが、artifact preview 周りは早めに一度自動化したい。
+
+## 9. 今後の深掘り候補
+
+- Repository / BoardProject / Run の URL 設計
+- 一覧画面の情報密度とフィルタ UX
+- 差分表示の MVP 範囲
+- iBOM / PDF / SVG を同じ画面でどう並べるか
+- サーバーサイドでの認証セッション管理方法
+- OpenAPI generated types の導入手順
