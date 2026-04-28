@@ -75,6 +75,10 @@ jobs:
 
 Issue作成やコメント更新はSaaS側のGitHub Appが行うため、基本的にActions側へ `GITHUB_TOKEN` を渡さない。
 
+MVPでは `push` と `workflow_dispatch` のみを正式対象とする。
+`pull_request` や fork からの pull request は、secret や権限境界が複雑になるため対象外とする。
+Action が `pull_request` event で実行された場合は、unsupported event として早期終了または明示的に失敗させる。
+
 ---
 
 ## 3. 対象KiCadプロジェクトの検出
@@ -110,11 +114,13 @@ Docker Actionは、リポジトリ内の `.boardci.yml` を探索する。
 1. リポジトリ内の .boardci.yml を探索する
 2. .boardci.yml の同じ階層に .kicad_pro があるか確認する
 3. 同階層に .kicad_pro が1つだけ存在する場合、そのディレクトリをBoardProject候補とする
-4. .kicad_pro が0個の場合はエラーまたはスキップする
+4. .kicad_pro が0個の場合は検出エラーとしてJob Summaryに出す
 5. .kicad_pro が複数ある場合はエラーとする
 ```
 
 MVPでは、`.boardci.yml` が存在するKiCadプロジェクトのみを対象とする。
+`.boardci.yml` が存在してもBoardProject候補にできないものはSaaSへ送らず、BoardProjectも作成しない。
+複数BoardProjectのうち一部に検出エラーがあっても、処理可能なBoardProjectは継続する。
 
 ### 3.3 BoardProjectの識別
 
@@ -224,15 +230,21 @@ Docker Actionは以下を行う。
 3. exclude-paths の適用
 4. 各BoardProject候補のファイルハッシュ計算
 5. SaaSのplan APIへの問い合わせ
-6. build対象のKiCadプロジェクトのみ処理
-7. kicad-cli によるERC/DRC/成果物生成
-8. iBOM生成
-9. 成果物manifest作成
-10. 成果物 zip bundle 作成
-11. staging bucket へのzip upload
-12. import API 呼び出し
-13. GitHub Actions Job Summary出力
+6. build対象ごとのBoardRun作成
+7. build対象のKiCadプロジェクトのみ処理
+8. kicad-cli によるERC/DRC/成果物生成
+9. iBOM生成
+10. 成果物manifest作成
+11. 成果物 zip bundle 作成
+12. staging bucket へのzip upload
+13. import API 呼び出し
+14. 生成失敗、upload失敗、import要求前失敗のfail API通知
+15. GitHub Actions Job Summary出力
 ```
+
+複数BoardProjectのうち一部が失敗しても、処理可能なBoardProjectは継続する。
+ただし、検出不備、成果物生成失敗、upload失敗、import要求失敗が1件でもある場合、GitHub Actions job全体は失敗とする。
+差分判定でskipされたBoardProjectは失敗扱いにしない。
 
 ### 5.2 Action inputs
 
@@ -465,9 +477,6 @@ fabrication/
 checks/
   erc.json または erc.rpt
   drc.json または drc.rpt
-
-metadata/
-  manifest.json
 ```
 
 ### 7.3 成果物種別
@@ -489,6 +498,9 @@ erc_report
 drc_report
 manifest
 ```
+
+`manifest` はDB上のArtifact typeとして扱うが、zip bundle内ではrootの `manifest.json` を正本とする。
+`metadata/manifest.json` はMVPでは使わない。
 
 ### 7.4 manifest例
 
@@ -538,25 +550,29 @@ manifest
       "type": "schematic_pdf",
       "path": "review/schematic.pdf",
       "content_type": "application/pdf",
-      "sha256": "sha256:..."
+      "sha256": "sha256:...",
+      "size_bytes": 123456
     },
     {
       "type": "pcb_top_svg",
       "path": "review/pcb_top.svg",
       "content_type": "image/svg+xml",
-      "sha256": "sha256:..."
+      "sha256": "sha256:...",
+      "size_bytes": 234567
     },
     {
       "type": "ibom",
       "path": "assembly/ibom.html",
       "content_type": "text/html",
-      "sha256": "sha256:..."
+      "sha256": "sha256:...",
+      "size_bytes": 345678
     },
     {
       "type": "fabrication_zip",
       "path": "fabrication/fabrication.zip",
       "content_type": "application/zip",
-      "sha256": "sha256:..."
+      "sha256": "sha256:...",
+      "size_bytes": 456789
     }
   ]
 }
@@ -575,17 +591,17 @@ bundle.zip
   assembly/
   fabrication/
   checks/
-  metadata/
 ```
 
 backend は zip bundle を展開前に検証し、少なくとも以下を満たすものだけを受理する。
 
 ```text
-- manifest.json が存在する
+- rootのmanifest.json が存在する
 - manifest と zip 内 entry の一覧が一致する
 - entry path が相対パスであり、.. や絶対パスを含まない
 - artifact type ごとの許可拡張子 / content type に一致する
-- sha256 と size が manifest と一致する
+- manifest内の各artifactに type / path / content_type / sha256 / size_bytes がある
+- sha256 と size_bytes が zip entry と一致する
 - bundle / entry ごとの上限サイズを超えない
 ```
 
@@ -604,6 +620,8 @@ POST /api/v1/runs/plan
 主な処理:
 
 ```text
+- BoardCI API token の検証
+- token に紐づく installation_id / github_repository_id と request repository の一致確認
 - Repositoryの作成または取得
 - BoardProjectの作成または取得
 - latest_tree_hashとの比較
@@ -611,9 +629,14 @@ POST /api/v1/runs/plan
 - Issue未作成の場合はIssue作成ジョブをenqueue
 ```
 
+BoardCI API token は repository 単位で発行する。
+SaaSは、Actionから送られた `github_repository_id` をそのまま信用せず、tokenに紐づく `installation_id + github_repository_id` と一致するか必ず検証する。
+GitHub App installation が解除済み、権限不足、またはrepository不一致の場合、Plan APIはbuild/skip decisionではなく認可エラーを返す。
+
 ### 8.2 BoardRun作成API
 
-成果物 intake 前に、BoardRunを作成する。
+build対象になったBoardProjectについて、KiCad実行前にBoardRunを作成する。
+BoardRunは「成果物生成を試みた記録」であり、DRC/ERCの成功失敗とは別に管理する。
 
 ```http
 POST /api/v1/board-runs
@@ -630,33 +653,7 @@ POST /api/v1/board-runs
   "branch": "board/motor-driver-v2",
   "ref": "refs/heads/board/motor-driver-v2",
   "github_run_id": "987654321",
-  "github_run_attempt": "1",
-  "checks": {
-    "erc": {
-      "status": "passed",
-      "errors": 0,
-      "warnings": 1
-    },
-    "drc": {
-      "status": "failed",
-      "errors": 2,
-      "warnings": 0
-    }
-  },
-  "artifacts": [
-    {
-      "type": "schematic_pdf",
-      "filename": "schematic.pdf",
-      "content_type": "application/pdf",
-      "sha256": "sha256:..."
-    },
-    {
-      "type": "ibom",
-      "filename": "ibom.html",
-      "content_type": "text/html",
-      "sha256": "sha256:..."
-    }
-  ]
+  "github_run_attempt": "1"
 }
 ```
 
@@ -674,6 +671,11 @@ POST /api/v1/board-runs
   }
 }
 ```
+
+作成直後の `board_runs.status` は `created` とする。
+Actionは、presigned URLを受け取った後にbuild、zip作成、staging upload、import API呼び出しへ進む。
+staging upload 用URLを発行済みで、import API呼び出し前の状態は `uploading` として扱ってよい。
+KiCad実行失敗、zip作成失敗、upload失敗、import要求前の失敗は、作成済みの `board_run_id` に対して失敗APIで記録する。
 
 ### 8.3 Artifact Bundle Import API
 
@@ -698,6 +700,7 @@ POST /api/v1/board-runs/{board_run_id}/artifact-bundles/import
 ```text
 - staging object の存在確認
 - artifact_bundles レコード作成
+- BoardRunをimportingへ更新
 - artifact import job を queue に積む
 - 受理レスポンスを返す
 - 実際の zip 読み出し、検証、解析、final bucket 反映、DB 保存は worker が行う
@@ -715,7 +718,9 @@ POST /api/v1/board-runs/{board_run_id}/artifact-bundles/import
 
 ### 8.4 BoardRun完了API
 
-zip の検証と artifact 登録完了後に completed にする。
+MVPでは通常経路としては使わない。
+zip の検証、artifact登録、checks保存、snapshot保存、BoardRun完了処理は artifact import worker が行う。
+`complete` API は、将来の互換経路または管理用の明示的finalizeが必要な場合に限って残す。
 
 ```http
 POST /api/v1/board-runs/{board_run_id}/complete
@@ -739,17 +744,17 @@ POST /api/v1/board-runs/{board_run_id}/complete
 ```text
 - BoardRunをcompletedにする
 - BoardProject.latest_tree_hashを更新する
-- BoardProject.latest_run_idを更新する
+- BoardProject.latest_completed_run_idを更新する
 - Dashboardコメント更新ジョブをenqueueする
 - 必要ならRun Resultコメント作成ジョブをenqueueする
 ```
 
-MVP では、通常は artifact import worker が import 成功時に `complete` 相当の更新を行う。
-`complete` API は明示的な finalize が必要な場合の互換経路として残してもよい。
+DRC/ERCがfailedでも、artifact importが成功して成果物とチェック結果を保存できた場合は `BoardRun.status = completed` とする。
+DRC/ERCの結果は `run_checks.status` または `board_runs.erc_status` / `board_runs.drc_status` で表す。
 
 ### 8.5 失敗API
 
-ビルドやアップロードに失敗した場合に呼び出す。
+ビルド、zip作成、アップロード、import要求前の失敗時に呼び出す。
 
 ```http
 POST /api/v1/board-runs/{board_run_id}/fail
@@ -796,13 +801,15 @@ board_projects
 - issue_url
 - issue_sync_status
 - dashboard_comment_id
+- recreate_issue_on_update
 - latest_tree_hash
-- latest_successful_run_id
+- latest_completed_run_id
 - created_at
 - updated_at
 ```
 
 `repository_id + project_path` にunique制約を置く。
+`recreate_issue_on_update` はSaaS側のBoardProject設定として持ち、`.boardci.yml` には含めない。
 
 ### 9.3 board_runs
 
@@ -829,6 +836,19 @@ board_runs
 ```
 
 `board_runs` には一覧や絞り込みに必要な集計値を持たせ、UI で使う詳細な review data は別テーブルに正規化して保存する。
+
+`board_runs.status` は成果物生成、upload、importの状態を表す。
+
+```text
+created
+uploading
+importing
+completed
+failed
+```
+
+DRC/ERCの成功失敗はBoardRun自体の成功失敗とは分ける。
+DRC/ERCがfailedでも、成果物とチェック結果のimportが成功した場合は `completed` として扱い、差分判定の基準になる `latest_tree_hash` を更新する。
 
 ### 9.4 artifacts
 
@@ -967,6 +987,23 @@ update_dashboard_comment
 create_run_result_comment
 ```
 
+### 9.10 board_project_issue_history
+
+BoardProjectに紐づいていた過去Issueを履歴として保持する。
+active Issueは `board_projects` の `issue_number` / `issue_node_id` / `issue_url` が指す。
+
+```text
+board_project_issue_history
+- id
+- board_project_id
+- issue_number
+- issue_node_id
+- issue_url
+- reason              # recreated | deleted | manual_archive
+- replaced_by_issue_node_id
+- created_at
+```
+
 ---
 
 ## 10. GitHub App連携仕様
@@ -994,6 +1031,9 @@ Issues: Read & Write
 BoardProjectに対応するIssueが存在しない場合、SaaSはIssue作成ジョブをenqueueする。
 
 Issue作成はキューで処理し、レートリミットや大量基板登録に備える。
+
+Issueは基板の設計、発注、実装、検査の管理単位として使う。
+発注などで基板が固まったタイミングでIssueがcloseされる運用を想定するため、close済みIssueを自動でreopenしない。
 
 ### 10.4 Issueタイトル
 
@@ -1062,6 +1102,19 @@ failed
 
 Issue作成ジョブの重複を避けるため、同一BoardProjectに対する `create_issue` ジョブは同時に複数作らない。
 
+### 10.7 Issueライフサイクル
+
+Issueのタイトルや本文がユーザーにより編集された場合、BoardCIは原則として上書きしない。
+Issueは `issue_node_id` / `issue_number` で追跡する。
+
+BoardProjectにはSaaS側設定として `recreate_issue_on_update` を持つ。
+active Issueがclosedで、`recreate_issue_on_update = true` かつ前回completed runから `tree_hash` が変わった場合、BoardCIは完全に新しいIssueを作成する。
+このとき既存Issueはreopenせず、新Issue作成後に `board_projects.issue_number` / `issue_node_id` / `issue_url` / `dashboard_comment_id` を新Issue側へ更新する。
+旧Issueは履歴として保持する。
+
+active Issueがclosedで `recreate_issue_on_update = false` の場合、SaaS上のBoardProjectとRunは更新するが、Issueコメント更新は行わない。
+Issueが削除済みまたは404相当の場合は、GitHub API更新ジョブ実行時に検出し、Issue未作成相当として扱う。
+
 ---
 
 ## 11. Issueコメント仕様
@@ -1070,10 +1123,8 @@ Issueコメントは2種類に分ける。
 
 ```text
 A. Dashboardコメント
-  - 最新成果物へのリンク
-  - レンダリング済み画像
-  - iBOM
-  - Fabrication ZIP
+  - SaaSのBoardProjectページへのリンク
+  - 最新Runページへのリンク
   - 最新ステータス
   - 既存コメントを編集する
 
@@ -1085,6 +1136,8 @@ B. Run Resultコメント
 ### 11.1 Dashboardコメント
 
 DashboardコメントはBoardProjectごとに1つだけ作成し、以後は編集更新する。
+private artifact はGitHub Issueへ直接表示しない。
+Issueコメントにはartifactの直接リンク、署名付きURL、画像埋め込み、iBOMやFabrication ZIPへの直リンクを載せず、SaaSの認可付きページへのリンクのみを載せる。
 
 例:
 
@@ -1116,7 +1169,8 @@ Last updated by BoardCI.
 ```
 
 `dashboard_comment_id` は `board_projects` に保存する。
-コメントが手動削除された場合は再作成する。
+コメントが手動削除された場合は、GitHub API更新ジョブ実行時に検出する。
+active IssueがopenでIssue連携が有効な場合はDashboardコメントを再作成し、`dashboard_comment_id` を更新する。
 
 ### 11.2 Run Resultコメント
 
@@ -1185,7 +1239,9 @@ SaaS側では、GitHub Issue作成・コメント作成・コメント更新を�
 
 ```text
 BoardRun completed
-  -> update dashboard comment job
+  -> Issue状態確認
+  -> 必要ならcreate issue job
+  -> updateまたはcreate dashboard comment job
   -> create run result comment job if needed
 ```
 
@@ -1197,6 +1253,10 @@ BoardRun completed
   -> create dashboard comment job
   -> create run result comment job if needed
 ```
+
+GitHub APIジョブは、実行時にactive IssueとDashboardコメントの現在状態を確認する。
+Issueがclosedの場合は `recreate_issue_on_update` と `tree_hash` 変更有無に基づき、新Issue作成またはIssue更新停止を選ぶ。
+Issueやコメントが404相当の場合は、未作成または削除済みとして扱い、必要に応じて再作成する。
 
 ### 12.2 並列数制御
 
@@ -1371,9 +1431,16 @@ Actionは、GitHub ActionsのJob Summaryに結果を出力する。
 ## Failed
 
 - `hardware/test_board/test_board.kicad_pro` — DRC failed
+
+## Detection errors
+
+- `hardware/broken_board/.boardci.yml` — no .kicad_pro in same directory
 ```
 
 SaaSへのアップロードURLやBoardProjectページも表示する。
+複数BoardProjectのうち一部のみ失敗した場合も、成功、skip、失敗、検出エラーを分けて表示する。
+検出不備、成果物生成失敗、upload失敗、import要求失敗が1件でもある場合、最終的なGitHub Actions jobは失敗とする。
+DRC/ERCのfailedをjob失敗にするかは `fail-on-drc` / `fail-on-erc` に従う。
 
 ---
 
@@ -1397,6 +1464,7 @@ SaaSへのアップロードURLやBoardProjectページも表示する。
 - 成果物アップロード
 - Webでの成果物表示
 - GitHub AppによるIssue自動作成
+- close済みIssueに対する設定ON時の新Issue作成
 - Dashboardコメントの作成・編集
 - DRC/ERC結果コメントの条件付き追記
 - GitHub API操作のキュー処理
@@ -1415,6 +1483,8 @@ SaaSへのアップロードURLやBoardProjectページも表示する。
 - 部品調達API連携
 - BoardProjectの手動統合
 - PR中心のレビュー機能
+- pull_request / fork PR 対応
+- GitHub Issue上でのprivate artifact直接表示
 ```
 
 ---

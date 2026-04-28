@@ -40,7 +40,7 @@ MVP で重要な API 群:
 - `POST /api/v1/runs/plan`
 - `POST /api/v1/board-runs`
 - `POST /api/v1/board-runs/{board_run_id}/artifact-bundles/import`
-- `POST /api/v1/board-runs/{board_run_id}/complete`
+- `POST /api/v1/board-runs/{board_run_id}/complete`（通常経路ではなく補助API）
 - `POST /api/v1/board-runs/{board_run_id}/fail`
 - Web UI 向け read API
 - Artifact ダウンロード / プレビュー用 API
@@ -86,8 +86,23 @@ MVP で特に重要な識別:
 - BoardProject の同一性は `github_repository_id + project_path`
 - 外部公開用 ID は `bp_...`、`br_...` などの prefix を持たせる
 - 内部主キーは UUID または ULID を採用する
+- BoardCI API token は repository 単位で `installation_id + github_repository_id` に紐づける
 
 `board_project_snapshots.file_hashes_json` のような差分追跡用データは、MVP でも持つ価値が高い。
+`board_projects.latest_successful_run_id` のような名前はDRC/ERC成功と混同しやすいため、artifact import成功を表す `latest_completed_run_id` に寄せる。
+close済みIssueから新Issueへ切り替える場合に備え、過去Issueは `board_project_issue_history` 相当の履歴テーブルに残す。
+
+BoardRun の状態は成果物生成、upload、import の状態を表し、DRC/ERC の成功失敗とは分ける。
+
+```text
+created
+uploading
+importing
+completed
+failed
+```
+
+DRC/ERC が failed でも、artifact import が成功して成果物とチェック結果を保存できた場合、BoardRun は `completed` として扱う。
 
 ## 6. Queue / Worker
 
@@ -114,7 +129,9 @@ artifact import job は、少なくとも以下の段階を持つ。
 - artifact 展開と final bucket への保存
 - DRC / ERC / manifest の解析
 - DB への run summary / review data / snapshot 保存
-- BoardRun の completed または failed への遷移
+- BoardRun の `completed` または `failed` への遷移
+- `latest_tree_hash` と `latest_completed_run_id` の更新
+- Dashboardコメント更新やRun Resultコメント作成ジョブのenqueue
 
 ## 7. Artifact Storage
 
@@ -142,6 +159,9 @@ backend は zip を受け取っただけでは完了扱いにせず、以下を�
 - artifact metadata / run summary / snapshot の DB 保存
 - DRC / ERC のレビュー用明細の DB 保存
 
+zip bundle 内の manifest は root の `manifest.json` を正本にする。
+manifest の各 artifact は `type`、`path`、`content_type`、`sha256`、`size_bytes` を必須とし、zip entry と一致検証する。
+
 private artifact 前提なので、配信時は以下を前提にする。
 
 - artifact 専用 domain / subdomain
@@ -162,9 +182,16 @@ MVP では GitHub 中心の構成にする。
 考慮点:
 
 - token は hash のみ DB 保存
+- token は repository 単位で発行し、plan API と BoardRun API では token に紐づく `installation_id + github_repository_id` と request repository を一致検証する
 - GitHub App webhook は MVP から含める
 - installation 情報同期と権限確認を backend の責務にする
 - Web UI の閲覧可否は GitHub 権限と揃える
+
+GitHub App installation が解除済み、権限不足、または repository 不一致の場合、plan API は build/skip decision ではなく認可エラーを返す。
+
+Issue はユーザーが発注などの区切りで close する運用を許容する。
+BoardProject 設定 `recreate_issue_on_update` が有効で、active Issue が closed かつ `tree_hash` が変わった場合、backend は既存Issueをreopenせず新しいIssueを作成する。
+Issueタイトルや本文のユーザー編集は上書きせず、GitHub APIジョブ実行時にIssue/commentの404や削除を検出して必要な再作成を行う。
 
 ## 9. デプロイ
 
@@ -198,6 +225,7 @@ Docker Action 側は以下を担当する。
 - tree hash / manifest 生成
 - KiCad / iBOM 実行
 - plan API 呼び出し
+- build前の BoardRun 作成
 - zip bundle 作成
 - staging upload
 - import 要求
@@ -232,6 +260,10 @@ MVP の backend test は以下を基準にする。
 - worker idempotency test
 - artifact import worker test
 - DRC / ERC parser test
+- repository-scoped BoardCI token の認可 test
+- DRC/ERC failed でも import 成功時は BoardRun completed になる test
+- close済みIssueと `recreate_issue_on_update` の組み合わせ test
+- Dashboardコメント削除時の再作成 test
 
 Action を含む重い E2E は nightly または手動でもよいが、OpenAPI 契約テストは早めに固めたい。
 
