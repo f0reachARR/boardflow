@@ -112,6 +112,7 @@ DRC/ERC が failed でも、manifest とチェック結果または skipped 状�
 BoardRun 作成から12時間以内に `completed` または `failed` へ到達しない場合、worker が `timed_out` に遷移させる。
 GitHub Actions の cancel、runner 停止、fail API 未送信の異常終了も MVP では `timed_out` に集約する。
 `board_project_id + github_run_id + github_run_attempt` は冪等キーとして扱い、同一 attempt の再送は terminal 状態を含めて既存 BoardRun を返す。
+同一attemptの既存BoardRunが `created` / `uploading` の場合は既存runと有効なupload情報を返し、`importing` の場合は追加uploadを促さない。
 
 ## 6. Queue / Worker
 
@@ -176,6 +177,7 @@ manifest の各 artifact は `type` と `status` を必須とする。
 KiCanvas用の `kicad_project` / `kicad_schematic` / `kicad_pcb` は通常artifactと同じ保存モデルで扱うが、複数schematicを区別するため `source_path` または `logical_name` を持たせる。
 KiCanvas用source artifactは、Actionが `project_dir` 配下の `.kicad_pro` / `.kicad_sch` / `.kicad_pcb` / `.kicad_wks` を、hash計算と同じexcludeルールを適用してbundleへ入れる前提で検証する。
 manifest 未記載の zip entry は原則拒否し、root の `manifest.json` と仕様で許可した補助ファイルのみ例外として扱う。
+MVPでは bundle.zip、zip entry、manifest、diff metadata に固定上限を設け、上限超過、sha256 / size不一致、content type / 拡張子不一致は import failed とする。
 import 成功済みの staging bundle は24時間以内、failed / timed_out run の staging bundle は7日後に削除対象とする。
 final bucket の artifact は MVP では無期限保存とする。
 

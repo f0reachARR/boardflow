@@ -89,10 +89,12 @@ frontend で意識する点:
 - ダウンロード URL は短命である前提で扱う
 - preview / download 用URLは `viewer-sources` APIからviewer単位で取得する
 - Schematic / PCB Preview では KiCanvas を第一候補にしつつ、PDF/SVG fallback を必ず残す
+- KiCanvas は補助 preview として扱い、`kicanvas` viewer が `missing` / `failed` の場合も静的artifactが `available` なら閲覧導線を残す
 - KiCanvas は Client Component に閉じ込め、bundle script は vendoring して外部 CDN から読み込まない
 - iBOM HTML は通常の app domain とは分離された artifact domain 上で表示する
 - iframe 利用時はレイアウト崩れやクロスドメイン制約を前提に設計する
 - 画像や PDF の preview は「すぐ見られること」を優先し、重い比較 UI は後回しにしてよい
+- viewer単位の `available` / `partial` / `missing` / `failed` / `skipped` に応じて、表示、限定表示、fallback、理由表示を切り替える
 - artifact 一覧では `available` / `missing` / `failed` / `skipped` を表示し、`available` のものだけプレビューやダウンロード導線を出す
 - 個別artifactの `missing` / `failed` / `skipped` は警告として表示し、BoardRunが `completed` であればRun詳細や利用可能なartifact閲覧は継続できるようにする
 
