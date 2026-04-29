@@ -107,6 +107,7 @@ timed_out
 
 `completed` は artifact import が成立したことを表し、DRC/ERC の成功を意味しない。
 DRC/ERC が failed でも、manifest とチェック結果または skipped 状態を保存できた場合、BoardRun は `completed` として扱う。
+個別 artifact の `missing` / `failed` / `skipped` は警告として保存し、それだけでは BoardRun や GitHub Actions job を失敗にしない。
 `fail-on-drc` / `fail-on-erc` によるGitHub Actions job失敗はCI gateであり、BoardRunを `failed` にする理由にはしない。
 BoardRun 作成から12時間以内に `completed` または `failed` へ到達しない場合、worker が `timed_out` に遷移させる。
 GitHub Actions の cancel、runner 停止、fail API 未送信の異常終了も MVP では `timed_out` に集約する。
@@ -173,6 +174,7 @@ zip bundle 内の manifest は root の `manifest.json` を正本にする。
 manifest の各 artifact は `type` と `status` を必須とする。
 `available` artifact のみ `path`、`content_type`、`sha256`、`size_bytes` を必須とし、zip entry と一致検証する。
 KiCanvas用の `kicad_project` / `kicad_schematic` / `kicad_pcb` は通常artifactと同じ保存モデルで扱うが、複数schematicを区別するため `source_path` または `logical_name` を持たせる。
+KiCanvas用source artifactは、Actionが `project_dir` 配下の `.kicad_pro` / `.kicad_sch` / `.kicad_pcb` / `.kicad_wks` を、hash計算と同じexcludeルールを適用してbundleへ入れる前提で検証する。
 manifest 未記載の zip entry は原則拒否し、root の `manifest.json` と仕様で許可した補助ファイルのみ例外として扱う。
 import 成功済みの staging bundle は24時間以内、failed / timed_out run の staging bundle は7日後に削除対象とする。
 final bucket の artifact は MVP では無期限保存とする。
@@ -208,6 +210,8 @@ MVP では GitHub 中心の構成にする。
 - Web UI の閲覧可否は GitHub 権限と揃える
 
 GitHub App installation が解除済み、権限不足、または repository 不一致の場合、plan API は build/skip decision ではなく認可エラーを返す。
+Plan API の per-project `decision: error` は、SaaS側で受け取った project payload の不正などproject単位のvalidation失敗に限定する。
+Action側のlocal detection errorはPlan APIへ送られない前提で扱う。
 
 Plan API では Issue 作成ジョブを enqueue しない。
 Issue 作成は初回 `BoardRun.status = completed` 後に行う。
@@ -215,6 +219,7 @@ Issue はユーザーが発注などの区切りで close する運用を許容�
 BoardProject 設定 `recreate_issue_on_update` が有効で、active Issue が closed かつ `tree_hash` が変わった場合、backend は既存Issueをreopenせず新しいIssueを作成する。
 MVPでは `recreate_issue_on_update` のデフォルトを `true` とする。
 Issueタイトルや本文のユーザー編集は上書きせず、GitHub APIジョブ実行時にIssue/commentの404や削除を検出して必要な再作成を行う。
+Run ResultコメントはMVPではERC/DRC error状態変化、新規error発生、errorからの復旧時のみ作成し、BOM差分やartifact状態差分だけでは作成しない。
 
 ## 9. デプロイ
 

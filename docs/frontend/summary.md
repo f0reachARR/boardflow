@@ -94,6 +94,7 @@ frontend で意識する点:
 - iframe 利用時はレイアウト崩れやクロスドメイン制約を前提に設計する
 - 画像や PDF の preview は「すぐ見られること」を優先し、重い比較 UI は後回しにしてよい
 - artifact 一覧では `available` / `missing` / `failed` / `skipped` を表示し、`available` のものだけプレビューやダウンロード導線を出す
+- 個別artifactの `missing` / `failed` / `skipped` は警告として表示し、BoardRunが `completed` であればRun詳細や利用可能なartifact閲覧は継続できるようにする
 
 ## 7. API 連携
 

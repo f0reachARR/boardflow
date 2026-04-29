@@ -170,6 +170,18 @@ MVPでは厳格にschema検証する。
 未知フィールド、型不一致、非対応versionは検出エラーとして扱う。
 検出エラーになったBoardProject候補はSaaSへ送らず、他の処理可能なBoardProjectは継続する。
 
+MVPで有効なフィールドは以下に限定する。
+
+```text
+- version
+- outputs.preset
+- exclude_paths
+```
+
+`outputs.preset` は `default` のみ対応する。
+`checks`、`comments`、`include_paths`、個別outputのON/OFFはMVPでは未対応であり、存在した場合は未知フィールドとして検出エラーにする。
+MVPではERC/DRCの有効無効やIssueコメント方針を `.boardflow.yml` で制御しない。
+
 ### 4.1 MVP設定例
 
 ```yaml
@@ -185,8 +197,11 @@ exclude_paths:
 
 ### 4.2 将来的な拡張例
 
+以下は将来schemaの例であり、MVPでは有効な設定ではない。
+MVPの `version: 1` では `checks`、`comments`、`include_paths`、個別output設定は未知フィールドとして検出エラーになる。
+
 ```yaml
-version: 1
+version: 2
 
 outputs:
   schematic_pdf: true
@@ -210,7 +225,7 @@ comments:
   run_results: on_change
 ```
 
-上記の `checks` や `comments` は将来的な拡張例であり、MVPの厳格schemaでは未対応フィールドとして検出エラーになる。
+将来schemaでは、ERC/DRCの有効無効、Run Resultコメント方針、共通ライブラリを含めたhash対象の拡張などを扱う可能性がある。
 
 ### 4.3 設定ファイルに含めないもの
 
@@ -249,14 +264,16 @@ Docker Actionは以下を行う。
 12. 成果物 zip bundle 作成
 13. staging bucket へのzip upload
 14. import API 呼び出し
-15. 生成失敗、upload失敗、import要求前失敗のfail API通知
+15. BoardRunを継続できないbuild/zip/upload/import要求前失敗のfail API通知
 16. GitHub Actions Job Summary出力
 ```
 
 複数BoardProjectのうち一部が失敗しても、処理可能なBoardProjectは継続する。
-ただし、検出不備、成果物生成失敗、upload失敗、import要求失敗が1件でもある場合、GitHub Actions job全体は失敗とする。
+ただし、検出不備、BoardRun作成不能、bundle作成不能、upload失敗、import要求失敗、致命的なmanifest/check保存不能が1件でもある場合、GitHub Actions job全体は失敗とする。
 差分判定でskipされたBoardProjectは失敗扱いにしない。
-生成できなかった個別artifactは欠損として記録し、manifestとDRC/ERC結果を保存できる限りBoardRun自体は失敗扱いにしない。
+生成できなかった個別artifactは `missing` または `failed` として記録し、manifestとDRC/ERC結果またはskipped状態を保存できる限りBoardRun自体もGitHub Actions jobも失敗扱いにしない。
+個別artifactの欠損や生成失敗はJob Summaryでは警告として表示する。
+DRC/ERCのfailedをGitHub Actions job失敗にするかは `fail-on-drc` / `fail-on-erc` に従う。
 
 ### 5.2 Action inputs
 
@@ -348,6 +365,8 @@ MVPでは、対象は `project_dir` 配下のファイルとする。
 `Action input exclude-paths` と `.boardflow.yml exclude_paths` は和集合として扱う。
 globはリポジトリルート相対、`/` 区切り、case-sensitive とする。
 symlinkはMVPでは追跡せず、通常ファイルとして安全に読めるものだけをhash対象にする。
+これらの除外ルールは、tree_hash計算だけでなく、KiCanvas用KiCad source artifact収集にも適用する。
+ただし、対象 `.kicad_pro`、主要 `.kicad_pcb`、root schematic相当の必須ファイルが除外された場合、そのBoardProject候補は検出エラーとして扱い、SaaSへ送らない。
 
 共通ライブラリ、外部フットプリント、外部3Dモデルなどの依存関係は、MVPでは厳密に追跡しない。
 これらの共通依存を変更した場合、MVPでは自動で差分検出されない可能性がある。
@@ -447,7 +466,12 @@ tree_hash = sha256(
 | -------- | ------------- |
 | `build`  | 成果物生成を行う      |
 | `skip`   | 成果物生成を行わない    |
-| `error`  | 設定不備などで処理できない |
+| `error`  | SaaS側のproject単位validationにより処理できない |
+
+Action側で検出したlocal detection error、たとえば `.boardflow.yml` schema不備、同階層の `.kicad_pro` 不在、必須KiCadファイルが `exclude_paths` で除外された場合などは、Plan APIへ送らない。
+これらはGitHub Actions Job Summaryに検出エラーとして表示し、他の正常BoardProjectだけをPlan APIへ送る。
+Plan APIの `decision: error` は、SaaS側が受け取ったproject payloadの不正、project_path形式の不正、同一request内の重複など、repository/token不整合ではないproject単位のvalidation失敗に限定する。
+認可エラー、GitHub App installation解除、権限不足、repository不一致、revoke済みtokenはper-project `decision: error` ではなく、API全体の認可エラーとして返す。
 
 ### 6.8 reason
 
@@ -612,7 +636,7 @@ MVPでは以下を使用する。
 ### 8.2 生成する成果物
 
 MVPの `outputs.preset: default` で期待する成果物は以下。
-Fabrication ZIPまでMVP対象に含めるが、個別artifactを生成できない場合は欠損として記録し、最低条件を満たす限りBoardRun自体は失敗扱いにしない。
+Fabrication ZIPまでMVP対象に含めるが、個別artifactを生成できない場合は欠損または生成失敗として記録し、最低条件を満たす限りBoardRun自体もGitHub Actions jobも失敗扱いにしない。
 
 ```text
 review/
@@ -652,7 +676,10 @@ kicad/
 
 `kicad/` 配下はKiCanvasなどの認可付きinteractive previewで使う閲覧用source artifactである。
 KiCadを実行して生成する成果物ではなく、Actionが検出済み `project_dir` からコピーしてbundleに含める。
-元ファイル名と `project_dir` 配下の相対構造は維持し、単純な正規化名へのリネームは行わない。
+MVPでは、`project_dir` 配下の `.kicad_pro`、`.kicad_sch`、`.kicad_pcb`、`.kicad_wks` を対象にする。
+元ファイル名とrepository rootからの相対構造は維持し、単純な正規化名へのリネームは行わない。
+`built-in excludes`、Action input `exclude-paths`、`.boardflow.yml exclude_paths` は、KiCad source artifact収集にも適用する。
+対象 `.kicad_pro`、主要 `.kicad_pcb`、root schematic相当の必須ファイルが除外された場合、そのBoardProject候補は検出エラーとして扱う。
 KiCanvasはMVPに含めるが、補助的なinteractive viewerとして扱い、PDF/SVG/iBOMなどの静的artifactを正本previewおよびfallbackとして維持する。
 
 ### 8.3 成果物種別
@@ -898,6 +925,9 @@ SaaSは、Actionから送られた `github_repository_id` をそのまま信用�
 token はDBにhashのみ保存し、成功した認証時のみ `last_used_at` を更新する。
 revoke済みtokenは Plan API、BoardRun作成API、Artifact Bundle Import API、失敗APIのすべてで認可エラーにする。
 GitHub App installation が解除済み、権限不足、またはrepository不一致の場合、Plan APIはbuild/skip decisionではなく認可エラーを返す。
+Plan APIのper-project `decision: error` は、SaaS側で受け取ったproject payloadに対するproject単位validation失敗に限定する。
+Action側で検出できる `.boardflow.yml` schema不備、同階層 `.kicad_pro` 不在、必須KiCadファイルの除外などはPlan APIへ送らず、Action側の検出エラーとして扱う。
+認可エラー、installation解除、権限不足、repository不一致、revoke済みtokenはproject単位の `decision: error` ではなくAPI全体のエラーとして扱う。
 
 ### 9.2 BoardRun作成API
 
@@ -1723,11 +1753,11 @@ MVPでは、以下の場合に追記する。
 - 新しいDRC/ERC errorが発生した
 - 前回成功 → 今回失敗
 - 前回失敗 → 今回成功
-- 差分サマリにレビュー上重要な変化がある
-- 手動実行で明示的に記録対象になったrun
 ```
 
 毎回のbuildで必ずコメントするとIssueが汚れるため、デフォルトでは避ける。
+BOM差分、artifact状態差分、手動実行を理由にした明示的な追記はMVPでは行わない。
+Dashboardコメントは、Run Resultコメントの追記有無に関わらず最新状態へ編集更新する。
 
 将来的には設定で制御する。
 
@@ -2040,7 +2070,7 @@ SaaSへのアップロードURL、BoardProjectページ、差分ページも表�
 複数BoardProjectのうち一部のみ失敗した場合も、成功、skip、build/upload/import失敗、check失敗、artifact欠損、検出エラーを分けて表示する。
 `pull_request` event の場合は、KiCad実行やSaaS API呼び出しを行わず、unsupported として表示したうえで job は成功扱いにする。
 共通ライブラリ、外部フットプリント、外部3Dモデルなどを変更した場合は、MVPでは自動検知できない可能性があるため、`workflow_dispatch` で `mode: all` を指定する案内を表示してよい。
-検出不備、成果物生成失敗、upload失敗、import要求失敗が1件でもある場合、最終的なGitHub Actions jobは失敗とする。
+検出不備、BoardRun作成不能、bundle作成不能、upload失敗、import要求失敗、致命的なmanifest/check保存不能が1件でもある場合、最終的なGitHub Actions jobは失敗とする。
 個別artifactの `missing`、`failed`、`skipped` はJob Summaryに警告として表示するが、manifestとDRC/ERC結果を保存できる限り、それだけではGitHub Actions jobを失敗にしない。
 DRC/ERCのfailedをjob失敗にするかは `fail-on-drc` / `fail-on-erc` に従う。
 これらが `true` の場合でも、Actionはmanifest、check結果、可能なartifactをbundle化してuploadし、Import API要求まで完了してからjobを失敗させる。
@@ -2057,10 +2087,12 @@ DRC/ERCのfailedをjob失敗にするかは `fail-on-drc` / `fail-on-erc` に従
 - KiCad 9.0系環境の固定
 - .boardflow.yml 自動検出
 - .boardflow.yml の厳格schema検証
+- .boardflow.yml MVP schemaを `version` / `outputs.preset` / `exclude_paths` に限定
 - 同階層 .kicad_pro の検出
 - 1リポジトリ複数KiCadプロジェクト対応
 - project_pathベースのBoardProject識別
 - exclude-paths対応
+- exclude-pathsをtree_hash計算とKiCad source artifact収集の両方へ適用
 - ファイルハッシュ / tree_hash計算
 - SaaS plan APIによる差分判定
 - 変更がある基板のみbuild
@@ -2069,18 +2101,18 @@ DRC/ERCのfailedをjob失敗にするかは `fail-on-drc` / `fail-on-erc` に従
 - Web UIでの軽量差分ページ表示
 - kicad-cliによる成果物生成
 - iBOM生成
-- KiCanvas用KiCad source artifact保存
+- KiCanvas用KiCad source artifact保存（project_dir配下の .kicad_pro / .kicad_sch / .kicad_pcb / .kicad_wks）
 - `viewer-sources` APIによるpreview/download用短命URL発行
 - Schematic / PCB PreviewでのKiCanvas interactive previewとPDF/SVG fallback
 - 成果物アップロード
-- 欠損artifactの状態管理
+- 欠損artifactの状態管理と警告表示
 - ERC/DRC skipped状態の管理
 - BoardRunの12時間timeout
 - 初回completed前を含むBoardProjectのWeb表示
 - 初回completed run後のGitHub AppによるIssue自動作成
 - close済みIssueに対する設定ON時の新Issue作成
 - Dashboardコメントの作成・編集
-- DRC/ERC結果コメントの条件付き追記
+- ERC/DRC error状態変化に基づくRun Resultコメントの条件付き追記
 - DashboardコメントまたはRun Resultコメントへの差分ページURL掲載
 - GitHub API操作のキュー処理
 - BoardFlow API tokenの最小ライフサイクル管理
@@ -2095,6 +2127,8 @@ DRC/ERCのfailedをjob失敗にするかは `fail-on-drc` / `fail-on-erc` に従
 - project_path変更の追従
 - 共通ライブラリ変更の厳密な影響解析
 - include_paths / 共通依存の自動解析
+- .boardflow.yml によるchecks/comments制御
+- 個別artifact欠損だけを理由にしたGitHub Actions job失敗
 - SaaS側でのKiCad実行
 - 高度なKiCad差分ビューア
 - KiCad semantic diff
@@ -2121,17 +2155,22 @@ DRC/ERCのfailedをjob失敗にするかは `fail-on-drc` / `fail-on-erc` に従
 - pull_request eventではActionがKiCad実行もAPI呼び出しもせず、job成功でunsupported summaryを出す
 - Plan APIで新規BoardProjectが作られた時点でWeb UI通常一覧に detected として表示されるが、初回completed run前はIssueを作らない
 - .boardflow.yml に未知フィールドがあるBoardProjectは検出エラーになり、他の正常BoardProjectは処理されるがjob全体は失敗する
+- .boardflow.yml に `checks`、`comments`、`include_paths` があるBoardProjectはMVPでは検出エラーになる
+- `exclude_paths` で対象 `.kicad_pro`、主要 `.kicad_pcb`、root schematic相当が除外されたBoardProjectは検出エラーになる
 - 初回artifact import completed後にIssue作成ジョブとDashboardコメントジョブがenqueueされる
 - 初回completed runでは board_run_diffs.status=no_baseline になり、Web UIで比較元がないことを表示する
 - 連続pushでBOM、PCB、DRC/ERC、artifact有無が変わった場合、board_run_diffs.summary_json に軽量差分サマリが保存される
 - 前回runが failed / timed_out、または比較artifact欠損の場合も、差分statusは no_baseline または unavailable になり、BoardRun import全体は失敗しない
-- DashboardコメントまたはRun Resultコメントに差分ページURLが含まれる
+- Dashboardコメントに差分ページURLが含まれ、Run Resultコメントが作成される場合も差分ページURLが含まれる
 - `viewer-sources` APIがKiCanvas、schematic PDF、PCB SVG/PDF、iBOM、BOM、fabrication downloadの表示用sourceを返す
 - KiCanvas用の複数 `kicad_schematic` artifactが `source_path` 付きで保存され、同一run内で区別できる
+- KiCanvas用source artifact収集では `project_dir` 配下の `.kicad_pro`、`.kicad_sch`、`.kicad_pcb`、`.kicad_wks` をrepository相対構造のまま保存する
 - ERCが対象外のプロジェクトで run_checks.status=skipped が保存され、manifest import成功ならBoardRunはcompletedになる
-- fabrication ZIP生成失敗時、BoardRunはcompleted、artifact行はfailed、Job Summaryは警告になる
+- fabrication ZIP生成失敗時、BoardRunはcompleted、artifact行はfailed、Job Summaryは警告になり、GitHub Actions jobは成功する
 - DRC failedかつ fail-on-drc=false の場合、BoardRunはcompleted、GitHub Actions jobは成功する
 - DRC failedかつ fail-on-drc=true の場合、ActionはImport API要求後に失敗終了し、BoardRunはcompleted、GitHub Actions jobは失敗する
+- Plan APIの認可失敗はAPI全体のエラーになり、project単位のSaaS validation失敗のみ `decision: error` になる
+- Run ResultコメントはERC/DRC error状態変化または新規error/復旧時だけ作成される
 - close済みactive Issueがあり、`recreate_issue_on_update=true` のBoardProjectでtree_hashが変わった場合、新Issueが作成され旧Issueは履歴に残る
 - BoardRun作成から12時間を超えた未完了runはtimed_outになる
 - 同一 github_run_id + github_run_attempt のBoardRun作成再送は既存runを返し、terminal状態なら新upload URLを作らない
