@@ -34,6 +34,7 @@ KiCad 実行そのものは GitHub Actions 上の Docker Action が担当する�
 ## 3. API 契約
 
 OpenAPI を `api/openapi.yaml` のような canonical source として管理する。
+OpenAPI 化前の詳細な契約仕様は [docs/backend/api.md](/Users/f0reach/workspace/boardflow/docs/backend/api.md) を基準にする。
 
 MVP で重要な API 群:
 
