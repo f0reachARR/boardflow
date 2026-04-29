@@ -10,6 +10,7 @@ tools:
     "web",
     "ms-vscode.vscode-websearchforcopilot/websearch",
     "io.github.upstash/context7/*",
+    vscode/memory,
   ]
 model: "Claude Opus 4.6"
 ---

@@ -8,6 +8,7 @@ tools:
     "todo",
     "web",
     "ms-vscode.vscode-websearchforcopilot/websearch",
+    vscode/memory,
   ]
 model: "Claude Sonnet 4.6"
 ---

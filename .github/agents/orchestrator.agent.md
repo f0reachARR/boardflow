@@ -3,6 +3,7 @@ description: ユーザーの要望に基づき、機能追加やバグ修正の�
 argument-hint: 報告したいイシュー、またはリクエストしたい機能を説明してください。
 tools:
   [
+    vscode/memory,
     vscode/askQuestions,
     vscode/toolSearch,
     execute,

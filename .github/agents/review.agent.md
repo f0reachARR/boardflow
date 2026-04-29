@@ -10,6 +10,7 @@ tools:
     "ms-vscode.vscode-websearchforcopilot/websearch",
     vscode/askQuestions,
     vscode/toolSearch,
+    vscode/memory,
   ]
 model: "GPT-5.4"
 ---
