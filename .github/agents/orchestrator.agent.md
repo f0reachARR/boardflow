@@ -3,15 +3,16 @@ description: ユーザーの要望に基づき、機能追加やバグ修正の�
 argument-hint: 報告したいイシュー、またはリクエストしたい機能を説明してください。
 tools:
   [
-    "vscode/askQuestions",
-    "vscode/toolSearch",
-    "execute",
-    "read",
-    "agent",
-    "search",
-    "web",
-    "ms-vscode.vscode-websearchforcopilot/websearch",
-    "todo",
+    vscode/askQuestions,
+    vscode/toolSearch,
+    execute,
+    read,
+    agent,
+    search,
+    web,
+    "io.github.upstash/context7/*",
+    ms-vscode.vscode-websearchforcopilot/websearch,
+    todo,
   ]
 model: "Claude Opus 4.6"
 ---

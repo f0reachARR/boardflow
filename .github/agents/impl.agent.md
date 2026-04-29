@@ -11,6 +11,7 @@ tools:
     web,
     ms-vscode.vscode-websearchforcopilot/websearch,
     todo,
+    "io.github.upstash/context7/*",
   ]
 model: "Claude Opus 4.6"
 ---

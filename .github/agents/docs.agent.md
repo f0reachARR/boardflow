@@ -8,6 +8,7 @@ tools:
     "todo",
     "web",
     "ms-vscode.vscode-websearchforcopilot/websearch",
+    "io.github.upstash/context7/*",
   ]
 model: "GPT-5.4"
 ---
