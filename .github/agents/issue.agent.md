@@ -48,4 +48,5 @@ model: "Claude Opus 4.6"
 ## ツール
 
 - #tool:ms-vscode.vscode-websearchforcopilot/websearch: ウェブ検索
+- #tool:vscode/askQuestions: 重要な疑問があり、ユーザー判断なしでは分割や要件の確定ができない場合の質問
 - `gh`: GitHub リポジトリの操作
