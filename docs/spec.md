@@ -342,6 +342,13 @@ MVPでは、対象は `project_dir` 配下のファイルとする。
   .boardflow.yml exclude_paths
 ```
 
+`.boardflow.yml` 自体はhash対象に含める。
+これにより、設定変更だけでも `tree_hash` が変わり、SaaSのplan APIはbuild対象として判断できる。
+
+`Action input exclude-paths` と `.boardflow.yml exclude_paths` は和集合として扱う。
+globはリポジトリルート相対、`/` 区切り、case-sensitive とする。
+symlinkはMVPでは追跡せず、通常ファイルとして安全に読めるものだけをhash対象にする。
+
 共通ライブラリ、外部フットプリント、外部3Dモデルなどの依存関係は、MVPでは厳密に追跡しない。
 これらの共通依存を変更した場合、MVPでは自動で差分検出されない可能性がある。
 共通依存の変更を反映したい場合は、`workflow_dispatch` で `mode: all` を指定して全BoardProjectをbuildする運用を推奨する。
@@ -634,7 +641,19 @@ diff/
   checks_summary.json
   artifacts_summary.json
   previews.json
+
+kicad/
+  hardware/motor_driver/motor_driver.kicad_pro
+  hardware/motor_driver/motor_driver.kicad_sch
+  hardware/motor_driver/sub_sheet.kicad_sch
+  hardware/motor_driver/motor_driver.kicad_pcb
+  hardware/motor_driver/*.kicad_wks
 ```
+
+`kicad/` 配下はKiCanvasなどの認可付きinteractive previewで使う閲覧用source artifactである。
+KiCadを実行して生成する成果物ではなく、Actionが検出済み `project_dir` からコピーしてbundleに含める。
+元ファイル名と `project_dir` 配下の相対構造は維持し、単純な正規化名へのリネームは行わない。
+KiCanvasはMVPに含めるが、補助的なinteractive viewerとして扱い、PDF/SVG/iBOMなどの静的artifactを正本previewおよびfallbackとして維持する。
 
 ### 8.3 成果物種別
 
@@ -653,6 +672,10 @@ drill_zip
 fabrication_zip
 erc_report
 drc_report
+kicad_project
+kicad_schematic
+kicad_pcb
+kicad_worksheet
 manifest
 ```
 
@@ -660,6 +683,8 @@ manifest
 `metadata/manifest.json` はMVPでは使わない。
 `diff/` 配下のファイルは差分レビュー用メタデータであり、通常のArtifact typeとしてダウンロード導線を出さない。
 backendが検証・解析してsnapshotやdiff summaryとしてDBへ保存する。
+`kicad_schematic` や `kicad_worksheet` は1つのBoardRun内で複数行になり得るため、Artifactは `type` だけで一意にしない。
+DBでは `source_path` または `logical_name` を持たせ、同一run内の複数artifactを区別する。
 
 ### 8.4 Artifact状態
 
@@ -673,7 +698,8 @@ skipped    # プロジェクト構成や設定により生成対象外
 ```
 
 `available` のartifactのみ、`storage_key`、`sha256`、`size_bytes` を必須とする。
-`missing`、`failed`、`skipped` のartifactは、Web UIやJob Summaryで理由を表示できるように `error_message` や `status_reason` 相当の説明を持つ。
+`missing`、`failed`、`skipped` のartifactは実体ファイルを持たないため、`path`、`content_type`、`sha256`、`size_bytes` は必須にしない。
+Web UIやJob Summaryで理由を表示できるように `error_message` や `status_reason` 相当の説明を持つ。
 
 BoardRunを `completed` にできる最低条件は以下とする。
 
@@ -784,9 +810,25 @@ ERC/DRCがプロジェクト構成上実行不能、対象外、または将来�
     {
       "type": "fabrication_zip",
       "status": "failed",
-      "path": "fabrication/fabrication.zip",
-      "content_type": "application/zip",
       "error_message": "fabrication zip export failed"
+    },
+    {
+      "type": "kicad_project",
+      "status": "available",
+      "path": "kicad/hardware/motor_driver/motor_driver.kicad_pro",
+      "source_path": "hardware/motor_driver/motor_driver.kicad_pro",
+      "content_type": "text/plain; charset=utf-8",
+      "sha256": "sha256:...",
+      "size_bytes": 45678
+    },
+    {
+      "type": "kicad_schematic",
+      "status": "available",
+      "path": "kicad/hardware/motor_driver/sub_sheet.kicad_sch",
+      "source_path": "hardware/motor_driver/sub_sheet.kicad_sch",
+      "content_type": "text/plain; charset=utf-8",
+      "sha256": "sha256:...",
+      "size_bytes": 56789
     }
   ]
 }
@@ -806,6 +848,7 @@ bundle.zip
   fabrication/
   checks/
   diff/
+  kicad/
 ```
 
 backend は zip bundle を展開前に検証し、少なくとも以下を満たすものだけを受理する。
@@ -819,6 +862,7 @@ backend は zip bundle を展開前に検証し、少なくとも以下を満た
 - manifest内の各artifactに type / status がある
 - `available` なartifactには path / content_type / sha256 / size_bytes がある
 - `available` なartifactの sha256 と size_bytes が zip entry と一致する
+- source artifact は `kicad/` 以下に閉じ込め、元の repository 相対pathを `source_path` としてmanifestに保存する
 - bundle / entry ごとの上限サイズを超えない
 - diff_metadataに記載された補助ファイルは path / sha256 / size_bytes が zip entry と一致する
 ```
@@ -890,7 +934,7 @@ POST /api/v1/board-runs
     "object_key": "staging/runs/br_abc123/bundle.zip",
     "upload_url": "https://storage.example.com/...",
     "method": "PUT",
-    "expires_at": "2026-04-28T12:00:00Z"
+    "expires_at": "2030-01-01T12:00:00Z"
   }
 }
 ```
@@ -937,6 +981,11 @@ POST /api/v1/board-runs/{board_run_id}/artifact-bundles/import
 - staging object のTTL管理
 ```
 
+同じ `board_run_id` と同じ `staging_object_key` / `bundle_sha256` のimport要求が再送された場合、SaaSは新しいimport jobを作らず既存の `artifact_bundles` とqueue状態を返す。
+既存BoardRunが `completed`、`failed`、`timed_out` のterminal状態の場合、Import APIは新しいimport jobを作らない。
+`completed` の場合は既存bundle状態を返し、`failed` または `timed_out` の場合は再import不可のエラーを返す。
+異なる `bundle_sha256` の再送は同一runへの競合importとして拒否する。
+
 レスポンス例:
 
 ```json
@@ -946,7 +995,119 @@ POST /api/v1/board-runs/{board_run_id}/artifact-bundles/import
 }
 ```
 
-### 9.4 BoardRun完了処理
+### 9.4 Viewer Sources API
+
+Web UIがRun内の成果物previewやdownload導線を組み立てるための汎用API。
+KiCanvas専用の `kicanvas-sources` APIは作らず、KiCanvasはこのAPIが返すviewerの1つとして扱う。
+
+```http
+GET /api/v1/board-runs/{board_run_id}/viewer-sources
+```
+
+このAPIは認可済みユーザーに対して、短命URLまたはartifact proxy URLをviewer用途ごとに返す。
+MVPではKiCanvasだけでなく、schematic PDF、PCB SVG/PDF、iBOM、BOM、fabrication downloadも同じレスポンスに含める。
+URLは短命であり、frontendは必要に応じて再取得する。
+
+レスポンス例:
+
+```json
+{
+  "board_run_id": "br_abc123",
+  "expires_at": "2030-01-01T12:00:00Z",
+  "viewers": {
+    "kicanvas": {
+      "status": "available",
+      "sources": [
+        {
+          "artifact_id": "art_project",
+          "kind": "project",
+          "name": "motor_driver.kicad_pro",
+          "source_path": "hardware/motor_driver/motor_driver.kicad_pro",
+          "url": "https://artifacts.boardflow.example.com/signed/..."
+        },
+        {
+          "artifact_id": "art_schematic",
+          "kind": "schematic",
+          "name": "motor_driver.kicad_sch",
+          "source_path": "hardware/motor_driver/motor_driver.kicad_sch",
+          "url": "https://artifacts.boardflow.example.com/signed/..."
+        },
+        {
+          "artifact_id": "art_board",
+          "kind": "board",
+          "name": "motor_driver.kicad_pcb",
+          "source_path": "hardware/motor_driver/motor_driver.kicad_pcb",
+          "url": "https://artifacts.boardflow.example.com/signed/..."
+        }
+      ]
+    },
+    "schematic": {
+      "status": "available",
+      "primary": {
+        "artifact_id": "art_schematic_pdf",
+        "artifact_type": "schematic_pdf",
+        "url": "https://artifacts.boardflow.example.com/signed/..."
+      }
+    },
+    "pcb_preview": {
+      "status": "available",
+      "sources": [
+        {
+          "artifact_id": "art_top",
+          "artifact_type": "pcb_top_svg",
+          "url": "https://artifacts.boardflow.example.com/signed/..."
+        },
+        {
+          "artifact_id": "art_bottom",
+          "artifact_type": "pcb_bottom_svg",
+          "url": "https://artifacts.boardflow.example.com/signed/..."
+        },
+        {
+          "artifact_id": "art_pcb_pdf",
+          "artifact_type": "pcb_pdf",
+          "url": "https://artifacts.boardflow.example.com/signed/..."
+        }
+      ]
+    },
+    "ibom": {
+      "status": "available",
+      "iframe_url": "https://artifacts.boardflow.example.com/signed/..."
+    },
+    "bom": {
+      "status": "available",
+      "downloads": [
+        {
+          "artifact_id": "art_bom",
+          "artifact_type": "bom_csv",
+          "url": "https://artifacts.boardflow.example.com/signed/..."
+        }
+      ]
+    },
+    "fabrication": {
+      "status": "partial",
+      "downloads": [
+        {
+          "artifact_id": "art_gerber",
+          "artifact_type": "gerber_zip",
+          "status": "available",
+          "url": "https://artifacts.boardflow.example.com/signed/..."
+        },
+        {
+          "artifact_type": "drill_zip",
+          "status": "missing",
+          "status_reason": "not generated"
+        }
+      ]
+    }
+  }
+}
+```
+
+`status` はviewer単位でも `available`、`partial`、`missing`、`failed`、`skipped` を取れる。
+`kicanvas` が `missing` または `failed` の場合でも、`schematic` や `pcb_preview` による静的fallbackは利用できる。
+KiCad source artifactはprivate design dataとして扱い、GitHub IssueにはこのAPIのURLや署名URLを直接載せない。
+
+### 9.5 BoardRun完了処理
 
 MVPでは `complete` API を提供しない。
 zip の検証、artifact登録、checks保存、snapshot保存、BoardRun完了処理は artifact import worker が行う。
@@ -973,7 +1134,7 @@ import成功済みのstaging bundleは24時間以内に削除対象とする。
 failedまたはtimed_outになったrunのstaging bundleは7日後に削除対象とする。
 final bucketに保存されたartifactはMVPでは無期限保存とする。
 
-### 9.5 失敗API
+### 9.6 失敗API
 
 ビルド、zip作成、アップロード、import要求前の失敗時に呼び出す。
 
@@ -990,6 +1151,11 @@ POST /api/v1/board-runs/{board_run_id}/fail
   }
 }
 ```
+
+失敗APIはBoardRun自体を `failed` にするためのAPIであり、DRC/ERCの検査結果がfailedだったことを通知するためには使わない。
+DRC/ERC failedでもmanifestとcheck結果またはskipped状態をimportできる場合、BoardRunは `completed` として保存する。
+`fail-on-drc=true` または `fail-on-erc=true` の場合、Actionは成果物bundleのuploadとImport API要求を完了した後、GitHub Actions jobの終了コードだけを失敗にする。
+この場合、SaaS上のBoardRunは `completed`、GitHub Actions jobはCI gateとしてfailedという状態になる。
 
 ---
 
@@ -1031,6 +1197,7 @@ board_projects
 
 `repository_id + project_path` にunique制約を置く。
 `recreate_issue_on_update` はSaaS側のBoardProject設定として持ち、`.boardflow.yml` には含めない。
+MVPのデフォルトは `true` とする。
 Web UIの通常一覧には、初回completed前のBoardProjectも状態付きで表示する。
 Plan APIで作成されたが成果物未完成のBoardProjectも、ユーザーがWeb UIから原因を追えるようにする。
 
@@ -1090,6 +1257,8 @@ artifacts
 - type
 - status
 - filename
+- source_path
+- logical_name
 - content_type
 - storage_key
 - sha256
@@ -1111,6 +1280,9 @@ skipped
 
 `available` のartifactのみ `storage_key`、`sha256`、`size_bytes` を必須とする。
 `missing`、`failed`、`skipped` のartifactは実体ファイルを持たないが、期待artifactごとの欠損状態をWeb UIとJob Summaryに表示するためDBに行を作る。
+`source_path` はrepository root相対の元ファイルpathを保存する。
+KiCanvas用の `kicad_schematic` など、同じ `type` が複数存在するartifactでは `source_path` または `logical_name` を必須にする。
+MVPでは `board_run_id + type + source_path` 相当で同一run内の重複を防ぐ。
 
 ### 10.5 artifact_bundles
 
@@ -1437,6 +1609,7 @@ Issueのタイトルや本文がユーザーにより編集された場合、Boa
 Issueは `issue_node_id` / `issue_number` で追跡する。
 
 BoardProjectにはSaaS側設定として `recreate_issue_on_update` を持つ。
+MVPのデフォルトは `true` とする。
 active Issueがclosedで、`recreate_issue_on_update = true` かつ前回completed runから `tree_hash` が変わった場合、BoardFlowは完全に新しいIssueを作成する。
 このとき既存Issueはreopenせず、新Issue作成後に `board_projects.issue_number` / `issue_node_id` / `issue_url` / `dashboard_comment_id` を新Issue側へ更新する。
 旧Issueは履歴として保持する。
@@ -1594,10 +1767,13 @@ Issueがまだない場合:
 ```text
 BoardRun completed
   -> create issue job
-  -> 差分ページURLを含めたpayload作成
+  -> create issue job完了後に差分ページURLを含めたpayload作成
   -> create dashboard comment job
   -> create run result comment job if needed
 ```
+
+Issue未作成時のDashboardコメントやRun Resultコメントは、create issue jobに依存する後続ジョブとして扱う。
+Issue作成に失敗した場合、BoardRunやartifact importは巻き戻さず、Issue同期状態だけを `failed` としてWeb UIに表示する。
 
 GitHub APIジョブは、実行時にactive IssueとDashboardコメントの現在状態を確認する。
 Issueがclosedの場合は `recreate_issue_on_update` と `tree_hash` 変更有無に基づき、新Issue作成またはIssue更新停止を選ぶ。
@@ -1710,17 +1886,33 @@ History
 - 最新差分ページリンク
 ```
 
-### 14.4 PCB Preview
+### 14.4 Schematic
 
 表示内容:
 
 ```text
+- KiCanvas による .kicad_sch interactive preview
+- schematic PDF fallback
+- KiCanvasが表示できない場合のエラー表示と再読み込み導線
+```
+
+KiCanvasは第一候補として表示してよいが、alpha品質の外部viewerとして扱う。
+`viewer-sources` APIで `kicanvas` が `missing`、`failed`、`skipped` の場合も、`schematic_pdf` が `available` ならPDF previewを表示する。
+
+### 14.5 PCB Preview
+
+表示内容:
+
+```text
+- KiCanvas による .kicad_pcb interactive preview
 - 表面SVG
 - 裏面SVG
 - PDFリンク
 ```
 
-### 14.5 iBOM
+KiCanvas previewが利用できない場合も、表面SVG、裏面SVG、PDFリンクは通常どおり利用できるようにする。
+
+### 14.6 iBOM
 
 表示内容:
 
@@ -1729,7 +1921,7 @@ History
 - iframe表示可否はセキュリティ設定次第
 ```
 
-### 14.6 Fabrication
+### 14.7 Fabrication
 
 表示内容:
 
@@ -1744,7 +1936,7 @@ artifact状態は `available`、`missing`、`failed`、`skipped` を表示する
 `available` の場合のみダウンロードまたはプレビューへの導線を出す。
 `missing`、`failed`、`skipped` の場合は理由を表示する。
 
-### 14.7 Checks
+### 14.8 Checks
 
 表示内容:
 
@@ -1756,7 +1948,7 @@ artifact状態は `available`、`missing`、`failed`、`skipped` を表示する
 - レポートファイル
 ```
 
-### 14.8 Diff
+### 14.9 Diff
 
 直近completed runとの軽量差分サマリを表示する。
 
@@ -1777,8 +1969,10 @@ artifact状態は `available`、`missing`、`failed`、`skipped` を表示する
 `unavailable` の場合は、比較元または現在runの必要artifactやdiff metadataが不足していることを表示する。
 `failed` の場合でも、Run詳細やartifact閲覧は継続して利用できるようにする。
 PR用途では、この画面のURLをPR本文やコメントに貼れることを前提にする。
+KiCanvasは差分描画には使わない。
+Diff画面ではbase/headそれぞれのSchematicまたはPCB Previewへ遷移できる導線を置く。
 
-### 14.9 Runs
+### 14.10 Runs
 
 過去のBoardRun一覧を表示する。
 
@@ -1849,6 +2043,8 @@ SaaSへのアップロードURL、BoardProjectページ、差分ページも表�
 検出不備、成果物生成失敗、upload失敗、import要求失敗が1件でもある場合、最終的なGitHub Actions jobは失敗とする。
 個別artifactの `missing`、`failed`、`skipped` はJob Summaryに警告として表示するが、manifestとDRC/ERC結果を保存できる限り、それだけではGitHub Actions jobを失敗にしない。
 DRC/ERCのfailedをjob失敗にするかは `fail-on-drc` / `fail-on-erc` に従う。
+これらが `true` の場合でも、Actionはmanifest、check結果、可能なartifactをbundle化してuploadし、Import API要求まで完了してからjobを失敗させる。
+この場合、SaaS上のBoardRunは `completed` として残り、GitHub Actions jobだけがCI gateとして失敗する。
 
 ---
 
@@ -1873,6 +2069,9 @@ DRC/ERCのfailedをjob失敗にするかは `fail-on-drc` / `fail-on-erc` に従
 - Web UIでの軽量差分ページ表示
 - kicad-cliによる成果物生成
 - iBOM生成
+- KiCanvas用KiCad source artifact保存
+- `viewer-sources` APIによるpreview/download用短命URL発行
+- Schematic / PCB PreviewでのKiCanvas interactive previewとPDF/SVG fallback
 - 成果物アップロード
 - 欠損artifactの状態管理
 - ERC/DRC skipped状態の管理
@@ -1900,6 +2099,11 @@ DRC/ERCのfailedをjob失敗にするかは `fail-on-drc` / `fail-on-erc` に従
 - 高度なKiCad差分ビューア
 - KiCad semantic diff
 - 画像重ね合わせやピクセル差分を必須とするPCB差分ビュー
+- KiCanvas eventsを使った選択同期
+- KiCanvas deep link
+- KiCanvasによるvisual diff / overlay
+- KiCanvasのserver-side rendering
+- GitHub IssueへのKiCanvas直接埋め込み
 - 部品調達API連携
 - BoardProjectの手動統合
 - PR中心のレビュー機能
@@ -1922,10 +2126,13 @@ DRC/ERCのfailedをjob失敗にするかは `fail-on-drc` / `fail-on-erc` に従
 - 連続pushでBOM、PCB、DRC/ERC、artifact有無が変わった場合、board_run_diffs.summary_json に軽量差分サマリが保存される
 - 前回runが failed / timed_out、または比較artifact欠損の場合も、差分statusは no_baseline または unavailable になり、BoardRun import全体は失敗しない
 - DashboardコメントまたはRun Resultコメントに差分ページURLが含まれる
+- `viewer-sources` APIがKiCanvas、schematic PDF、PCB SVG/PDF、iBOM、BOM、fabrication downloadの表示用sourceを返す
+- KiCanvas用の複数 `kicad_schematic` artifactが `source_path` 付きで保存され、同一run内で区別できる
 - ERCが対象外のプロジェクトで run_checks.status=skipped が保存され、manifest import成功ならBoardRunはcompletedになる
 - fabrication ZIP生成失敗時、BoardRunはcompleted、artifact行はfailed、Job Summaryは警告になる
 - DRC failedかつ fail-on-drc=false の場合、BoardRunはcompleted、GitHub Actions jobは成功する
-- DRC failedかつ fail-on-drc=true の場合、BoardRunはcompleted、GitHub Actions jobは失敗する
+- DRC failedかつ fail-on-drc=true の場合、ActionはImport API要求後に失敗終了し、BoardRunはcompleted、GitHub Actions jobは失敗する
+- close済みactive Issueがあり、`recreate_issue_on_update=true` のBoardProjectでtree_hashが変わった場合、新Issueが作成され旧Issueは履歴に残る
 - BoardRun作成から12時間を超えた未完了runはtimed_outになる
 - 同一 github_run_id + github_run_attempt のBoardRun作成再送は既存runを返し、terminal状態なら新upload URLを作らない
 - manifest未記載のzip entryを含むbundleは、許可済み補助ファイルを除いてimport failedになる

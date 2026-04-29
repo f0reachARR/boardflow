@@ -4,7 +4,8 @@
 
 KiCanvas は KiCad の回路図と基板をブラウザ上で表示するための、オープンソースのインタラクティブビューアである。公式 KiCad サイトにも外部ツールとして掲載されており、実装は TypeScript、描画は Canvas / WebGL、UI は Web Components で構成される。
 
-BoardFlow MVP では、KiCanvas を「KiCad生ファイルの認可付きプレビュー」として使う価値が高い。現在仕様にある `schematic_pdf`、`pcb_top_svg`、`pcb_bottom_svg`、`pcb_pdf` は安定した静的プレビューとして残しつつ、追加で `.kicad_sch`、`.kicad_pcb`、必要に応じて `.kicad_pro` を artifact として保存し、Run詳細や BoardProject ページの `Schematic` / `PCB Preview` タブで KiCanvas 表示を提供するのがよい。
+BoardFlow MVP では、KiCanvas を「KiCad生ファイルの認可付きプレビュー」として正式採用する。
+現在仕様にある `schematic_pdf`、`pcb_top_svg`、`pcb_bottom_svg`、`pcb_pdf` は安定した静的プレビューとして残しつつ、追加で `.kicad_sch`、`.kicad_pcb`、必要に応じて `.kicad_pro` を artifact として保存し、Run詳細や BoardProject ページの `Schematic` / `PCB Preview` タブで KiCanvas 表示を提供する。
 
 ただし KiCanvas は alpha と明記され、APIや未実装機能が多い。MVP の主要導線を KiCanvas のみに依存させるのは避け、PDF/SVG/iBOM をフォールバック兼正本プレビューとして維持する。
 
@@ -96,11 +97,11 @@ KiCanvas は `Schematic` と `PCB Preview` に入れるのが自然。
 - 複数ファイルが揃っている場合は、`kicanvas-source` を複数渡して `controls="full"` の project viewer に寄せる。
 - KiCanvas が読み込めない場合、既存の PDF / SVG プレビューとダウンロード導線を表示する。
 
-### 3.2 Artifact type の追加候補
+### 3.2 Artifact type
 
-現在の MVP artifact type は PDF / SVG / iBOM / BOM / 製造ファイル / check report が中心で、KiCad の生ファイルは含まれていない。
+MVPではPDF / SVG / iBOM / BOM / 製造ファイル / check report に加えて、KiCad の生ファイルをartifactとして保存する。
 
-KiCanvas を使う場合は、少なくとも以下を追加する。
+追加するartifact typeは以下。
 
 ```text
 kicad_project
@@ -162,35 +163,46 @@ KiCanvas はブラウザ上で `src` URL からファイルを読み込む。pri
 - artifact proxy が認可後に `.kicad_sch` / `.kicad_pcb` / `.kicad_pro` を返す。
 - backend が短命 URL を発行し、KiCanvas の `src` / `kicanvas-source src` に渡す。
 
-複数ファイル表示では、viewer 表示直前に必要ファイル一式の短命 URL を取得する API があると扱いやすい。
+複数ファイル表示では、viewer 表示直前に必要ファイル一式の短命 URL を取得する。
+KiCanvas専用APIは作らず、MVPでは他のpreview/download用途も含む汎用APIに寄せる。
 
 例:
 
 ```http
-GET /api/v1/board-runs/{board_run_id}/kicanvas-sources
+GET /api/v1/board-runs/{board_run_id}/viewer-sources
 ```
 
 レスポンス例:
 
 ```json
 {
-  "sources": [
-    {
-      "type": "project",
-      "name": "motor_driver.kicad_pro",
-      "url": "https://artifacts.boardflow.example.com/signed/..."
-    },
-    {
-      "type": "schematic",
-      "name": "motor_driver.kicad_sch",
-      "url": "https://artifacts.boardflow.example.com/signed/..."
-    },
-    {
-      "type": "board",
-      "name": "motor_driver.kicad_pcb",
-      "url": "https://artifacts.boardflow.example.com/signed/..."
+  "board_run_id": "br_abc123",
+  "expires_at": "2030-01-01T12:00:00Z",
+  "viewers": {
+    "kicanvas": {
+      "status": "available",
+      "sources": [
+        {
+          "kind": "project",
+          "name": "motor_driver.kicad_pro",
+          "source_path": "hardware/motor_driver/motor_driver.kicad_pro",
+          "url": "https://artifacts.boardflow.example.com/signed/..."
+        },
+        {
+          "kind": "schematic",
+          "name": "motor_driver.kicad_sch",
+          "source_path": "hardware/motor_driver/motor_driver.kicad_sch",
+          "url": "https://artifacts.boardflow.example.com/signed/..."
+        },
+        {
+          "kind": "board",
+          "name": "motor_driver.kicad_pcb",
+          "source_path": "hardware/motor_driver/motor_driver.kicad_pcb",
+          "url": "https://artifacts.boardflow.example.com/signed/..."
+        }
+      ]
     }
-  ]
+  }
 }
 ```
 
@@ -253,7 +265,7 @@ kicad/
 
 ### 4.2 `8.3 成果物種別`
 
-追加候補:
+追加するartifact type:
 
 ```text
 kicad_project
@@ -262,7 +274,8 @@ kicad_pcb
 kicad_worksheet
 ```
 
-`kicad_schematic` は複数行を許容する。DB の `artifacts.type` が run 内 unique である設計にする場合は、`logical_name` または `source_path` を別カラムとして持つ必要がある。
+`kicad_schematic` は複数行を許容する。
+DB の `artifacts` は `type` だけでは一意にせず、`logical_name` または repository root 相対の `source_path` を別カラムとして持つ。
 
 ### 4.3 `14.4 PCB Preview`
 
@@ -307,12 +320,13 @@ KiCanvas は comparison / visual diffing を non-goal としている。MVP の�
 
 ## 6. MVP 採用判断
 
-採用するなら以下の範囲がよい。
+MVPでは以下の範囲で採用する。
 
 ```text
 MVPに含める:
 - KiCanvas bundle script の vendoring
 - kicad_project / kicad_schematic / kicad_pcb artifact 保存
+- viewer-sources API 経由での短命URL取得
 - Run詳細またはBoardProject詳細での interactive preview
 - PDF/SVG fallback
 - Playwright smoke test で viewer コンテナが表示されることを確認

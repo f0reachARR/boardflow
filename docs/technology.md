@@ -48,6 +48,7 @@ SaaS
 | Worker | PostgreSQL backed queue |
 | Redis | rate limit / debounce / lock / short-lived state |
 | Artifact 保存 | S3-compatible object storage + staging zip import |
+| Artifact preview | viewer-sources API + KiCanvas + PDF/SVG fallback |
 | Frontend | Next.js App Router + TypeScript |
 | UI | Chakra UI + lucide-react |
 | 認証 | GitHub OAuth + GitHub App |
@@ -89,6 +90,8 @@ PostgreSQL + sqlc + pgx
 PostgreSQL backed worker queue
 Redis for rate/debounce/lock
 S3-compatible object storage + staging zip import/queued validation
+viewer-sources API for preview/download URLs
+KiCanvas interactive preview with PDF/SVG fallback
 Next.js App Router + TypeScript
 Chakra UI + lucide-react
 GitHub OAuth + GitHub App

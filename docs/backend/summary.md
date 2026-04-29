@@ -41,6 +41,7 @@ MVP で重要な API 群:
 - `POST /api/v1/board-runs`
 - `POST /api/v1/board-runs/{board_run_id}/artifact-bundles/import`
 - `POST /api/v1/board-runs/{board_run_id}/fail`
+- `GET /api/v1/board-runs/{board_run_id}/viewer-sources`
 - Web UI 向け read API
 - Artifact ダウンロード / プレビュー用 API
 - GitHub App webhook API
@@ -91,6 +92,7 @@ MVP で特に重要な識別:
 `board_projects.latest_successful_run_id` のような名前はDRC/ERC成功と混同しやすいため、artifact import成功を表す `latest_completed_run_id` に寄せる。
 Web UI の通常一覧には初回 completed 前の BoardProject も状態付きで表示し、検出済み、処理中、失敗、timeout、completed を追えるようにする。
 close済みIssueから新Issueへ切り替える場合に備え、過去Issueは `board_project_issue_history` 相当の履歴テーブルに残す。
+`recreate_issue_on_update` はMVPではデフォルト `true` とし、close済みIssueに対して変更が入った場合は新Issueを作る運用を基本にする。
 
 BoardRun の状態は成果物生成、upload、import の状態を表し、DRC/ERC の成功失敗とは分ける。
 
@@ -105,6 +107,7 @@ timed_out
 
 `completed` は artifact import が成立したことを表し、DRC/ERC の成功を意味しない。
 DRC/ERC が failed でも、manifest とチェック結果または skipped 状態を保存できた場合、BoardRun は `completed` として扱う。
+`fail-on-drc` / `fail-on-erc` によるGitHub Actions job失敗はCI gateであり、BoardRunを `failed` にする理由にはしない。
 BoardRun 作成から12時間以内に `completed` または `failed` へ到達しない場合、worker が `timed_out` に遷移させる。
 GitHub Actions の cancel、runner 停止、fail API 未送信の異常終了も MVP では `timed_out` に集約する。
 `board_project_id + github_run_id + github_run_attempt` は冪等キーとして扱い、同一 attempt の再送は terminal 状態を含めて既存 BoardRun を返す。
@@ -169,6 +172,7 @@ backend は zip を受け取っただけでは完了扱いにせず、以下を�
 zip bundle 内の manifest は root の `manifest.json` を正本にする。
 manifest の各 artifact は `type` と `status` を必須とする。
 `available` artifact のみ `path`、`content_type`、`sha256`、`size_bytes` を必須とし、zip entry と一致検証する。
+KiCanvas用の `kicad_project` / `kicad_schematic` / `kicad_pcb` は通常artifactと同じ保存モデルで扱うが、複数schematicを区別するため `source_path` または `logical_name` を持たせる。
 manifest 未記載の zip entry は原則拒否し、root の `manifest.json` と仕様で許可した補助ファイルのみ例外として扱う。
 import 成功済みの staging bundle は24時間以内、failed / timed_out run の staging bundle は7日後に削除対象とする。
 final bucket の artifact は MVP では無期限保存とする。
@@ -181,6 +185,9 @@ private artifact 前提なので、配信時は以下を前提にする。
 - 制限付き `Access-Control-Allow-Origin`
 - `X-Content-Type-Options: nosniff`
 - iframe sandbox
+
+Web UIは `viewer-sources` APIから、KiCanvas、schematic PDF、PCB SVG/PDF、iBOM、BOM、fabrication downloadに必要な短命URLを取得する。
+KiCanvas専用APIは作らず、viewer用途ごとのsourceを汎用レスポンスにまとめる。
 
 ## 8. 認証と認可
 
@@ -206,6 +213,7 @@ Plan API では Issue 作成ジョブを enqueue しない。
 Issue 作成は初回 `BoardRun.status = completed` 後に行う。
 Issue はユーザーが発注などの区切りで close する運用を許容する。
 BoardProject 設定 `recreate_issue_on_update` が有効で、active Issue が closed かつ `tree_hash` が変わった場合、backend は既存Issueをreopenせず新しいIssueを作成する。
+MVPでは `recreate_issue_on_update` のデフォルトを `true` とする。
 Issueタイトルや本文のユーザー編集は上書きせず、GitHub APIジョブ実行時にIssue/commentの404や削除を検出して必要な再作成を行う。
 
 ## 9. デプロイ
@@ -280,7 +288,10 @@ MVP の backend test は以下を基準にする。
 - 12時間超過した未完了 BoardRun が timed_out になる test
 - 同一 `github_run_id + github_run_attempt` の BoardRun 作成が既存 run を返す test
 - artifact 欠損が `available` / `missing` / `failed` / `skipped` として保存される test
+- 複数 `kicad_schematic` artifact が `source_path` 付きで保存される test
+- `viewer-sources` API がviewer別に短命URLと欠損状態を返す test
 - DRC/ERC failed でも import 成功時は BoardRun completed になる test
+- `fail-on-drc` 相当のCI失敗がBoardRun failedを発生させない test
 - close済みIssueと `recreate_issue_on_update` の組み合わせ test
 - Dashboardコメント削除時の再作成 test
 

@@ -87,6 +87,9 @@ Artifact は private 前提で、S3 互換ストレージから直接 public 配
 frontend で意識する点:
 
 - ダウンロード URL は短命である前提で扱う
+- preview / download 用URLは `viewer-sources` APIからviewer単位で取得する
+- Schematic / PCB Preview では KiCanvas を第一候補にしつつ、PDF/SVG fallback を必ず残す
+- KiCanvas は Client Component に閉じ込め、bundle script は vendoring して外部 CDN から読み込まない
 - iBOM HTML は通常の app domain とは分離された artifact domain 上で表示する
 - iframe 利用時はレイアウト崩れやクロスドメイン制約を前提に設計する
 - 画像や PDF の preview は「すぐ見られること」を優先し、重い比較 UI は後回しにしてよい
@@ -104,7 +107,7 @@ frontend は backend の OpenAPI 契約に追従する。
 - BoardRun 一覧取得
 - BoardRun 詳細取得
 - Artifact 一覧取得
-- Artifact 表示用の短命 URL 取得
+- `GET /api/v1/board-runs/{board_run_id}/viewer-sources`
 
 OpenAPI から TypeScript 型を生成して、画面側の props と API response をなるべく一致させる。
 
@@ -117,6 +120,8 @@ MVP の frontend test は次を基準にする。
 - 権限なし時のガード確認
 - 初回 completed run がない BoardProject も通常一覧に状態付きで表示されること
 - artifact 欠損状態が一覧と詳細で表示されること
+- `viewer-sources` APIの `available` / `partial` / `missing` / `failed` / `skipped` に応じてpreview導線が切り替わること
+- KiCanvas viewer コンテナが表示され、失敗時にPDF/SVG fallbackへ戻れること
 - timed_out のBoardProjectに「中断または未完了の可能性」が分かる表示を出すこと
 - Run 一覧から成果物表示までの代表導線確認
 
