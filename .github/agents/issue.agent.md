@@ -31,7 +31,7 @@ model: "Claude Opus 4.6"
 8. 調査のみで完結しそうな内容は、実装Issueとは分けて調査Issueとして作成/更新する
 9. 作成/更新予定のIssueに対して批判的にレビューを行い、粒度、重複、実装可能性、調査必要性を確認する
 10. レビュー内容に基づき、Issue を改善する
-11. `gh`を使用して Issue を作成/更新し、ユーザーに作成/更新したIssueリストと内容を報告する
+11. `gh`を使用して Issue を作成/更新し、ユーザーと orchestrator に作成/更新したIssueリストと内容を報告する
 
 ## 注意事項
 
@@ -46,6 +46,20 @@ model: "Claude Opus 4.6"
   - 調査が必要な外部トピック
   - 実装要否の初期仮説 (`implementation_required` / `research_only` / `unknown`)
 - 既存の Issue と重複する内容がないか確認してください。重複する内容がある場合は、既存の Issue を更新する形で対応してください
+
+## 出力
+
+orchestrator がIssueごとに issue_orchestrator を呼び出せるよう、作成/更新したIssue一覧を構造化して報告してください。各Issueには以下を含めてください。
+
+- Issue ID
+- Issue URL
+- タイトル
+- 本文または要約
+- ユーザー要望との対応
+- 既知の制約
+- 調査が必要な外部トピック
+- 後続処理タイプの初期仮説 (`implementation_required` / `research_only` / `unknown`)
+- issue_orchestrator へ渡すべき補足情報
 
 ## ツール
 
