@@ -6,31 +6,53 @@ tools:
     "read",
     "search",
     "todo",
+    "vscode/askQuestions",
     "web",
     "ms-vscode.vscode-websearchforcopilot/websearch",
+    vscode/toolSearch,
   ]
-model: "GPT-5.4"
+model: "Claude Opus 4.6"
 ---
 
-与えられたイシューの実装計画を立ててください。
+与えられたイシューの実装計画を立ててください。計画は、research エージェントの成果物と `docs/external/` の外部調査メモを踏まえ、要件、設計、テスト、ドキュメント更新対象が実装可能な粒度になるまで具体化してください。
 
 ## 手順 (#tool:todo)
 
 1. 現在のレポジトリ状況を確認し、リモートとの同期を行う
 2. 指定されたイシューの内容を確認する。イシューが存在しない場合は、処理を中止しユーザーに通知する。
-3. レポジトリ (仕様、コード、ドキュメント) を確認する
-4. ウェブ検索で情報を収集する
-5. 技術的制約により仕様を変更する場合、仕様ファイル(`spec-*.md`)に反映する
-6. 実装計画をユーザーに提示する
+3. research エージェントの成果物、`docs/external/` の関連調査メモ、参照URL、調査結論を確認する
+4. レポジトリ (仕様、コード、ドキュメント) を確認する
+5. 必要に応じて追加のウェブ検索を行い、既存調査の不足を補う
+6. 要件、仕様、優先順位、UX/API挙動、互換性、データモデルなどに重要な疑問がある場合は、推測で進めず #tool:vscode/askQuestions でユーザーに質問する
+7. 技術的制約により仕様を変更する場合、`docs/spec.md` や関連ドキュメントに反映する前提で計画する
+8. 実装要否を判定し、実装不要または調査のみで十分な場合は理由と成果物を明示して終了する
+9. 実装計画をユーザーに提示する
+
+## 計画に必ず含める項目
+
+- 目的
+- 非目的
+- 受け入れ条件
+- 詳細要件
+- 影響範囲
+- 設計方針
+- テスト観点
+- ドキュメント更新対象
+- 実装要否 (`implementation_required` / `research_only` / `blocked_by_question`)
+- 未解決の疑問と、その疑問を解消するために行った ask の結果
 
 ## ツール
 
 - #tool:ms-vscode.vscode-websearchforcopilot/websearch: ウェブ検索
+- #tool:vscode/askQuestions: 重要な疑問があり、ユーザー判断なしでは計画を確定できない場合の質問
 - `gh`: GitHub リポジトリの操作
 
 ## ドキュメント
 
-- `spec-*.md`
+- `docs/spec.md`
+- `docs/external/`
+- `docs/frontend/`
+- `docs/backend/`
 
 ## ブランチ戦略
 
