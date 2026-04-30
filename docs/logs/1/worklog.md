@@ -274,3 +274,51 @@ Phase 5: 検証 (cargo build, cargo test, docker compose, healthz)
 1. OpenAPI バージョン差分を放置すると、後続 Issue の契約テストと型生成で再調整が必要になる。
 2. 設定スコープが曖昧なままだと、Redis / MinIO を使う Issue で設定方式の再設計が入りやすい。
 3. 条件付きスキップのままでは、CI の DB セットアップ欠落を見逃しやすい。
+
+## レビュー指摘修正 (2026-04-30)
+
+### 修正内容
+
+1. **OpenAPI バージョン統一 (3.1.0)**
+   - `docs/backend/summary.md`: 採用スタック表の OpenAPI 3.0.3 → 3.1.0
+   - `docs/technology.md`: 決定済み技術方針表と MVP 推奨結論の 3.0.3 → 3.1.0
+   - `docs/backend/api.md`: 3.0.3 記載なし、変更不要
+   - 統合テストに `json["openapi"] == "3.1.0"` アサーション追加
+
+2. **Redis/MinIO 設定フィールド追加**
+   - `AppConfig` に `redis_url`, `minio_endpoint`, `minio_access_key`, `minio_secret_key` を `Option<String>` で追加
+   - 環境変数 REDIS_URL, MINIO_ENDPOINT, MINIO_ACCESS_KEY, MINIO_SECRET_KEY から読み込み
+   - 設定テストに Optional フィールドの None/Some 検証を追加
+
+3. **API_PORT 不正値のエラー化**
+   - `ConfigError` enum を新設 (`MissingEnvVar(String)`, `InvalidPort(String)`)
+   - `from_env()` の戻り値を `Result<Self, ConfigError>` に変更
+   - 不正な API_PORT は `ConfigError::InvalidPort` を返すように変更
+   - テストを `unwrap_or(3000)` フォールバックからエラー検証に変更
+   - 範囲外値 (65536超) もパースエラーとしてエラーを返す
+
+4. **テスト改善**
+   - `config_test.rs`: ConfigError の variant マッチング、Redis/MinIO フィールド検証、ポート範囲外テスト追加
+   - `integration_test.rs`: OpenAPI バージョン 3.1.0 のアサーション追加
+
+### テスト結果
+
+| テスト | 結果 |
+|---|---|
+| `cargo build` | ✅ 成功 |
+| `cargo test --workspace` | ✅ 全テスト通過 (config_test: 1, integration_test: 2) |
+
+### コミット
+
+- `d18e468` fix(#1): address review feedback - OpenAPI 3.1.0, config improvements
+
+### 更新ドキュメント
+
+- `docs/backend/summary.md` — OpenAPI バージョン修正
+- `docs/technology.md` — OpenAPI バージョン修正
+- `docs/logs/1/worklog.md` — 本セクション追記
+
+### 残リスク
+
+1. 統合テストは依然 DATABASE_URL 未設定時にスキップ扱い（CI 設定に依存）
+2. MINIO_BUCKET_STAGING / MINIO_BUCKET_FINAL は今回のスコープ外（後続 Issue で追加予定）
