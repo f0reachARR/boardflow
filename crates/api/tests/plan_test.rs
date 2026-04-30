@@ -62,6 +62,37 @@ async fn create_test_repository(pool: &PgPool, github_repository_id: i64, instal
     id
 }
 
+/// Create a pre-existing BoardProject with the given latest_tree_hash.
+/// Uses a past created_at/updated_at to ensure is_new detection (created_at != updated_at) works.
+async fn create_existing_board_project(
+    pool: &PgPool,
+    repository_id: Uuid,
+    project_path: &str,
+    latest_tree_hash: Option<&str>,
+) -> Uuid {
+    let id = Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO board_projects (id, repository_id, project_path, project_dir, display_name, \
+         issue_sync_status, recreate_issue_on_update, latest_tree_hash, \
+         created_at, updated_at) \
+         VALUES ($1, $2, $3, $4, $5, 'pending', true, $6, \
+         NOW() - INTERVAL '1 hour', NOW()) \
+         ON CONFLICT (repository_id, project_path) DO UPDATE SET \
+         latest_tree_hash = EXCLUDED.latest_tree_hash, \
+         updated_at = NOW()",
+    )
+    .bind(id)
+    .bind(repository_id)
+    .bind(project_path)
+    .bind("hardware")
+    .bind("LightStick")
+    .bind(latest_tree_hash)
+    .execute(pool)
+    .await
+    .unwrap();
+    id
+}
+
 fn plan_request_body(github_repository_id: &str) -> serde_json::Value {
     serde_json::json!({
         "repository": {
@@ -575,6 +606,132 @@ async fn plan_empty_config_path_returns_error() {
 
     assert_eq!(json["projects"][0]["decision"], "error");
     assert_eq!(json["projects"][0]["reason"], "invalid_config_path");
+}
+
+/// 正常系: 既存プロジェクトでtree_hash変更 → build / hash_changed
+#[tokio::test]
+async fn plan_existing_project_hash_changed() {
+    let pool = match setup_pool().await {
+        Some(p) => p,
+        None => return,
+    };
+
+    let github_repo_id: i64 = rand_i64();
+    let installation_id: i64 = 1010;
+    let repo_id = create_test_repository(&pool, github_repo_id, installation_id).await;
+    let token = create_test_token(&pool, repo_id, installation_id).await;
+
+    let project_path = "hardware/LightStick.kicad_pro";
+    create_existing_board_project(&pool, repo_id, project_path, Some("old_hash_value")).await;
+
+    let app = create_app(pool);
+    let mut body = plan_request_body(&github_repo_id.to_string());
+    body["projects"][0]["tree_hash"] = serde_json::json!("new_different_hash");
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/runs/plan")
+                .header("content-type", "application/json")
+                .header("authorization", format!("Bearer {}", token))
+                .body(Body::from(serde_json::to_vec(&body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body_bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+
+    assert_eq!(json["projects"][0]["decision"], "build");
+    assert_eq!(json["projects"][0]["reason"], "hash_changed");
+}
+
+/// 正常系: 既存プロジェクトでtree_hash一致 → skip / unchanged
+#[tokio::test]
+async fn plan_existing_project_unchanged() {
+    let pool = match setup_pool().await {
+        Some(p) => p,
+        None => return,
+    };
+
+    let github_repo_id: i64 = rand_i64();
+    let installation_id: i64 = 1011;
+    let repo_id = create_test_repository(&pool, github_repo_id, installation_id).await;
+    let token = create_test_token(&pool, repo_id, installation_id).await;
+
+    let project_path = "hardware/LightStick.kicad_pro";
+    let tree_hash = "deadbeef1234567890";
+    create_existing_board_project(&pool, repo_id, project_path, Some(tree_hash)).await;
+
+    let app = create_app(pool);
+    let body = plan_request_body(&github_repo_id.to_string());
+    // body's tree_hash is "deadbeef1234567890" by default, matching the stored value
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/runs/plan")
+                .header("content-type", "application/json")
+                .header("authorization", format!("Bearer {}", token))
+                .body(Body::from(serde_json::to_vec(&body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body_bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+
+    assert_eq!(json["projects"][0]["decision"], "skip");
+    assert_eq!(json["projects"][0]["reason"], "unchanged");
+}
+
+/// 正常系: 既存プロジェクトでlatest_tree_hash=NULL → build / no_previous_snapshot
+#[tokio::test]
+async fn plan_existing_project_no_previous_snapshot() {
+    let pool = match setup_pool().await {
+        Some(p) => p,
+        None => return,
+    };
+
+    let github_repo_id: i64 = rand_i64();
+    let installation_id: i64 = 1012;
+    let repo_id = create_test_repository(&pool, github_repo_id, installation_id).await;
+    let token = create_test_token(&pool, repo_id, installation_id).await;
+
+    let project_path = "hardware/LightStick.kicad_pro";
+    create_existing_board_project(&pool, repo_id, project_path, None).await;
+
+    let app = create_app(pool);
+    let body = plan_request_body(&github_repo_id.to_string());
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/runs/plan")
+                .header("content-type", "application/json")
+                .header("authorization", format!("Bearer {}", token))
+                .body(Body::from(serde_json::to_vec(&body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body_bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+
+    assert_eq!(json["projects"][0]["decision"], "build");
+    assert_eq!(json["projects"][0]["reason"], "no_previous_snapshot");
 }
 
 fn rand_i64() -> i64 {

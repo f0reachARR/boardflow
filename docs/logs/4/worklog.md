@@ -618,31 +618,79 @@ plan_empty_project_path_returns_error ... ok (新規追加)
   - [crates/api/src/routes/plan.rs](crates/api/src/routes/plan.rs#L211) から [crates/api/src/routes/plan.rs](crates/api/src/routes/plan.rs#L229) に分岐はあるが、[crates/api/tests/plan_test.rs](crates/api/tests/plan_test.rs) には該当ケースがない。
   - 実装は単純で新たな不具合は確認していないが、回帰検知としては不足。
 
+---
+
+## 最終確認レビュー (4回目) (2026-05-01)
+
+### 対象Issue
+
+- Issue ID: #4
+- タイトル: Action API: Plan API実装
+
+### 総評
+
+- 前回指摘の 2 点は現行コードで解消されている。`docs/spec.md` には `decision: error` 時の `reason` が追記され、`invalid_tree_hash` / `invalid_config_path` を返す分岐と対応テストも追加された。
+- `docs/spec.md`、`docs/backend/api.md`、実装の `PlanReason` 列挙値を突き合わせた限り、`new_project`、`hash_changed`、`config_changed`、`manual_dispatch`、`unchanged`、`previous_failed`、`no_previous_snapshot` と、`decision: error` 用の `duplicate_project_path`、`invalid_project_path`、`invalid_tree_hash`、`invalid_config_path` は整合している。
+- ただし、Plan API の中核である差分判定の主要分岐 `hash_changed` / `unchanged` / `no_previous_snapshot` を検証するテストが依然として存在しない。さらに `plan_test` は `DATABASE_URL` 未設定時に early return するため、この環境で再実行した `10 passed` は DB 経路の実検証を伴っていない。
+- 判定: `pr_ready: false`
+
+### 確認結果
+
+1. **reason 値の整合**
+  - [docs/spec.md](docs/spec.md#L510) から [docs/spec.md](docs/spec.md#L525)、[docs/backend/api.md](docs/backend/api.md#L208)、[crates/api/src/routes/plan.rs](crates/api/src/routes/plan.rs#L99) から [crates/api/src/routes/plan.rs](crates/api/src/routes/plan.rs#L110) を確認し、reason 値の不一致は見当たらない。
+
+2. **今回追加された validation テスト**
+  - [crates/api/tests/plan_test.rs](crates/api/tests/plan_test.rs#L456) と [crates/api/tests/plan_test.rs](crates/api/tests/plan_test.rs#L519) で `invalid_tree_hash` / `invalid_config_path` が追加されている。
+  - 実装側も [crates/api/src/routes/plan.rs](crates/api/src/routes/plan.rs#L211) から [crates/api/src/routes/plan.rs](crates/api/src/routes/plan.rs#L229) で対応しており、前回指摘の修正として妥当。
+
+3. **テストの十分性**
+  - [docs/logs/4/worklog.md](docs/logs/4/worklog.md#L241) と [docs/logs/4/worklog.md](docs/logs/4/worklog.md#L242) では `hash_changed` と `unchanged` のテストを計画していたが、現行の [crates/api/tests/plan_test.rs](crates/api/tests/plan_test.rs) には該当ケースがない。
+  - [crates/api/src/routes/plan.rs](crates/api/src/routes/plan.rs#L271) と [crates/api/src/routes/plan.rs](crates/api/src/routes/plan.rs#L275) の分岐は実装されているが、回帰防止がない。
+  - [crates/api/tests/plan_test.rs](crates/api/tests/plan_test.rs#L14) の通り `DATABASE_URL` 未設定時は各テストが return する。現環境でも `DATABASE_URL` は未設定で、再実行した `cargo test -p boardflow-api --test plan_test` の `10 passed` は DB バックエンドを実際には通していない。
+
+### レビュー結果
+
+#### 重大度順の指摘
+
+1. **中**: 差分判定の主要分岐に対するテストが不足している
+  - Issue の計画と受け入れ条件には `hash_changed`、`unchanged`、`no_previous_snapshot` が含まれているが、現行テストは `new_project`、`manual_dispatch`、認証認可、validation の一部しかカバーしていない。
+  - Plan API の価値は build/skip 判定そのものにあるため、この未検証部分は PR 前に埋めるべき。
+
+2. **中**: 現行の plan_test は環境依存で実質 skip され得る
+  - `DATABASE_URL` がない環境でもテスト結果が全件成功に見えるため、CI やレビュー時に誤った安心感を生みやすい。
+  - テスト基盤としては脆く、少なくとも DB 必須テストが実際に実行されたことを確認できる形が望ましい。
+
 #### 必須修正
 
-- [docs/spec.md](docs/spec.md#L509) から [docs/spec.md](docs/spec.md#L516) を更新し、`decision: error` 時の `reason` 列挙を [docs/backend/api.md](docs/backend/api.md#L209) と一致させること。
+- `hash_changed` を返すケースの DB バックドテストを追加すること。
+- `unchanged` を返すケースの DB バックドテストを追加すること。
+- 既存 project かつ `latest_tree_hash == NULL` で `no_previous_snapshot` を返すケースの DB バックドテストを追加すること。
+- 少なくとも PR 前に、DB 接続ありの環境で `cargo test -p boardflow-api --test plan_test` が実際にこれらのケースを通ることを確認すること。
 
 #### 任意改善
 
-- [crates/api/tests/plan_test.rs](crates/api/tests/plan_test.rs) に空文字 `tree_hash` と空文字 `config_path` のケースを追加し、`invalid_tree_hash` / `invalid_config_path` を固定化すること。
+- `DATABASE_URL` 未設定時に単純 return ではなく skip 理由が明確に見える仕組みに寄せること。
+- diff 判定ロジックを helper 化して、純粋関数レベルのユニットテストでも主要分岐を固定できるようにすること。
 
 #### テスト不足
 
-- 空文字 `tree_hash` → `decision: error`, `reason: invalid_tree_hash`
-- 空文字 `config_path` → `decision: error`, `reason: invalid_config_path`
+- `hash_changed`
+- `unchanged`
+- `no_previous_snapshot`
+- DB 接続あり環境での実行確認
 
 #### ドキュメント更新漏れ
 
-- [docs/spec.md](docs/spec.md#L509) から [docs/spec.md](docs/spec.md#L516)
+- 今回確認した範囲ではなし。
 
 #### plan / research / docs との不整合
 
-- 実装と [docs/backend/api.md](docs/backend/api.md#L209) は一致している。
-- 仕様書本体の [docs/spec.md](docs/spec.md#L509) から [docs/spec.md](docs/spec.md#L516) が新しい `reason` 値を追従できていない。
+- [docs/logs/4/worklog.md](docs/logs/4/worklog.md#L240) から [docs/logs/4/worklog.md](docs/logs/4/worklog.md#L243) のテスト計画にある主要分岐が、現行テスト実装では未充足。
 
 #### テスト結果
 
-- `cargo test -p boardflow-api --test plan_test` を再実行し、8件すべて成功。
+- `cargo test -p boardflow-api --test plan_test`: 10 passed
+- ただし現環境では `DATABASE_URL` 未設定のため、[crates/api/tests/plan_test.rs](crates/api/tests/plan_test.rs#L14) の early return により DB 経路は未検証。
 
 #### PR/完了結果
 
@@ -650,8 +698,8 @@ plan_empty_project_path_returns_error ... ok (新規追加)
 
 #### 残リスク
 
-- 実装済みの validation 分岐がテストで固定化されていないため、将来のリファクタで落ちても気づきにくい。
-- 仕様確認元として [docs/spec.md](docs/spec.md) を参照する利用者には、返り得る `reason` が不足して見える。
+- diff 判定の根幹ロジックに回帰が入っても、現行テストでは検出できない。
+- DB 未接続環境での疑似的な全緑が続くと、レビューと CI の信頼性を下げる。
 
 #### 更新した作業ログパス
 
