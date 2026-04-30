@@ -222,6 +222,7 @@ CREATE INDEX idx_board_project_snapshots_board_project_id ON board_project_snaps
 CREATE INDEX idx_board_project_snapshots_board_run_id ON board_project_snapshots(board_run_id);
 CREATE INDEX idx_board_run_diffs_base_board_run_id ON board_run_diffs(base_board_run_id);
 CREATE INDEX idx_boardflow_api_tokens_repository_id ON boardflow_api_tokens(repository_id);
+CREATE INDEX idx_boardflow_api_tokens_installation_id ON boardflow_api_tokens(installation_id);
 CREATE INDEX idx_github_jobs_repository_id ON github_jobs(repository_id);
 CREATE INDEX idx_github_jobs_board_project_id ON github_jobs(board_project_id);
 CREATE INDEX idx_github_jobs_board_run_id ON github_jobs(board_run_id);
@@ -229,3 +230,6 @@ CREATE INDEX idx_board_project_issue_history_board_project_id ON board_project_i
 
 -- 16. Partial index for pending jobs
 CREATE INDEX idx_github_jobs_pending ON github_jobs(run_after) WHERE status = 'pending';
+
+-- 17. Unique index for artifact deduplication within a run (NULLS NOT DISTINCT for nullable source_path)
+CREATE UNIQUE INDEX idx_artifacts_run_type_path ON artifacts(board_run_id, type, source_path) NULLS NOT DISTINCT;

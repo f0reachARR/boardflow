@@ -307,3 +307,57 @@ implementation_required
 - JSONB カラムのインデックスはMVP後に要否判断
 - artifacts.type / artifact_bundles.intake_mode は CHECK なし → アプリ層バリデーション必要
 - board_project_snapshots(board_run_id) にインデックス未追加（UNIQUE制約なし、FK参照もなし → 必要時に追加）
+
+---
+
+## レビューフェーズ (2026-04-30)
+
+### 対象Issue
+- Issue #2: DBマイグレーション・データモデル実装
+
+### 調査結果
+- spec.md Section 10、README、backend設計文書、docs/external の調査メモ、既存 worklog、実装済み SQL / domain model を照合した。
+- 外部調査では、SQLx の migrate revert は reversible migration（.up.sql / .down.sql）前提であり、simple migration では満たせないことを再確認した。
+- PostgreSQL 15+ では UNIQUE ... NULLS NOT DISTINCT が使えるため、nullable 列を含む重複防止は単純な複合 UNIQUE より明示設計が必要と確認した。
+
+### テスト結果
+- cargo build : 成功
+- cargo test : 成功
+- PostgreSQL 16 コンテナ上で 20260430000000_init.sql + 20260430000001_create_schema.sql を適用し、13テーブル作成を確認
+
+### ドキュメント確認
+- spec.md Section 10 の13テーブル定義との大枠整合は確認
+- README は依然として高レベル概要のみで、本Issue向けの追加更新は不要
+- docs/external/sqlx-migration-format.md の方針と、Issue本文の成功条件 sqlx migrate revert の間に不整合が残っている
+
+### レビュー結果
+- 判定: pr_ready: false
+
+#### 必須修正
+1. artifacts に、spec.md が要求する board_run_id + type + source_path 相当の同一run内重複防止制約を追加すること。
+   - source_path が nullable のため、PostgreSQL 15+ の NULLS NOT DISTINCT を使うか、source_path IS NULL / IS NOT NULL を分けた一意インデックス等で要件を満たす必要がある。
+2. Issue本文の成功条件にある sqlx migrate revert を満たす migration 形式へ修正するか、少なくとも Issue / 計画 / 成功条件のいずれかを更新して forward-only 方針へ明示的に再合意すること。
+   - 現状は simple migration しか存在せず、受け入れ条件との差分が未解消。
+
+#### 任意改善
+1. boardflow_api_tokens(installation_id) インデックスは計画にあるが未実装のため、lookup 予定があるなら追加を検討する。
+2. board_project_snapshots(board_run_id) の一意性または索引方針は、1 run 1 snapshot を前提にするなら明示した方がよい。
+3. created_at / updated_at や一部 JSONB カラムの DEFAULT 方針は、Issue本文・research・実装で揺れがあるため後続Issue向けに明文化した方がよい。
+
+#### plan / research / docs との不整合
+- research / plan では simple migration 採用としている一方、Issue本文の成功条件には sqlx migrate revert が含まれている。
+- 計画では boardflow_api_tokens(installation_id) と github_jobs(status, run_after) WHERE status = pending を明示しているが、前者は未実装、後者は run_after 単独 partial index 実装に変わっている。
+- spec.md は artifacts の重複防止を要求しているが、実装 SQL に対応制約がない。
+
+#### テスト不足
+- artifacts の重複防止制約に関する失敗系テストがない。
+- reversible migration を前提にするなら sqlx migrate revert の実測がない。
+- CHECK / UNIQUE / FK の失敗系を検証する DB テストが未追加。
+
+#### 残リスク
+- 現状の artifacts は重複行を受け入れるため、import 冪等性や Web UI 集計の前提を崩す可能性がある。
+- migration 形式の合意が曖昧なまま進むと、後続Issueで sqlx migrate revert を前提にした開発フローが成立しない。
+
+### PR/完了結果
+- pr_ready: false
+- 再レビュー条件: artifacts 重複防止制約の追加、および migration 受け入れ条件の不整合解消
