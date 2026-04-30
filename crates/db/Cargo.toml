@@ -1,0 +1,9 @@
+[package]
+name = "boardflow-db"
+version = "0.0.1"
+edition = "2024"
+
+[dependencies]
+sqlx = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }

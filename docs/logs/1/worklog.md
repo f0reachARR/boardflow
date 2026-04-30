@@ -1,0 +1,167 @@
+# Issue #1: Rust workspaceセットアップとDB基盤
+
+## 経緯
+- バックエンド実装Issue分割タスクの一環として作成
+- 全バックエンドIssueの前提となる土台Issue
+
+## ユーザー要望
+- docs/以下の仕様に基づくRustバックエンド実装の第1段階
+
+## Issue作成内容
+- Cargo workspace構成、Axum基本構造、SQLx+PostgreSQL、Docker Compose、設定管理
+- URL: https://github.com/f0reachARR/boardflow/issues/1
+
+## 後続処理タイプの初期仮説
+`implementation_required`
+
+## 調査結果 (2026-04-30)
+
+### 調査概要
+
+Issue #1 実装に必要な外部 crate の最新バージョンと互換性を調査した。
+
+### 主要な結論
+
+1. **Axum 0.8.9** (最新安定) — `axum = "0.8"`
+2. **SQLx 0.8.6** — PostgreSQL 完全対応、offline mode 安定
+3. **utoipa 5.4.0 + utoipa-axum 0.2.0** — **Axum 0.8 と公式互換確認済み** ✅
+   - utoipa-axum 0.2.0 は axum ^0.8.0 + utoipa ^5.0.0 に依存
+   - ワークログの懸念事項「utoipa の Axum 0.7 対応状況要確認」は解消（0.8対応済み）
+4. **tokio 1.52.0** — LTS: 1.51.x (2027年3月まで)
+5. **tracing 0.1.44 / tracing-subscriber 0.3.23**
+6. **tracing-opentelemetry 0.28.0** — opentelemetry 0.28 系と互換セットで使用
+7. **Docker Compose**: postgres:16-alpine, redis:7-alpine, minio/minio:latest
+
+### SQLx Offline Mode セットアップ要約
+
+```bash
+# 準備 (DB接続状態で)
+cargo sqlx prepare --workspace --all -- --all-targets
+
+# CI検証
+SQLX_OFFLINE=true cargo build
+
+# CIチェック (`.sqlx` が最新か確認)
+cargo sqlx prepare --workspace --check -- --all-targets
+```
+
+- `.sqlx/` ディレクトリをリポジトリにコミット
+- CI では `SQLX_OFFLINE=true` をセット
+- `--all-targets` でテストコード内クエリも含める
+
+### 互換性マトリクス
+
+| Crate A | Crate B | 互換性 |
+|---|---|---|
+| axum 0.8.x | utoipa-axum 0.2.0 | ✅ 公式対応 |
+| utoipa 5.x | utoipa-axum 0.2.0 | ✅ 公式対応 |
+| tracing-opentelemetry 0.28 | opentelemetry 0.28 | ✅ (要確認だが高確率で互換) |
+| tokio 1.x | axum 0.8 / sqlx 0.8 | ✅ |
+
+### 結論ステータス
+
+`implementation_required` — 全ての外部依存は安定版で利用可能。実装に進んでよい。
+
+### 成果物
+
+- `docs/external/rust-crate-versions.md` — 詳細な調査結果と推奨 Cargo.toml
+
+## 残リスク
+- tracing-opentelemetry 0.28 の opentelemetry 正確な互換バージョンは実際のビルドで最終確認が必要
+- opentelemetry 0.28→0.31 へのアップグレードは将来必要（tracing-opentelemetry の更新待ち）
+- MinIO の latest タグは本番では日付タグに固定すべき
+
+
+## 計画 (2026-04-30)
+
+### 実装要否
+
+\`implementation_required\`
+
+### 目的
+
+Rust Cargo workspace の骨格を構築し、全後続 Issue の基盤を確立する。具体的には:
+- 7 crate の workspace 構成
+- Axum による HTTP サーバー起動とヘルスチェック
+- SQLx による PostgreSQL 接続基盤
+- Docker Compose によるローカル開発環境
+- 環境変数ベースの設定管理
+- tracing による structured logging
+- utoipa による OpenAPI スキーマ生成
+
+### 非目的
+
+- 業務ロジックの実装（後続 Issue で追加）
+- API エンドポイントの実装（/healthz と OpenAPI JSON 以外）
+- マイグレーションの作成（初回マイグレーションは Issue #2 以降）
+- GitHub App / OAuth の実装
+- Worker のジョブ処理実装
+- フロントエンドとの結合
+
+### 受け入れ条件
+
+1. \`cargo build\` が全 crate で成功すること
+2. \`cargo test\` が成功すること
+3. \`docker compose up -d\` で PostgreSQL, Redis, MinIO が起動すること
+4. API server が Axum で起動し、GET /healthz が 200 OK を返すこと
+5. SQLx で PostgreSQL 接続が確立すること（ヘルスチェック内で確認）
+6. utoipa による OpenAPI JSON が GET /api/v1/openapi.json で取得できること
+7. tracing-subscriber による structured logging が stdout に出力されること
+
+### 作成ファイル一覧 (19ファイル)
+
+| パス | 概要 |
+|---|---|
+| Cargo.toml | workspace定義 + 共通依存 |
+| docker-compose.yml | PostgreSQL, Redis, MinIO |
+| .env.example | 環境変数テンプレート |
+| crates/api/Cargo.toml | API crate 依存定義 |
+| crates/api/src/main.rs | エントリポイント: サーバー起動 |
+| crates/api/src/lib.rs | app構築ロジック (テスト用分離) |
+| crates/api/src/config.rs | 環境変数からの設定読み込み |
+| crates/api/src/routes/mod.rs | ルーティング定義 |
+| crates/api/src/routes/health.rs | GET /healthz ハンドラー |
+| crates/worker/Cargo.toml | Worker crate 依存定義 |
+| crates/worker/src/main.rs | スケルトン |
+| crates/domain/Cargo.toml | Domain crate |
+| crates/domain/src/lib.rs | スケルトン |
+| crates/db/Cargo.toml | DB crate |
+| crates/db/src/lib.rs | PgPool初期化 |
+| crates/jobs/Cargo.toml | Jobs crate |
+| crates/jobs/src/lib.rs | スケルトン |
+| crates/github/Cargo.toml | GitHub crate |
+| crates/github/src/lib.rs | スケルトン |
+| crates/artifact/Cargo.toml | Artifact crate |
+| crates/artifact/src/lib.rs | スケルトン |
+
+### 実装順序
+
+Phase 1: 基盤 (Cargo.toml, docker-compose.yml, .env.example)
+Phase 2: ライブラリ crates (domain, db, jobs, github, artifact)
+Phase 3: API サーバー (api crate: config, routes, lib, main)
+Phase 4: Worker スケルトン
+Phase 5: 検証 (cargo build, cargo test, docker compose, healthz)
+
+### テスト計画
+
+- cargo build: 全crate コンパイル成功
+- cargo test: config パース、app構築スモークテスト
+- docker compose up -d: 3サービス起動確認
+- curl localhost:3000/healthz: 200 {"status":"ok"}
+- curl localhost:3000/api/v1/openapi.json: 有効な OpenAPI JSON
+- structured logging: JSON ログ stdout 出力確認
+
+### 環境変数設計
+
+- DATABASE_URL (必須): PostgreSQL接続文字列
+- REDIS_URL: Redis接続文字列
+- MINIO_ENDPOINT / MINIO_ACCESS_KEY / MINIO_SECRET_KEY: MinIO設定
+- MINIO_BUCKET_STAGING / MINIO_BUCKET_FINAL: バケット名
+- RUST_LOG: tracingフィルター
+- API_HOST / API_PORT: APIバインド設定
+
+### 残リスク
+
+1. tracing-opentelemetry 0.28 互換性: Issue #1 では OTel exporter 含めず影響なし
+2. MinIO latest タグ: ローカル開発用なので許容
+3. Rust nightly: 使用crate はすべて stable 互換
