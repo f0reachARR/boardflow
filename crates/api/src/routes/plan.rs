@@ -1,7 +1,9 @@
+use axum::extract::rejection::JsonRejection;
 use axum::extract::State;
 use axum::{Extension, Json};
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
+use std::collections::HashSet;
 use utoipa::ToSchema;
 
 use crate::error::{AppError, RequestId};
@@ -102,6 +104,8 @@ pub enum PlanReason {
     Unchanged,
     PreviousFailed,
     NoPreviousSnapshot,
+    DuplicateProjectPath,
+    InvalidProjectPath,
 }
 
 #[utoipa::path(
@@ -121,9 +125,10 @@ pub async fn plan_run(
     auth: AuthenticatedToken,
     Extension(request_id): Extension<RequestId>,
     State(pool): State<PgPool>,
-    Json(req): Json<PlanRequest>,
+    payload: Result<Json<PlanRequest>, JsonRejection>,
 ) -> Result<Json<PlanResponse>, AppError> {
     let rid = &request_id.0;
+    let Json(req) = payload.map_err(|e| AppError::validation_failed(e.body_text(), rid))?;
 
     // 1. Parse github_repository_id
     let github_repository_id: i64 = req
@@ -132,7 +137,26 @@ pub async fn plan_run(
         .parse()
         .map_err(|_| AppError::validation_failed("invalid github_repository_id", rid))?;
 
-    // 2. Repository upsert
+    // 2. Authorization: verify token's repository matches the request's github_repository_id
+    let existing_repo = boardflow_db::queries::repository::find_by_id(&pool, auth.0.repository_id)
+        .await
+        .map_err(|e| {
+            tracing::error!("repository lookup failed: {e}");
+            AppError::internal_error("database error", rid)
+        })?
+        .ok_or_else(|| {
+            tracing::error!("token references non-existent repository_id={}", auth.0.repository_id);
+            AppError::internal_error("token references invalid repository", rid)
+        })?;
+
+    if existing_repo.github_repository_id != github_repository_id {
+        return Err(AppError::forbidden(
+            "token does not have access to this repository",
+            rid,
+        ));
+    }
+
+    // 3. Repository upsert (owner/name update only, auth already verified)
     let repo = boardflow_db::queries::repository::upsert(
         &pool,
         github_repository_id,
@@ -146,17 +170,42 @@ pub async fn plan_run(
         AppError::internal_error("database error", rid)
     })?;
 
-    // 3. Authorization: token's repository_id must match upserted repo
-    if repo.id != auth.0.repository_id {
-        return Err(AppError::forbidden(
-            "token does not have access to this repository",
-            rid,
-        ));
+    // 4. Validate projects: detect duplicates and invalid paths
+    let mut seen_paths: HashSet<&str> = HashSet::new();
+    let mut duplicate_paths: HashSet<&str> = HashSet::new();
+    for project in &req.projects {
+        if !seen_paths.insert(&project.project_path) {
+            duplicate_paths.insert(&project.project_path);
+        }
     }
 
-    // 4. Process each project
+    // 5. Process each project
     let mut project_outputs = Vec::with_capacity(req.projects.len());
     for project in &req.projects {
+        // Validation: empty project_path
+        if project.project_path.is_empty() {
+            project_outputs.push(PlanProjectOutput {
+                project_path: project.project_path.clone(),
+                board_project_id: String::new(),
+                decision: PlanDecision::Error,
+                reason: PlanReason::InvalidProjectPath,
+                latest_completed_run_id: None,
+            });
+            continue;
+        }
+
+        // Validation: duplicate project_path
+        if duplicate_paths.contains(project.project_path.as_str()) {
+            project_outputs.push(PlanProjectOutput {
+                project_path: project.project_path.clone(),
+                board_project_id: String::new(),
+                decision: PlanDecision::Error,
+                reason: PlanReason::DuplicateProjectPath,
+                latest_completed_run_id: None,
+            });
+            continue;
+        }
+
         let display_name = project
             .project_path
             .rsplit('/')
@@ -185,15 +234,22 @@ pub async fn plan_run(
             AppError::internal_error("database error", rid)
         })?;
 
+        let is_new = bp.created_at == bp.updated_at;
         let (decision, reason) = match req.mode {
             PlanMode::All => (PlanDecision::Build, PlanReason::ManualDispatch),
-            PlanMode::Auto => match &bp.latest_tree_hash {
-                None => (PlanDecision::Build, PlanReason::NoPreviousSnapshot),
-                Some(hash) if hash != &project.tree_hash => {
-                    (PlanDecision::Build, PlanReason::HashChanged)
+            PlanMode::Auto => {
+                if is_new {
+                    (PlanDecision::Build, PlanReason::NewProject)
+                } else {
+                    match &bp.latest_tree_hash {
+                        None => (PlanDecision::Build, PlanReason::NoPreviousSnapshot),
+                        Some(hash) if hash != &project.tree_hash => {
+                            (PlanDecision::Build, PlanReason::HashChanged)
+                        }
+                        Some(_) => (PlanDecision::Skip, PlanReason::Unchanged),
+                    }
                 }
-                Some(_) => (PlanDecision::Skip, PlanReason::Unchanged),
-            },
+            }
         };
 
         project_outputs.push(PlanProjectOutput {
@@ -205,7 +261,7 @@ pub async fn plan_run(
         });
     }
 
-    // 5. Return response
+    // 6. Return response
     Ok(Json(PlanResponse {
         repository: PlanRepositoryOutput {
             github_repository_id: req.repository.github_repository_id,

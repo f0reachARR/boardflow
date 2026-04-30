@@ -1,6 +1,16 @@
 use boardflow_domain::models::repository::Repository;
 use uuid::Uuid;
 
+pub async fn find_by_id(
+    executor: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
+    id: Uuid,
+) -> Result<Option<Repository>, sqlx::Error> {
+    sqlx::query_as::<_, Repository>("SELECT * FROM repositories WHERE id = $1")
+        .bind(id)
+        .fetch_optional(executor)
+        .await
+}
+
 pub async fn upsert(
     executor: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
     github_repository_id: i64,

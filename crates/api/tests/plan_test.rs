@@ -94,9 +94,9 @@ fn plan_request_body(github_repository_id: &str) -> serde_json::Value {
     })
 }
 
-/// 正常系: 新規プロジェクト → build / no_previous_snapshot
+/// 正常系: 新規プロジェクト → build / new_project
 #[tokio::test]
-async fn plan_new_project_returns_build_no_previous_snapshot() {
+async fn plan_new_project_returns_build_new_project() {
     let pool = match setup_pool().await {
         Some(p) => p,
         None => return,
@@ -132,7 +132,7 @@ async fn plan_new_project_returns_build_no_previous_snapshot() {
     assert_eq!(json["repository"]["owner"], "test-owner");
     assert_eq!(json["repository"]["name"], "test-repo");
     assert_eq!(json["projects"][0]["decision"], "build");
-    assert_eq!(json["projects"][0]["reason"], "no_previous_snapshot");
+    assert_eq!(json["projects"][0]["reason"], "new_project");
     assert!(json["projects"][0]["board_project_id"].as_str().unwrap().starts_with("bp_"));
 }
 
@@ -212,25 +212,12 @@ async fn plan_wrong_repository_returns_403() {
     let github_repo_id: i64 = rand_i64();
     let installation_id: i64 = 1003;
 
-    // Create a repo and token for a DIFFERENT repository
-    let different_repo_id = Uuid::now_v7();
-    sqlx::query(
-        "INSERT INTO repositories (id, github_repository_id, owner, name, installation_id, created_at, updated_at) \
-         VALUES ($1, $2, $3, $4, $5, NOW(), NOW())",
-    )
-    .bind(different_repo_id)
-    .bind(github_repo_id + 9999) // different github repo
-    .bind("other-owner")
-    .bind("other-repo")
-    .bind(installation_id)
-    .execute(&pool)
-    .await
-    .unwrap();
-
+    // Create a repo with a DIFFERENT github_repository_id and a token for it
+    let different_github_repo_id = github_repo_id + 9999;
+    let different_repo_id = create_test_repository(&pool, different_github_repo_id, installation_id).await;
     let token = create_test_token(&pool, different_repo_id, installation_id).await;
 
-    // The request targets github_repo_id which will upsert to a NEW repo.id
-    // but the token is associated with different_repo_id → 403
+    // The request targets github_repo_id, but the token belongs to different_github_repo_id → 403
     let app = create_app(pool);
     let body = plan_request_body(&github_repo_id.to_string());
 
@@ -290,7 +277,7 @@ async fn plan_invalid_github_repository_id_returns_400() {
     assert_eq!(json["error"]["code"], "validation_failed");
 }
 
-/// 異常系: JSONパースエラー → 400
+/// 異常系: JSONパースエラー → 400 with ErrorResponse body
 #[tokio::test]
 async fn plan_invalid_json_returns_400() {
     let pool = match setup_pool().await {
@@ -319,6 +306,147 @@ async fn plan_invalid_json_returns_400() {
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+    let body_bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+    assert_eq!(json["error"]["code"], "validation_failed");
+}
+
+/// 異常系: 重複project_path → decision: error
+#[tokio::test]
+async fn plan_duplicate_project_path_returns_error() {
+    let pool = match setup_pool().await {
+        Some(p) => p,
+        None => return,
+    };
+
+    let github_repo_id: i64 = rand_i64();
+    let installation_id: i64 = 1006;
+    let repo_id = create_test_repository(&pool, github_repo_id, installation_id).await;
+    let token = create_test_token(&pool, repo_id, installation_id).await;
+
+    let app = create_app(pool);
+    let body = serde_json::json!({
+        "repository": {
+            "github_repository_id": github_repo_id.to_string(),
+            "owner": "test-owner",
+            "name": "test-repo"
+        },
+        "git": {
+            "ref": "refs/heads/main",
+            "branch": "main",
+            "commit_sha": "abc123def456",
+            "event_name": "push"
+        },
+        "action": {
+            "workflow": "boardflow.yml",
+            "run_id": "12345",
+            "run_attempt": "1"
+        },
+        "mode": "auto",
+        "projects": [
+            {
+                "project_path": "hardware/LightStick.kicad_pro",
+                "config_path": "hardware/boardflow.yml",
+                "project_dir": "hardware",
+                "tree_hash": "deadbeef1234567890",
+                "files": []
+            },
+            {
+                "project_path": "hardware/LightStick.kicad_pro",
+                "config_path": "hardware/boardflow.yml",
+                "project_dir": "hardware",
+                "tree_hash": "different_hash",
+                "files": []
+            }
+        ]
+    });
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/runs/plan")
+                .header("content-type", "application/json")
+                .header("authorization", format!("Bearer {}", token))
+                .body(Body::from(serde_json::to_vec(&body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body_bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+
+    assert_eq!(json["projects"][0]["decision"], "error");
+    assert_eq!(json["projects"][0]["reason"], "duplicate_project_path");
+    assert_eq!(json["projects"][1]["decision"], "error");
+    assert_eq!(json["projects"][1]["reason"], "duplicate_project_path");
+}
+
+/// 異常系: 空のproject_path → decision: error / invalid_project_path
+#[tokio::test]
+async fn plan_empty_project_path_returns_error() {
+    let pool = match setup_pool().await {
+        Some(p) => p,
+        None => return,
+    };
+
+    let github_repo_id: i64 = rand_i64();
+    let installation_id: i64 = 1007;
+    let repo_id = create_test_repository(&pool, github_repo_id, installation_id).await;
+    let token = create_test_token(&pool, repo_id, installation_id).await;
+
+    let app = create_app(pool);
+    let body = serde_json::json!({
+        "repository": {
+            "github_repository_id": github_repo_id.to_string(),
+            "owner": "test-owner",
+            "name": "test-repo"
+        },
+        "git": {
+            "ref": "refs/heads/main",
+            "branch": "main",
+            "commit_sha": "abc123def456",
+            "event_name": "push"
+        },
+        "action": {
+            "workflow": "boardflow.yml",
+            "run_id": "12345",
+            "run_attempt": "1"
+        },
+        "mode": "auto",
+        "projects": [{
+            "project_path": "",
+            "config_path": "boardflow.yml",
+            "project_dir": ".",
+            "tree_hash": "deadbeef1234567890",
+            "files": []
+        }]
+    });
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/runs/plan")
+                .header("content-type", "application/json")
+                .header("authorization", format!("Bearer {}", token))
+                .body(Body::from(serde_json::to_vec(&body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body_bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+
+    assert_eq!(json["projects"][0]["decision"], "error");
+    assert_eq!(json["projects"][0]["reason"], "invalid_project_path");
 }
 
 fn rand_i64() -> i64 {

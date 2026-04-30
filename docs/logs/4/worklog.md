@@ -247,6 +247,67 @@ pub async fn upsert(
 8. **異常系: 無効なJSON** — 400 validation_failed
 9. **異常系: github_repository_idが数値でない** — 400 validation_failed
 
+---
+
+## レビュー結果 (2026-05-01)
+
+### 総評
+- `pr_ready: false`
+- Bearer token 認証、Repository / BoardProject upsert、基本的な build / skip 判定の骨格は入っている。
+- ただし、認可前に Repository を upsert しているため、別 repository 用 token でも他 repository の metadata を更新または新規作成できる。これは仕様違反かつ認可バイパスに近い副作用で、PR 作成前に修正が必要。
+- また、Plan API 仕様で要求されている per-project `decision: error` の validation が未実装で、JSON parse failure も `ErrorResponse` 形式で返る保証がない。
+
+### 指摘事項
+1. **重大**: 認可チェックより前に Repository upsert を実行しており、403 になる不正リクエストでも DB を変更できる。
+  - 実装では [crates/api/src/routes/plan.rs](crates/api/src/routes/plan.rs#L135) から [crates/api/src/routes/plan.rs](crates/api/src/routes/plan.rs#L149) で Repository を upsert した後に repository_id を比較している。
+  - 仕様では認可失敗は API 全体エラーであり、副作用なく拒否される前提になっている [docs/backend/api.md](docs/backend/api.md#L120) [docs/spec.md](docs/spec.md#L504)。
+  - この順序だと、別 repository 用 token で既存 repository の `owner` / `name` / `installation_id` を更新したり、新規 row を作ってから 403 を返したりできる。
+
+2. **重大**: project 単位 validation が未実装で、仕様上の `decision: error` を返せない。
+  - 仕様は、同一 request 内の `project_path` 重複や `project_path` / `tree_hash` / `config_path` の形式不正を project 単位で `decision: error` にすると定めている [docs/backend/api.md](docs/backend/api.md#L205) [docs/spec.md](docs/spec.md#L503) [docs/spec.md](docs/spec.md#L976)。
+  - しかし実装は [crates/api/src/routes/plan.rs](crates/api/src/routes/plan.rs#L159) 以降で全 project を無条件に upsert / 判定しており、`PlanDecision::Error` は定義されていても使用されていない [crates/api/src/routes/plan.rs](crates/api/src/routes/plan.rs#L91)。
+  - 不正 payload が来た場合に DB へ保存されるか、あるいは後続 Issue で扱うはずの異常が plan 時点で見逃される。
+
+3. **中**: JSON body の extractor rejection が仕様の `ErrorResponse` 形式に揃っていない可能性が高く、request_id も欠落している。
+  - `Json(req): Json<PlanRequest>` は handler 実行前に rejection されるため、`impl From<JsonRejection> for AppError` を追加しても自動では使われない。実装上も [crates/api/src/error.rs](crates/api/src/error.rs#L99) から [crates/api/src/error.rs](crates/api/src/error.rs#L101) では `request_id` を空文字で生成している。
+  - 仕様は全 API のエラー形式統一と `request_id` の返却を要求している [docs/backend/api.md](docs/backend/api.md#L54)。
+  - 現行テストは [crates/api/tests/plan_test.rs](crates/api/tests/plan_test.rs#L295) で 400 status しか見ておらず、レスポンス body が `ErrorResponse` か、`request_id` が埋まるかを検証していない。
+
+4. **中**: 新規 BoardProject の reason が計画・仕様とずれている。
+  - 仕様は `new_project` を「SaaS側に存在しない新規BoardProject」と定義している [docs/spec.md](docs/spec.md#L510)。
+  - 実装は `latest_tree_hash == None` を一律 `no_previous_snapshot` にしており [crates/api/src/routes/plan.rs](crates/api/src/routes/plan.rs#L191)、新規作成直後の project も `new_project` にならない。
+  - 作業ログ上の計画でも「Repository/BoardProject未登録時にbuild/new_project」が受け入れ条件だった [docs/logs/4/worklog.md](docs/logs/4/worklog.md#L240)。
+
+### 必須修正
+- Repository の認可判定を DB 更新前に行い、不正 token の request では `repositories` / `board_projects` に副作用を残さないこと。
+- project 単位 validation を追加し、少なくとも `project_path` 重複、`project_path` / `config_path` / `tree_hash` の形式不正を `decision: error` で返すこと。
+- JSON parse / content-type 不正を `ErrorResponse` 形式に統一し、`request_id` を維持できるよう custom extractor か `Result<Json<_>, JsonRejection>` ベースのハンドリングに変えること。
+- 新規 BoardProject を `new_project` で返す条件を実装し、`no_previous_snapshot` と区別すること。
+
+### 任意改善
+- Repository / BoardProject upsert を 1 transaction にまとめ、途中失敗時の部分更新を防ぐこと。計画では transaction 利用が前提になっている [docs/logs/4/worklog.md](docs/logs/4/worklog.md#L122)。
+- `PlanDecision::Error` / `PlanReason` の未使用 variant を、実装に合わせて使うか、未実装なら一時的に scope から外して意図を明確にすること。
+
+### テスト不足
+- `decision: error` を返す project 重複・不正 path・不正 hash のケースが未テスト。
+- invalid JSON / missing content-type で `ErrorResponse` と `request_id` が返ることの検証が未テスト。
+- 新規 project が `new_project`、既存だが snapshot がない project が `no_previous_snapshot` になる境界条件が未テスト。
+- この環境では `DATABASE_URL` 未設定のため、Plan API integration test は early return で実質 skip された。ローカルで「pass」と表示されても DB 経路は検証されていない。
+
+### ドキュメント確認
+- [docs/backend/api.md](docs/backend/api.md) と [docs/spec.md](docs/spec.md) には Plan API の contract、error code、reason、per-project validation の期待値が明記されている。
+- 仕様書自体の更新漏れは見当たらない。
+- 実装と plan の差分は、`new_project` の扱い、transaction 前提、project 単位 validation の 3 点で発生している。
+
+### PR/完了結果
+- 判定: `pr_ready: false`
+- 理由: 認可前の DB 更新はセキュリティ上の必須修正。加えて API contract 上の validation / error handling の欠落があるため、現時点では PR 作成不可。
+
+### 残リスク
+- 認可前 upsert を放置すると、監査ログ上は 403 でも DB 内容だけが変わるため原因追跡が難しくなる。
+- project validation を後回しにすると、BoardProject 同一性や downstream run 生成で不正データを抱え込む。
+- extractor rejection の取り扱いを曖昧なままにすると、OpenAPI と実レスポンスの乖離が残る。
+
 ### ドキュメント更新対象
 - `docs/backend/api.md` — 変更不要（仕様は既に記載済み）
 - `docs/logs/4/worklog.md` — 本計画 + 実装結果を追記
