@@ -14,6 +14,8 @@ fn test_app_config_from_env() {
         std::env::remove_var("MINIO_ENDPOINT");
         std::env::remove_var("MINIO_ACCESS_KEY");
         std::env::remove_var("MINIO_SECRET_KEY");
+        std::env::remove_var("MINIO_BUCKET_STAGING");
+        std::env::remove_var("MINIO_BUCKET_FINAL");
     }
     let result = AppConfig::from_env();
     assert!(result.is_err(), "DATABASE_URL未設定時はエラーを返すべき");
@@ -34,6 +36,8 @@ fn test_app_config_from_env() {
     assert_eq!(config.minio_endpoint, None);
     assert_eq!(config.minio_access_key, None);
     assert_eq!(config.minio_secret_key, None);
+    assert_eq!(config.minio_bucket_staging, "boardflow-staging");
+    assert_eq!(config.minio_bucket_final, "boardflow-final");
 
     // 3. 全フィールドをカスタム値で設定
     unsafe {
@@ -45,6 +49,8 @@ fn test_app_config_from_env() {
         std::env::set_var("MINIO_ENDPOINT", "http://localhost:9000");
         std::env::set_var("MINIO_ACCESS_KEY", "minioadmin");
         std::env::set_var("MINIO_SECRET_KEY", "minioadmin");
+        std::env::set_var("MINIO_BUCKET_STAGING", "custom-staging");
+        std::env::set_var("MINIO_BUCKET_FINAL", "custom-final");
     }
     let config = AppConfig::from_env().unwrap();
     assert_eq!(config.database_url, "postgres://custom@localhost/db");
@@ -58,6 +64,8 @@ fn test_app_config_from_env() {
     );
     assert_eq!(config.minio_access_key.as_deref(), Some("minioadmin"));
     assert_eq!(config.minio_secret_key.as_deref(), Some("minioadmin"));
+    assert_eq!(config.minio_bucket_staging, "custom-staging");
+    assert_eq!(config.minio_bucket_final, "custom-final");
 
     // 4. 無効なポート番号はエラーを返す
     unsafe {
@@ -81,6 +89,8 @@ fn test_app_config_from_env() {
         std::env::remove_var("MINIO_ENDPOINT");
         std::env::remove_var("MINIO_ACCESS_KEY");
         std::env::remove_var("MINIO_SECRET_KEY");
+        std::env::remove_var("MINIO_BUCKET_STAGING");
+        std::env::remove_var("MINIO_BUCKET_FINAL");
         std::env::set_var("API_PORT", "3000");
     }
 }

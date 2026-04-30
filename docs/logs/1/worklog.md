@@ -322,3 +322,123 @@ Phase 5: 検証 (cargo build, cargo test, docker compose, healthz)
 
 1. 統合テストは依然 DATABASE_URL 未設定時にスキップ扱い（CI 設定に依存）
 2. MINIO_BUCKET_STAGING / MINIO_BUCKET_FINAL は今回のスコープ外（後続 Issue で追加予定）
+
+## 再レビュー結果 (2026-04-30)
+
+### 総評
+
+- 前回レビューで指摘した OpenAPI 3.1.0 への統一、Redis / MinIO 接続設定の追加、API_PORT 不正値のエラー化、OpenAPI バージョン検証テスト追加は反映されている。
+- 実測でも cargo test は成功し、OpenAPI 3.1.0 を返すことを確認できた。
+- 一方で、Issue #1 の計画と環境変数設計に含まれていた MINIO_BUCKET_STAGING / MINIO_BUCKET_FINAL は .env.example と AppConfig のどちらにも未反映で、設定管理の実装範囲がまだ計画と一致していない。
+
+### レビュー結果
+
+- pr_ready: false
+
+### 指摘事項
+
+1. 必須: MinIO バケット設定の欠落
+   - 計画では環境変数設計に MINIO_BUCKET_STAGING / MINIO_BUCKET_FINAL を含めているが、.env.example と crates/api/src/config.rs に未実装。
+   - 後続 Issue で使う前提の設定値を Issue #1 で設定管理として立てている以上、この差分は未解消扱いにするのが妥当。
+
+### 解消確認
+
+1. OpenAPI バージョン不一致: 解消済み
+   - docs/backend/summary.md と docs/technology.md が 3.1.0 に統一され、統合テストでも /api/v1/openapi.json の openapi == 3.1.0 を確認。
+
+2. Redis / MinIO 接続設定不足: 部分解消
+   - REDIS_URL, MINIO_ENDPOINT, MINIO_ACCESS_KEY, MINIO_SECRET_KEY は追加済み。
+   - ただし、計画に含まれる MinIO bucket 名までは未反映。
+
+3. テスト改善: 解消済み
+   - OpenAPI タイトルに加えて OpenAPI version 3.1.0 の検証が追加されている。
+
+4. API_PORT の不正値処理: 解消済み
+   - ConfigError::InvalidPort を返す実装とテストを確認。
+
+### テスト結果
+
+- cargo test: 成功
+
+### ドキュメント確認
+
+- docs/backend/summary.md と docs/technology.md の OpenAPI 記述は実装と整合。
+- docs/spec.md と research 成果物を踏まえても、MinIO staging/final bucket を使う構成自体は維持されている。
+- CONTRIBUTING.md はリポジトリ内に存在しなかったため確認対象なし。
+
+### 残リスク
+
+1. Issue #1 の受け入れ条件と環境変数設計を厳密に満たすには、MinIO bucket 名の設定項目追加とテスト補強がまだ必要。
+2. 統合テストは DB 接続前提のままで、OpenAPI 単体の非 DB テストにはなっていない。
+
+## 最終レビュー結果 (2026-04-30, Issue #1)
+
+### 総評
+
+- 前回の blocking 指摘だった MINIO_BUCKET_STAGING / MINIO_BUCKET_FINAL の欠落は解消済み。
+- AppConfig への追加、デフォルト値、.env.example 反映、config_test.rs でのデフォルト値・カスタム値検証まで揃っており、前回指摘の範囲では再発は見当たらない。
+- ただし、Issue #1 全体の成功条件に照らすと、README のローカル開発手順記載と SQLx マイグレーション基盤の確認が未達のため、最終判定は pr_ready: false とする。
+
+### レビュー結果
+
+- 対象Issue ID: #1
+- pr_ready: false
+
+### 重大度順の指摘
+
+1. 必須: SQLx マイグレーション基盤の受け入れ条件を満たしていない
+   - Issue #1 の成功条件には cargo sqlx migrate run で空マイグレーションが動作することが含まれる。
+   - 現時点で workspace 内に migrations ディレクトリや sqlx::migrate! 相当の実装・記録が見当たらず、この条件の達成を確認できない。
+
+2. 必須: README のローカル開発手順が不足している
+   - Issue #1 の成功条件には README へのローカル開発手順記載が含まれる。
+   - README は現状、構成と技術概要のみで、docker compose up、API 起動、テスト、lint などの導線がない。
+
+### 前回 blocking 指摘の解消確認
+
+1. 解消済み: MinIO bucket 設定欠落
+   - .env.example に MINIO_BUCKET_STAGING / MINIO_BUCKET_FINAL が追加済み。
+   - crates/api/src/config.rs の AppConfig と from_env() が staging/final bucket を読み込む。
+   - crates/api/tests/config_test.rs でデフォルト値とカスタム値の両方を検証している。
+
+### 必須修正
+
+1. 空の SQLx migration を含むマイグレーション基盤を追加し、sqlx migrate run の実行結果を記録すること。
+2. README にローカル開発手順を追加すること。
+
+### 任意改善
+
+1. README に .env.example からのセットアップ手順と、主要コマンドの期待結果を併記すると再現性が上がる。
+2. マイグレーション基盤を追加する場合、初期化コマンドを README と docs/logs の両方に揃えておくと後続 Issue のレビューがしやすい。
+
+### テスト結果
+
+- cargo build: 成功
+- cargo test --workspace: 成功
+- cargo clippy --workspace --all-targets -- -D warnings: 成功
+
+### テスト不足
+
+1. sqlx migrate run の実測結果がない。
+2. README の開発手順に沿った起動確認手順が文書化されていないため、第三者検証の再現性が弱い。
+
+### ドキュメント確認
+
+- docs/spec.md, docs/technology.md, docs/backend/summary.md にある staging/final bucket 前提と、今回の設定追加は整合している。
+- README は Issue #1 の成功条件を満たすだけの運用手順をまだ提供していない。
+- CONTRIBUTING.md はリポジトリ内に存在しなかったため確認対象なし。
+
+### plan / research / docs との不整合
+
+1. 環境変数設計のうち MinIO bucket 名は今回の修正で計画と整合した。
+2. 一方で、Issue 本文の成功条件にある README 手順整備と SQLx migration 基盤は、確認可能な成果物が不足している。
+
+### PR/完了結果
+
+- 前回 blocking 指摘の解消確認: 完了
+- Issue #1 全体の PR 作成可否: 不可
+
+### 残リスク
+
+1. 現状のままでは新規開発者が README だけでローカル起動手順を再現できない。
+2. DB スキーマ変更を受ける後続 Issue で、migration 基盤未整備がボトルネックになる可能性がある。
