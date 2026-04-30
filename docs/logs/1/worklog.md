@@ -442,3 +442,32 @@ Phase 5: 検証 (cargo build, cargo test, docker compose, healthz)
 
 1. 現状のままでは新規開発者が README だけでローカル起動手順を再現できない。
 2. DB スキーマ変更を受ける後続 Issue で、migration 基盤未整備がボトルネックになる可能性がある。
+
+## PR作成 (2026-04-30)
+
+### 実施事項
+
+- ブランチ `feat/1-rust-workspace-setup` を作成し、Issue #1 関連の全コミットをプッシュ
+- `main` ブランチを `origin/main` にリセット（フィーチャーブランチへの分離完了）
+- GitHub PR を `gh` CLI で作成
+
+### PR情報
+
+- **PR URL**: https://github.com/f0reachARR/boardflow/pull/8
+- **タイトル**: feat: Rust workspaceセットアップとDB基盤 (#1)
+- **ベースブランチ**: main
+- **ヘッドブランチ**: feat/1-rust-workspace-setup
+- **Issue参照**: Closes #1
+
+### 含まれるコミット
+
+1. `96220ab` feat(#1): Rust workspace setup with Axum API, SQLx DB, Docker Compose
+2. `b35fe81` docs(#1): update worklog with implementation results
+3. `d18e468` fix(#1): address review feedback - OpenAPI 3.1.0, config improvements
+4. `6833f53` docs(#1): update worklog with review fix details
+5. `04cc3d3` fix(#1): additional config improvements and migration setup
+
+### 備考
+
+- レビューで指摘された README 手順整備と SQLx migration 基盤は最終コミットで追加済み
+- PR マージ後に Issue #1 は自動クローズされる予定
