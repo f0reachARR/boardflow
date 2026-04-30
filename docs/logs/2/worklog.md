@@ -635,7 +635,102 @@ implementation_required
 | docs/logs/2/worklog.md | 修正 | 旧計画に SUPERSEDED 注記追加 |
 
 ### 残リスク
-- なし（ドキュメントと実装の整合性を確保完了）
+- docs/external/sqlx-chrono-timestamptz.md のファイル内に DEFAULT now() 採用前提と、アプリ入力前提の記述が混在したままだった
+
+### PR/完了結果
+- docs_ready: false（sqlx-chrono-timestamptz.md の自己整合が未完了だったため、後続で再修正）
+
+---
+
+## ドキュメント再レビューフェーズ (2026-04-30)
+
+### 対象Issue
+- Issue #2: DBマイグレーション・データモデル実装
+
+### 調査結果
+- 今回の変更対象 3 件のうち、[docs/external/sqlx-migration-format.md](docs/external/sqlx-migration-format.md) は現行実装の reversible migration（`.up.sql` / `.down.sql`）と整合していることを確認した。
+- 一方で、[docs/external/sqlx-chrono-timestamptz.md](docs/external/sqlx-chrono-timestamptz.md) は依然として内部矛盾が残っている。冒頭要約と DDL 例、および「採用/不採用判断」は `DEFAULT now()` 採用前提のままだが、同じ文書内の「BoardFlow への示唆」「採用方針」はアプリ入力前提（DEFAULT なし）を記載している。
+- 現行 schema は [crates/db/migrations/20260430000001_create_schema.up.sql](crates/db/migrations/20260430000001_create_schema.up.sql) の通り `created_at` / `updated_at` などで `DEFAULT now()` を付けておらず、実装事実は「アプリ入力前提」で揃っている。
+- [docs/logs/2/worklog.md](docs/logs/2/worklog.md) には「docs_ready: true」「残リスクなし」とあるが、上記不整合が残っているため、今回の doc-only 修正完了宣言とは一致しない。
+
+### テスト結果
+- コード変更なしのため追加テストは未実施
+- ユーザー提示の既存結果（`cargo build` / `cargo test` / `sqlx migrate run` / `sqlx migrate revert` 成功）は、今回レビューの前提として扱った
+- 本レビューでは実装 SQL と更新ドキュメントの照合により整合性を判定した
+
+### ドキュメント確認
+- [docs/external/sqlx-migration-format.md](docs/external/sqlx-migration-format.md) は Issue #2 の最終実装と整合
+- [docs/external/sqlx-chrono-timestamptz.md](docs/external/sqlx-chrono-timestamptz.md) は SQLx の型マッピング根拠としては有効だが、BoardFlow 向け採用判断が文書内で二重化し、相互に矛盾している
+- [docs/logs/2/worklog.md](docs/logs/2/worklog.md) の直近「ドキュメント修正フェーズ」は、実ファイル状態に対して楽観的すぎる
+
+### レビュー結果
+- 判定: pr_ready: false
+
+#### 必須修正
+1. [docs/external/sqlx-chrono-timestamptz.md](docs/external/sqlx-chrono-timestamptz.md) の冒頭要約、DDL パターン例、「採用/不採用判断」を現行実装に合わせてアプリ入力前提へ統一すること。
+2. [docs/logs/2/worklog.md](docs/logs/2/worklog.md) の「docs_ready: true」「残リスクなし」を、上記修正完了後の状態に合わせて更新すること。
+
+#### 任意改善
+1. [docs/external/sqlx-chrono-timestamptz.md](docs/external/sqlx-chrono-timestamptz.md) は「SQLx の一般論」と「BoardFlow 採用判断」を分けて書くと、今後の再レビューで混線しにくい。
+
+#### テスト不足
+1. ドキュメント修正のみのため追加テストは不要だが、今回の整合確認結果を worklog 上で明示しておくと後続レビューで追跡しやすい。
+
+#### ドキュメント更新漏れ
+1. [docs/external/sqlx-chrono-timestamptz.md](docs/external/sqlx-chrono-timestamptz.md) の `DEFAULT now()` 前提記述が未整理。
+
+#### plan / research / docs との不整合
+- [docs/external/sqlx-chrono-timestamptz.md](docs/external/sqlx-chrono-timestamptz.md) の [冒頭要約](docs/external/sqlx-chrono-timestamptz.md#L7) と [採用/不採用判断](docs/external/sqlx-chrono-timestamptz.md#L93) は `DEFAULT now()` 前提だが、[BoardFlow への示唆](docs/external/sqlx-chrono-timestamptz.md#L77) と [採用方針](docs/external/sqlx-chrono-timestamptz.md#L83) はアプリ入力前提になっている。
+- [docs/logs/2/worklog.md](docs/logs/2/worklog.md#L606) 以降の「ドキュメント修正フェーズ」は、[docs/external/sqlx-chrono-timestamptz.md](docs/external/sqlx-chrono-timestamptz.md) の実状態と一致していない。
+
+### 残リスク
+- timestamp 方針を参照する後続Issueが、DB default 採用とアプリ入力前提のどちらを正とすべきか誤解する可能性がある。
+
+### PR/完了結果
+- pr_ready: false
+
+---
+
+## ドキュメント自己整合修正フェーズ (2026-04-30)
+
+### 対象Issue
+- Issue #2: DBマイグレーション・データモデル実装
+
+### 実施内容
+
+#### docs/external/sqlx-chrono-timestamptz.md の全面統一
+
+レビュー指摘に基づき、ファイル全体をアプリ入力前提で統一した。
+
+**構造変更**:
+1. 「SQLx の一般的な型マッピング」セクション: chrono::DateTime<Utc> ↔ TIMESTAMPTZ の対応関係を中立的な技術情報として説明
+2. 「BoardFlow の採用判断」セクション: アプリ入力前提に統一
+   - DDL例から `DEFAULT now()` を除去
+   - 「アプリ層で chrono::Utc::now() を設定する」方針を明記
+   - INSERT 時のコード例を追加
+   - 理由: テスト時の再現性、一貫性確保
+3. ファイル先頭の要約もアプリ入力前提に統一
+4. 旧「採用/不採用判断」セクション（DEFAULT now() 採用前提）を削除
+
+**削除した矛盾記述**:
+- 冒頭要約の「DDL では `DEFAULT now()` を使い」
+- DDL パターンの `DEFAULT now()`
+- 「採用/不採用判断」セクション全体（`DEFAULT now()` により INSERT 時にアプリ側で時刻を渡さなくてよい）
+- 「採用方針」セクション内の「`now()` はアプリ層ではなく DB 側で生成」
+
+#### docs/logs/2/worklog.md の修正
+- 前回の「ドキュメント修正フェーズ」の docs_ready: true を false に修正（実態と乖離していたため）
+- 本フェーズの追記
+
+### 変更ファイル
+
+| ファイル | 操作 | 内容 |
+|---|---|---|
+| docs/external/sqlx-chrono-timestamptz.md | 全面書き換え | アプリ入力前提で統一 |
+| docs/logs/2/worklog.md | 修正 | docs_ready 記述を実態に合わせ、本フェーズ追記 |
+
+### 残リスク
+- なし
 
 ### PR/完了結果
 - docs_ready: true
