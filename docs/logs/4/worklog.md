@@ -573,3 +573,86 @@ plan_empty_project_path_returns_error ... ok (新規追加)
 
 - `tree_hash` / `config_path` の「形式不正」（空文字以外のinvalid pattern）は未実装。現時点では空文字のみチェック。
 - `InvalidTreeHash` / `InvalidConfigPath` のテストケース（空文字tree_hash/config_pathを送信するintegration test）は追加していない（DB接続が必要なため既存テスト環境での実行が前提）。
+
+---
+
+## 最終レビュー結果 (3回目) (2026-05-01)
+
+### 対象Issue
+
+- Issue ID: #4
+- タイトル: Action API: Plan API実装
+
+### 総評
+
+- 前回指摘3点は現行コード上で修正済み。
+- `docs/backend/api.md` には `decision: error` 時の `reason` 列挙が追記され、`crates/api/src/routes/plan.rs` には `tree_hash` / `config_path` 空文字時の `decision: error` 分岐が追加され、`crates/api/tests/plan_test.rs` では invalid JSON 時の `request_id` 非空も検証されている。
+- ただし、`docs/spec.md` 側には新しい `decision: error` 用 `reason` 値の列挙が反映されておらず、追加された `invalid_tree_hash` / `invalid_config_path` 分岐のテストも未追加。
+- 判定: `pr_ready: false`
+
+### 確認結果
+
+1. 前回指摘1「reason値がAPI仕様に含まれていない」
+  - [docs/backend/api.md](docs/backend/api.md#L209) に `duplicate_project_path`、`invalid_project_path`、`invalid_tree_hash`、`invalid_config_path` が追記されている。
+  - [crates/api/src/routes/plan.rs](crates/api/src/routes/plan.rs#L104) から [crates/api/src/routes/plan.rs](crates/api/src/routes/plan.rs#L110) の `PlanReason` 定義とも整合している。
+  - ただし [docs/spec.md](docs/spec.md#L509) から [docs/spec.md](docs/spec.md#L516) の `reason` 一覧は従来値のままで、仕様書群全体では未整合が残る。
+
+2. 前回指摘2「tree_hash/config_pathの形式不正バリデーション未実装」
+  - [crates/api/src/routes/plan.rs](crates/api/src/routes/plan.rs#L211) から [crates/api/src/routes/plan.rs](crates/api/src/routes/plan.rs#L229) で空文字 `tree_hash` と空文字 `config_path` を `decision: error` にしている。
+  - [docs/backend/api.md](docs/backend/api.md#L208) から [docs/backend/api.md](docs/backend/api.md#L209) の説明とも一致する。
+  - ただし対応テストは未確認で、`invalid_tree_hash` / `invalid_config_path` の回帰防止が不足している。
+
+3. 前回指摘3「テストでrequest_id非空を検証していない」
+  - [crates/api/tests/plan_test.rs](crates/api/tests/plan_test.rs#L313) と [crates/api/tests/plan_test.rs](crates/api/tests/plan_test.rs#L314) で `request_id` の存在と非空が追加検証されている。
+  - 前回指摘への対応として妥当。
+
+### レビュー結果
+
+#### 重大度順の指摘
+
+1. **中**: [docs/spec.md](docs/spec.md#L509) から [docs/spec.md](docs/spec.md#L516) の `reason` 一覧が実装と一致していない
+  - 実装と [docs/backend/api.md](docs/backend/api.md#L209) では `duplicate_project_path`、`invalid_project_path`、`invalid_tree_hash`、`invalid_config_path` を返し得る。
+  - しかし [docs/spec.md](docs/spec.md#L509) から [docs/spec.md](docs/spec.md#L516) にはこれらが列挙されていないため、仕様書群としては不整合。
+
+2. **低**: `invalid_tree_hash` / `invalid_config_path` のテストが未追加
+  - [crates/api/src/routes/plan.rs](crates/api/src/routes/plan.rs#L211) から [crates/api/src/routes/plan.rs](crates/api/src/routes/plan.rs#L229) に分岐はあるが、[crates/api/tests/plan_test.rs](crates/api/tests/plan_test.rs) には該当ケースがない。
+  - 実装は単純で新たな不具合は確認していないが、回帰検知としては不足。
+
+#### 必須修正
+
+- [docs/spec.md](docs/spec.md#L509) から [docs/spec.md](docs/spec.md#L516) を更新し、`decision: error` 時の `reason` 列挙を [docs/backend/api.md](docs/backend/api.md#L209) と一致させること。
+
+#### 任意改善
+
+- [crates/api/tests/plan_test.rs](crates/api/tests/plan_test.rs) に空文字 `tree_hash` と空文字 `config_path` のケースを追加し、`invalid_tree_hash` / `invalid_config_path` を固定化すること。
+
+#### テスト不足
+
+- 空文字 `tree_hash` → `decision: error`, `reason: invalid_tree_hash`
+- 空文字 `config_path` → `decision: error`, `reason: invalid_config_path`
+
+#### ドキュメント更新漏れ
+
+- [docs/spec.md](docs/spec.md#L509) から [docs/spec.md](docs/spec.md#L516)
+
+#### plan / research / docs との不整合
+
+- 実装と [docs/backend/api.md](docs/backend/api.md#L209) は一致している。
+- 仕様書本体の [docs/spec.md](docs/spec.md#L509) から [docs/spec.md](docs/spec.md#L516) が新しい `reason` 値を追従できていない。
+
+#### テスト結果
+
+- `cargo test -p boardflow-api --test plan_test` を再実行し、8件すべて成功。
+
+#### PR/完了結果
+
+- `pr_ready: false`
+
+#### 残リスク
+
+- 実装済みの validation 分岐がテストで固定化されていないため、将来のリファクタで落ちても気づきにくい。
+- 仕様確認元として [docs/spec.md](docs/spec.md) を参照する利用者には、返り得る `reason` が不足して見える。
+
+#### 更新した作業ログパス
+
+- `docs/logs/4/worklog.md`
