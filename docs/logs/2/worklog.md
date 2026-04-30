@@ -410,3 +410,82 @@ implementation_required
 ### PR/完了結果
 - pr_ready: false
 - 再レビュー条件: artifacts 重複防止制約の追加、および migration 受け入れ条件の不整合解消
+
+---
+
+## 再レビューフェーズ (2026-04-30)
+
+### 対象Issue
+- Issue #2: DBマイグレーション・データモデル実装
+
+### 調査結果
+- spec.md Section 10、対象 migration 4ファイル、domain model 群、README、docs/external、既存 worklog を再照合した。
+- cargo test はローカルで再実行し成功を確認した。
+- PostgreSQL 16 上で sqlx migrate run → revert → run を再実行し、reversible migration と 13 テーブル再作成を確認した。
+
+### レビュー結果
+- 判定: pr_ready: false
+
+#### 指摘
+1. board_projects.latest_completed_run_id の FK が board_runs(id) の存在だけを保証しており、同じ board_project に属する run であることを DB が保証していない。
+   - 現状は board_projects.id と board_runs.board_project_id の対応が制約に含まれていないため、別 BoardProject の run を latest_completed_run_id に入れても整合性違反にならない。
+   - latest_completed_run_id は completed baseline の参照先なので、誤参照が入ると差分基準や表示整合性を壊す。
+
+#### 必須修正
+1. latest_completed_run_id が同一 board_project の board_run のみを参照できるよう、複合 FK か同等の整合性制約を追加する。
+   - 例: board_runs に UNIQUE (id, board_project_id) を追加し、board_projects の (latest_completed_run_id, id) から board_runs(id, board_project_id) を参照する。
+
+#### 任意改善
+1. docs/external/sqlx-chrono-timestamptz.md では TIMESTAMPTZ NOT NULL DEFAULT now() を採用としている一方、DDL は created_at / updated_at をすべてアプリ入力前提にしている。schema か調査メモのどちらかに方針を寄せた方がよい。
+
+#### テスト不足
+1. latest_completed_run_id が別 board_project の run を拒否することを確認する DB レベルの失敗系テストがない。
+
+#### plan / research / docs との不整合
+- docs/external/sqlx-chrono-timestamptz.md の採用方針では DEFAULT now() を前提としているが、現行 DDL には反映されていない。
+
+#### 残リスク
+- アプリ層の更新ミスがあると、別 project の BoardRun を latest_completed_run_id に永続化できてしまう。
+
+### PR/完了結果
+- pr_ready: false
+- 再レビュー条件: latest_completed_run_id の同一 board_project 整合性保証を追加すること
+
+---
+
+## レビュー指摘修正フェーズ (2026-04-30)
+
+### 対応内容: latest_completed_run_id の整合性保証
+
+**問題**: `board_projects.latest_completed_run_id` が `board_runs(id)` を単純FK参照しており、別プロジェクトの run を参照できてしまっていた。
+
+**修正**:
+1. `board_runs` テーブルに `CONSTRAINT board_runs_id_board_project_id_unique UNIQUE (id, board_project_id)` を追加
+2. `board_projects_latest_completed_run_id_fk` を複合FKに変更:
+   ```sql
+   FOREIGN KEY (latest_completed_run_id, id) REFERENCES board_runs(id, board_project_id)
+   ```
+   これにより「latest_completed_run_id が指す board_run の board_project_id がこの board_project の id と一致すること」を DB レベルで保証。
+
+**down.sql**: 変更不要（FK名同一、UNIQUE制約はDROP TABLEで消滅）
+
+### 検証結果
+
+| テスト | 結果 |
+|---|---|
+| `cargo build` | ✅ 成功 |
+| `cargo test` | ✅ 全テスト通過 (3 passed, 0 failed) |
+| `sqlx migrate run` | ✅ 成功 |
+| `sqlx migrate revert` | ✅ 成功 |
+| revert → run ラウンドトリップ | ✅ 成功 |
+
+### コミット
+- `506d844` fix(db): use composite FK for latest_completed_run_id integrity
+
+### 残リスク
+- DB レベルの失敗系テスト（別 project の run を latest_completed_run_id に入れて拒否確認）は後続Issueの統合テストで対応
+- タイムスタンプ DEFAULT now() 方針の不整合は後続Issueで整理
+
+### PR/完了結果
+- pr_ready: true
+- レビュー指摘事項: 解決済み
