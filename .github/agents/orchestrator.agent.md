@@ -51,6 +51,8 @@ model: "Claude Opus 4.6"
 - plan、impl、review、docs、pr、research エージェントを直接呼び出さないでください。Issue単位の詳細フローは必ず issue_orchestrator に委譲してください。
 - issue_orchestrator へ渡すIssueは必ず1件だけにしてください。複数Issueをまとめて渡してはいけません。
 - 複数Issueの issue_orchestrator を同時に起動しないでください。常に1件の完了を待ってから次のIssueを処理してください。
+- issue_orchestrator からPRリンクを受け取らなかった場合、PR作成が完了しなかったと判断し、再度 issue_orchestrator を呼び出して同じIssueの処理を続行してください。
+- PRができたら、PRリンクを含めた内容を #tool:vscode/askQuestions でユーザーに報告し、ユーザーがマージするのを待ってから次のIssueへ進んでください。
 - 指定トピックに関する既存Issueがある場合は、新規Issueの作成だけに偏らず、既存Issueを処理対象に含めてください。
 - 調査のみで完了するIssueを無理に実装フローへ流さないでください。
 - ユーザーへの最終報告は、Issueごとに結果が分かる形で行ってください。
