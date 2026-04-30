@@ -358,6 +358,55 @@ implementation_required
 - 現状の artifacts は重複行を受け入れるため、import 冪等性や Web UI 集計の前提を崩す可能性がある。
 - migration 形式の合意が曖昧なまま進むと、後続Issueで sqlx migrate revert を前提にした開発フローが成立しない。
 
+---
+
+## レビュー修正実装フェーズ (2026-04-30)
+
+### 実施した修正
+
+#### 修正1: artifacts の重複防止制約
+- `CREATE UNIQUE INDEX idx_artifacts_run_type_path ON artifacts(board_run_id, type, source_path) NULLS NOT DISTINCT;` を up.sql に追加
+- PostgreSQL 16 で NULLS NOT DISTINCT が使用可能であることを実機確認済み
+- 同一 board_run_id + type + source_path（NULL含む）の重複が制約で防止される
+
+#### 修正2: Reversible migration への変換
+- `20260430000000_init.sql` → `20260430000000_init.up.sql` + `20260430000000_init.down.sql`
+- `20260430000001_create_schema.sql` → `20260430000001_create_schema.up.sql` + `20260430000001_create_schema.down.sql`
+- down.sql: 循環FK制約の DROP → テーブルの逆依存順 DROP
+- `sqlx migrate run` + `sqlx migrate revert` の往復テスト通過
+
+#### 修正3: boardflow_api_tokens(installation_id) インデックス追加
+- `CREATE INDEX idx_boardflow_api_tokens_installation_id ON boardflow_api_tokens(installation_id);` を up.sql に追加
+
+### 検証結果
+
+| テスト | 結果 |
+|---|---|
+| `cargo build` | ✅ 成功 |
+| `cargo test` | ✅ 全テスト通過 |
+| `sqlx migrate run` | ✅ Applied 20260430000000/migrate init + 20260430000001/migrate create schema |
+| テーブル確認 (13テーブル) | ✅ 全テーブル作成確認 |
+| `idx_artifacts_run_type_path` 存在確認 | ✅ |
+| `idx_boardflow_api_tokens_installation_id` 存在確認 | ✅ |
+| `sqlx migrate revert` (create_schema) | ✅ 全テーブル DROP 確認 |
+| `sqlx migrate revert` (init) | ✅ |
+| 再度 `sqlx migrate run` | ✅ 再適用成功 |
+
+### 変更ファイル
+
+| ファイル | 操作 |
+|---|---|
+| `crates/db/migrations/20260430000000_init.sql` | 削除 |
+| `crates/db/migrations/20260430000000_init.up.sql` | 新規（元の内容） |
+| `crates/db/migrations/20260430000000_init.down.sql` | 新規（SELECT 1） |
+| `crates/db/migrations/20260430000001_create_schema.sql` | 削除 |
+| `crates/db/migrations/20260430000001_create_schema.up.sql` | 新規（元の内容 + 修正1,3 のインデックス追加） |
+| `crates/db/migrations/20260430000001_create_schema.down.sql` | 新規（循環FK DROP + テーブル逆順 DROP） |
+
+### 残リスク
+- CHECK / UNIQUE / FK の失敗系 DB テストは未追加（後続Issueでの統合テスト実装時に対応）
+- SQLx compile-time checking (offline mode) は未設定
+
 ### PR/完了結果
 - pr_ready: false
 - 再レビュー条件: artifacts 重複防止制約の追加、および migration 受け入れ条件の不整合解消
