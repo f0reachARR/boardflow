@@ -266,3 +266,53 @@ pub async fn upsert(
 
 ### 更新した作業ログパス
 `docs/logs/4/worklog.md`
+
+---
+
+## 実装内容 (2026-05-01)
+
+### 変更サマリ
+
+| ファイル | 操作 | 内容 |
+|---|---|---|
+| `crates/api/src/error.rs` | 編集 | `forbidden()`, `validation_failed()` ヘルパー追加, `From<JsonRejection>` 実装 |
+| `crates/db/src/queries/repository.rs` | 新規 | `upsert()` — ON CONFLICT (github_repository_id) DO UPDATE |
+| `crates/db/src/queries/board_project.rs` | 新規 | `upsert()` — ON CONFLICT (repository_id, project_path) DO UPDATE |
+| `crates/db/src/queries/mod.rs` | 編集 | `pub mod repository; pub mod board_project;` 追加 |
+| `crates/api/src/routes/plan.rs` | 新規 | ハンドラ `plan_run` + 全Request/Response型定義 |
+| `crates/api/src/routes/mod.rs` | 編集 | `pub mod plan;` 追加 |
+| `crates/api/src/lib.rs` | 編集 | `.routes(routes!(routes::plan::plan_run))` 追加 |
+| `crates/api/tests/plan_test.rs` | 新規 | 6テストケース |
+
+### テスト結果
+
+全17テスト（既存11 + 新規6）がパス:
+
+```
+plan_new_project_returns_build_no_previous_snapshot ... ok
+plan_mode_all_returns_build_manual_dispatch ... ok
+plan_without_auth_returns_401 ... ok
+plan_wrong_repository_returns_403 ... ok
+plan_invalid_github_repository_id_returns_400 ... ok
+plan_invalid_json_returns_400 ... ok
+```
+
+テスト観点:
+1. **正常系 - 新規プロジェクト**: upsertで新規BoardProject作成 → decision=build, reason=no_previous_snapshot
+2. **正常系 - mode=all**: 全プロジェクト強制ビルド → decision=build, reason=manual_dispatch
+3. **認証なし**: Authorizationヘッダ無し → 401 Unauthorized
+4. **認可失敗**: 別repositoryのtoken → 403 Forbidden
+5. **バリデーション失敗**: github_repository_idが非数値 → 400 validation_failed
+6. **JSONパースエラー**: 不正JSON → 400
+
+### 設計上の判断
+
+- **request_id取得**: `Extension(request_id): Extension<RequestId>` をhandler引数に使用。middleware/request_id.rsで `request.extensions_mut().insert(RequestId(...))` しているため、Axum 0.8の `Extension<T>` extractorで取得可能。
+- **トランザクション未使用**: 計画ではトランザクション内実行としていたが、各upsertは独立した操作でありatomicityが不要（plan APIは読み込みメインの判定）。個別のupsertでpool直接使用とした。
+- **JsonRejection → AppError**: request_idは空文字。body parse前にextractorの順序でAuthenticatedTokenが先に評価されるが、JsonRejectionはbody消費時に発生しExtension extractorへのアクセスが不可能なため。
+
+### 残リスク
+
+1. **hash_changed判定のテスト不足**: DBにlatest_tree_hashが設定済みのBoardProjectに対する差分判定テストが未実装（2回連続planを呼ぶテストが必要）
+2. **並行リクエスト**: 同一repository/projectへの同時upsertは PostgreSQL の row-level locking で安全だが、負荷テストは未実施
+3. **display_name生成ロジック**: パスに`.kicad_pro`が含まれない場合はファイル名そのままとなる（仕様上問題なし）
