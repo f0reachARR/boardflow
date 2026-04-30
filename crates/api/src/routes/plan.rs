@@ -213,7 +213,9 @@ pub async fn plan_run(
         }
 
         // Validation: empty or malformed tree_hash
-        if project.tree_hash.is_empty() || project.tree_hash.contains(' ') {
+        if project.tree_hash.is_empty()
+            || project.tree_hash.chars().any(|c| c.is_whitespace())
+        {
             project_outputs.push(PlanProjectOutput {
                 project_path: project.project_path.clone(),
                 board_project_id: String::new(),

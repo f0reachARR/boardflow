@@ -786,3 +786,64 @@ plan_empty_project_path_returns_error ... ok (新規追加)
 #### 更新した作業ログパス
 
 - `docs/logs/4/worklog.md`
+
+---
+
+## ドキュメント確認 (2026-05-01)
+
+### 対象Issue
+
+- Issue ID: #4
+- タイトル: Action API: Plan API実装
+
+### 総評
+
+- `docs/backend/api.md` の Plan API セクションに記載された request / response の JSON 形状は、現行実装の `PlanRequest` / `PlanResponse` と一致している。
+- `docs/spec.md` Section 6.8 の reason 一覧は、現行実装の `PlanReason` enum と一致している。
+- ただし `docs/backend/api.md` の tree_hash validation 記述は、実装より広く書かれている。ドキュメントは「空白文字を含む場合」を不正としているが、実装は [crates/api/src/routes/plan.rs](crates/api/src/routes/plan.rs#L220) の通り半角スペース `' '` のみを弾いており、タブや改行は現状 reject しない。
+- `docs/logs/4/worklog.md` 末尾の直近レビューは、実装が「空文字しか見ていない」としており、現行コードと不一致になっている。実装は [crates/api/src/routes/plan.rs](crates/api/src/routes/plan.rs#L185) から [crates/api/src/routes/plan.rs](crates/api/src/routes/plan.rs#L236) の通り `project_path` の絶対パス・パストラバーサル・拡張子不正、`config_path` の絶対パス・パストラバーサル、`tree_hash` のスペース含有も判定している。
+- 判定: `docs_ready: false`
+
+### 確認結果
+
+1. **request / response スキーマ**
+  - [docs/backend/api.md](docs/backend/api.md#L142) から [docs/backend/api.md](docs/backend/api.md#L190) の request / response 例は、[crates/api/src/routes/plan.rs](crates/api/src/routes/plan.rs#L10) から [crates/api/src/routes/plan.rs](crates/api/src/routes/plan.rs#L96) の型定義と整合している。
+  - `repository`、`git`、`action`、`mode`、`projects[]`、`files[]`、`latest_completed_run_id` の有無も一致している。
+
+2. **reason 一覧**
+  - [docs/spec.md](docs/spec.md#L510) から [docs/spec.md](docs/spec.md#L525)、[docs/backend/api.md](docs/backend/api.md#L213) から [docs/backend/api.md](docs/backend/api.md#L214)、[crates/api/src/routes/plan.rs](crates/api/src/routes/plan.rs#L80) から [crates/api/src/routes/plan.rs](crates/api/src/routes/plan.rs#L95) を確認し、`new_project`、`hash_changed`、`config_changed`、`manual_dispatch`、`unchanged`、`previous_failed`、`no_previous_snapshot`、`duplicate_project_path`、`invalid_project_path`、`invalid_tree_hash`、`invalid_config_path` は一致している。
+
+3. **validation ルール**
+  - `project_path` の絶対パス禁止、`..` 禁止、`.kicad_pro` 必須は [docs/backend/api.md](docs/backend/api.md#L208) から [docs/backend/api.md](docs/backend/api.md#L211) と [crates/api/src/routes/plan.rs](crates/api/src/routes/plan.rs#L185) から [crates/api/src/routes/plan.rs](crates/api/src/routes/plan.rs#L201) で一致している。
+  - `config_path` の絶対パス禁止、`..` 禁止は [docs/backend/api.md](docs/backend/api.md#L211) と [crates/api/src/routes/plan.rs](crates/api/src/routes/plan.rs#L230) から [crates/api/src/routes/plan.rs](crates/api/src/routes/plan.rs#L236) で一致している。
+  - `tree_hash` は [docs/backend/api.md](docs/backend/api.md#L210) が「空白文字を含む場合」としている一方、実装は [crates/api/src/routes/plan.rs](crates/api/src/routes/plan.rs#L220) で `' '` だけを判定しているため、ここは不一致。
+
+4. **作業ログの正確性**
+  - [docs/logs/4/worklog.md](docs/logs/4/worklog.md#L719) 以降の前回レビューは、形式不正 validation が未実装で「空文字しか見ていない」と結論づけているが、これは現行実装と一致しない。
+  - 現行の worklog は経緯の記録としては残せるが、最新状態の判定としては誤解を生むため、今回の確認結果で上書き解釈できるよう明示が必要。
+
+### 必須修正
+
+- [docs/backend/api.md](docs/backend/api.md#L210) の tree_hash validation 記述を、実装に合わせて「半角スペースを含む場合」に修正するか、逆に実装をタブ・改行を含む全空白文字 reject に広げるかを統一すること。
+- [docs/logs/4/worklog.md](docs/logs/4/worklog.md#L719) 以降の古いレビュー結論を、現行コードに即した内容へ更新または無効化したことが読み取れるようにすること。
+
+### 任意改善
+
+- `docs/spec.md` の `invalid_tree_hash` について、Plan API の具体条件として何を「形式不正」とみなすかを [docs/backend/api.md](docs/backend/api.md) と同じ粒度まで寄せると、仕様参照元が分散しても解釈がぶれにくい。
+
+### 不整合のあるドキュメント
+
+- [docs/backend/api.md](docs/backend/api.md#L210)
+- [docs/logs/4/worklog.md](docs/logs/4/worklog.md#L719)
+
+### 不足しているドキュメント
+
+- 今回確認した範囲では、新規追加が必須なドキュメントはなし。
+
+### 外部調査メモに関する指摘
+
+- 今回の確認対象である request / response 形状、reason 一覧、validation ルールについて、参照した external メモとの新たな矛盾は見当たらない。
+
+### PR/完了結果
+
+- `docs_ready: false`
