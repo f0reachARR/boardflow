@@ -535,3 +535,41 @@ plan_empty_project_path_returns_error ... ok (新規追加)
 
 - クライアントが仕様書ベースで実装されている場合、undocumented reason 値の追加で互換性問題が起こりうる。
 - project validation の未実装分により、不正 payload が `error` ではなく通常処理へ流れる可能性が残る。
+
+---
+
+## 追加修正（再レビュー対応）(2026-05-01)
+
+### 修正内容
+
+#### 修正1: tree_hash/config_path の空文字バリデーション追加
+
+- `PlanReason` に `InvalidTreeHash`, `InvalidConfigPath` variant を追加
+- project ループ内で `project_path` 空文字チェック → 重複チェック → `tree_hash` 空文字チェック → `config_path` 空文字チェックの順で validation
+- 各不正時は `decision: error` + 対応する reason を返し、DB upsert をスキップ
+
+#### 修正2: テストで request_id の存在確認
+
+- `plan_invalid_json_returns_400` テストに `request_id` フィールドの存在 + 非空確認 assert を追加
+
+#### 修正3: API仕様ドキュメント更新
+
+- `docs/backend/api.md` の Plan API セクション（2.1）の reason 一覧に `decision: error` 時の reason (`duplicate_project_path`, `invalid_project_path`, `invalid_tree_hash`, `invalid_config_path`) を追記
+
+### 変更ファイル
+
+| ファイル | 操作 | 内容 |
+|---|---|---|
+| `crates/api/src/routes/plan.rs` | 編集 | `InvalidTreeHash`, `InvalidConfigPath` 追加 + validation ロジック追加 |
+| `crates/api/tests/plan_test.rs` | 編集 | `request_id` 存在確認 assert 追加 |
+| `docs/backend/api.md` | 編集 | error reason 一覧追記 |
+
+### テスト結果
+
+- `cargo build`: 成功
+- `cargo test -p boardflow-api`: 全11テスト（unit 1 + integration 2 + plan 8）成功
+
+### 残リスク
+
+- `tree_hash` / `config_path` の「形式不正」（空文字以外のinvalid pattern）は未実装。現時点では空文字のみチェック。
+- `InvalidTreeHash` / `InvalidConfigPath` のテストケース（空文字tree_hash/config_pathを送信するintegration test）は追加していない（DB接続が必要なため既存テスト環境での実行が前提）。
