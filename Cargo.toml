@@ -1,0 +1,24 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/api",
+    "crates/worker",
+    "crates/domain",
+    "crates/db",
+    "crates/jobs",
+    "crates/github",
+    "crates/artifact",
+]
+
+[workspace.dependencies]
+axum = "0.8"
+sqlx = { version = "0.8", features = ["runtime-tokio", "tls-rustls", "postgres", "uuid", "chrono", "migrate"] }
+utoipa = { version = "5", features = ["axum_extras"] }
+utoipa-axum = "0.2"
+tokio = { version = "1", features = ["full"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+uuid = { version = "1", features = ["v7", "serde"] }

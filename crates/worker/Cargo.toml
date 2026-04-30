@@ -1,0 +1,11 @@
+[package]
+name = "boardflow-worker"
+version = "0.0.1"
+edition = "2024"
+
+[dependencies]
+boardflow-db = { path = "../db" }
+boardflow-jobs = { path = "../jobs" }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
