@@ -259,3 +259,51 @@ implementation_required
 - JSONB カラムのインデックスはMVP後に要否判断
 - PG 18+ 移行時に uuidv7() DEFAULT への切り替えを検討可能
 - artifacts.type と artifact_bundles.intake_mode は CHECK なしのため、アプリ層バリデーション必要
+
+---
+
+## 実装フェーズ (2026-04-30)
+
+### 実装内容
+
+#### ブランチ
+`feature/issue-2-db-migration` (from main)
+
+#### 変更ファイル一覧
+
+| ファイル | 種別 | 内容 |
+|---|---|---|
+| Cargo.toml | 修正 | workspace.dependencies に chrono 追加 |
+| Cargo.lock | 自動更新 | chrono 依存解決 |
+| crates/domain/Cargo.toml | 修正 | serde_json, chrono, sqlx 追加 |
+| crates/domain/src/lib.rs | 修正 | `pub mod models;` 追加 |
+| crates/domain/src/models/mod.rs | 新規 | 全サブモジュール宣言 |
+| crates/domain/src/models/repository.rs | 新規 | Repository 構造体 |
+| crates/domain/src/models/board_project.rs | 新規 | BoardProject + IssueSyncStatus |
+| crates/domain/src/models/board_run.rs | 新規 | BoardRun + 4 enum |
+| crates/domain/src/models/artifact.rs | 新規 | Artifact + ArtifactStatus |
+| crates/domain/src/models/artifact_bundle.rs | 新規 | ArtifactBundle + ArtifactBundleStatus |
+| crates/domain/src/models/run_check.rs | 新規 | RunCheck, RunCheckFinding + 4 enum |
+| crates/domain/src/models/snapshot.rs | 新規 | BoardProjectSnapshot, BoardRunDiffMetadata, BoardRunDiff + enum |
+| crates/domain/src/models/api_token.rs | 新規 | BoardflowApiToken |
+| crates/domain/src/models/github_job.rs | 新規 | GithubJob + GithubJobStatus |
+| crates/domain/src/models/issue_history.rs | 新規 | BoardProjectIssueHistory + IssueHistoryReason |
+| crates/db/migrations/20260430000001_create_schema.sql | 新規 | 13テーブル DDL |
+
+### テスト結果
+
+| テスト | 結果 |
+|---|---|
+| `cargo build` | ✅ 成功 |
+| `cargo test` | ✅ 全テスト通過 (既存テスト回帰なし) |
+| `sqlx database reset` (PostgreSQL 16) | ✅ マイグレーション正常適用 |
+| テーブル確認 (`\dt`) | ✅ 13テーブル + _sqlx_migrations 確認 |
+
+### 更新ドキュメント
+- `docs/logs/2/worklog.md` (本ファイル)
+
+### 残リスク
+- SQLx compile-time checking (offline mode / sqlx-data.json) は未設定 → CI/後続Issueで対応
+- JSONB カラムのインデックスはMVP後に要否判断
+- artifacts.type / artifact_bundles.intake_mode は CHECK なし → アプリ層バリデーション必要
+- board_project_snapshots(board_run_id) にインデックス未追加（UNIQUE制約なし、FK参照もなし → 必要時に追加）
