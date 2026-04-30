@@ -35,6 +35,15 @@ model: "Claude Opus 4.6"
 12. レビュー内容に基づき、Issue を改善する
 13. `gh`を使用して Issue を作成/更新し、ユーザーと orchestrator に処理対象Issueリストと内容を報告する
 
+## 作業ログ
+
+- Issueごとの経緯と作業内容は `docs/logs/<issue-id>/worklog.md` に記録してください。
+- GitHub Issue `#123` は `docs/logs/123/worklog.md` に記録してください。
+- Issue IDが数値でない場合は、渡されたIDを小文字kebab-case相当に正規化してディレクトリ名にしてください。
+- ログには少なくとも「Issueまでの経緯」「ユーザー要望」「調査結果」「計画」「実装内容」「テスト結果」「レビュー結果」「ドキュメント確認」「PR/完了結果」「残リスク」を時系列で追記してください。
+- Issueを作成/更新/処理対象化した時点で、Issueまでの経緯、ユーザー要望、Issue作成/更新内容、後続処理タイプの初期仮説、残リスクを同じ `worklog.md` へ追記してください。
+- `docs/logs/` や対象Issueディレクトリが存在しない場合は作成してください。
+
 ## 注意事項
 
 - Issue は、1つの明確な成果物、判断、調査、修正に対応する粒度を基本にしてください。
@@ -66,6 +75,7 @@ orchestrator がIssueごとに issue_orchestrator を呼び出せるよう、処
 - 調査が必要な外部トピック
 - 後続処理タイプの初期仮説 (`implementation_required` / `research_only` / `unknown`)
 - issue_orchestrator へ渡すべき補足情報
+- 更新した作業ログパス
 
 ## ツール
 
