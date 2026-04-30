@@ -400,3 +400,20 @@
 
 ### PR/完了結果
 - docs_ready: true
+
+---
+
+## PR作成 (2026-04-30)
+
+### 作成結果
+- **PR**: https://github.com/f0reachARR/boardflow/pull/9
+- **タイトル**: feat(db): implement 13-table schema migration and domain models (#2)
+- **ベースブランチ**: main <- feature/issue-2-db-migration
+- **Closes**: #2
+
+### 残リスク
+- SQLx compile-time checking (offline mode / sqlx-data.json) は未設定 -> 後続 Issue で対応
+- JSONB カラムのインデックスは MVP 後に要否判断
+- artifacts.type / artifact_bundles.intake_mode は CHECK なし -> アプリ層バリデーション必要
+- board_project_snapshots(board_run_id) の cardinality は仕様として未明示 (1:1 or 1:N)
+- タイムスタンプの DB 側 DEFAULT 方針は調査メモと DDL で表現が異なる部分あり（非ブロッカー）
