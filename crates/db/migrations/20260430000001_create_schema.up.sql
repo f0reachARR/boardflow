@@ -54,7 +54,8 @@ CREATE TABLE board_runs (
     timed_out_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL,
     completed_at TIMESTAMPTZ,
-    UNIQUE (board_project_id, github_run_id, github_run_attempt)
+    UNIQUE (board_project_id, github_run_id, github_run_attempt),
+    CONSTRAINT board_runs_id_board_project_id_unique UNIQUE (id, board_project_id)
 );
 
 -- 4. artifact_bundles (→ board_runs)
@@ -204,7 +205,7 @@ CREATE TABLE board_project_issue_history (
 );
 
 -- 14. Circular FK constraints (ALTER TABLE)
-ALTER TABLE board_projects ADD CONSTRAINT board_projects_latest_completed_run_id_fk FOREIGN KEY (latest_completed_run_id) REFERENCES board_runs(id);
+ALTER TABLE board_projects ADD CONSTRAINT board_projects_latest_completed_run_id_fk FOREIGN KEY (latest_completed_run_id, id) REFERENCES board_runs(id, board_project_id);
 ALTER TABLE artifacts ADD CONSTRAINT artifacts_source_bundle_id_fk FOREIGN KEY (source_bundle_id) REFERENCES artifact_bundles(id);
 ALTER TABLE run_checks ADD CONSTRAINT run_checks_report_artifact_id_fk FOREIGN KEY (report_artifact_id) REFERENCES artifacts(id);
 
