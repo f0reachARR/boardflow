@@ -8,6 +8,7 @@ tools:
     "todo",
     "vscode/askQuestions",
     "web",
+    "edit",
     "ms-vscode.vscode-websearchforcopilot/websearch",
     vscode/toolSearch,
     "io.github.upstash/context7/*",
