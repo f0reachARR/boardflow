@@ -23,7 +23,7 @@ Authorization: Bearer <boardflow_api_token>
 
 token は DB に hash のみ保存する。
 認証に成功した場合のみ `last_used_at` を更新する。
-revoke 済み token は認可エラーとして扱い、`last_used_at` は更新しない。
+revoke 済み token は認証エラー (`unauthorized`) として扱い、`last_used_at` は更新しない。
 
 Web UI 向け read API は GitHub OAuth session を前提にする。
 最終的な閲覧可否は backend が GitHub App installation と repository 権限に基づいて判定する。
@@ -117,7 +117,7 @@ GitHub Issue には artifact proxy URL、署名URL、直接画像リンクを載
 ## 2. Action API
 
 Action API は BoardFlow API token による Bearer 認証を必須とする。
-認可失敗、installation 解除、権限不足、repository 不一致、revoke 済み token は API 全体のエラーであり、per-project `decision: error` にはしない。
+認証失敗（revoke 済み token を含む）、認可失敗（installation 解除、権限不足、repository 不一致）は API 全体のエラーであり、per-project `decision: error` にはしない。
 
 ### 2.1 Plan API
 

@@ -142,9 +142,11 @@ dependencies = [
  "axum",
  "boardflow-db",
  "boardflow-domain",
+ "chrono",
  "http-body-util",
  "serde",
  "serde_json",
+ "sha2",
  "sqlx",
  "tokio",
  "tower",
@@ -152,6 +154,7 @@ dependencies = [
  "tracing-subscriber",
  "utoipa",
  "utoipa-axum",
+ "uuid",
 ]
 
 [[package]]
@@ -162,9 +165,12 @@ version = "0.0.1"
 name = "boardflow-db"
 version = "0.0.1"
 dependencies = [
+ "boardflow-domain",
+ "chrono",
  "sqlx",
  "tokio",
  "tracing",
+ "uuid",
 ]
 
 [[package]]
