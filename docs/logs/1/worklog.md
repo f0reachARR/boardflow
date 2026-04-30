@@ -221,3 +221,56 @@ Phase 5: 検証 (cargo build, cargo test, docker compose, healthz)
 1. 統合テストは `DATABASE_URL` 環境変数が設定されていない場合スキップされる（CI環境でのDB接続設定が必要）
 2. Rust 2024 edition で `std::env::set_var`/`remove_var` が unsafe になったため、テスト内で unsafe ブロックを使用
 3. MinIO healthcheck に `mc ready local` を使用 — MinIOイメージに `mc` が含まれない場合は調整が必要
+
+## レビュー結果 (2026-04-30)
+
+### 総評
+
+- Issue #1 の workspace 構成は docs/backend/summary.md Section 4 の crate 構成に準拠しており、Rust backend の土台としては妥当。
+- ローカル再検証では cargo test --workspace、docker compose up -d、healthz、openapi.json を確認できた。
+- ただし、仕様と実装の不整合が 2 点あり、現時点では pr_ready: false と判断する。
+
+### 必須修正
+
+1. OpenAPI の契約バージョンを仕様と実装で統一すること。
+   - docs/backend/summary.md と docs/technology.md は OpenAPI 3.0.3 前提。
+   - 実装の /api/v1/openapi.json は 3.1.0 を返すことを実ランタイムで確認した。
+
+2. 設定管理の実装範囲を計画と一致させること。
+   - 計画では Redis、MinIO、MINIO_BUCKET_STAGING、MINIO_BUCKET_FINAL を含む。
+   - しかし crates/api/src/config.rs は DATABASE_URL、API_HOST、API_PORT、RUST_LOG しか扱っていない。
+
+### 任意改善
+
+1. API_PORT の不正値を 3000 に黙ってフォールバックせず、起動失敗にした方が安全。
+2. DB 非依存の OpenAPI ルートまで live DB 前提のテストになっているため、state 分離か lazy pool 化を検討した方がよい。
+3. docker-compose.yml の MinIO は latest タグ固定なので、再現性のため日付タグ固定を検討した方がよい。
+
+### テスト不足
+
+1. integration_test.rs は DATABASE_URL 未設定時に return して成功扱いになるため、CI 設定ミスを見逃しうる。
+2. OpenAPI のテストは title のみを検証し、重要な契約差分である openapi バージョンを見ていない。
+3. 設定テストは Redis / MinIO / bucket 名の実装不足を検知できない。
+
+### plan / research / docs との不整合
+
+1. docs は OpenAPI 3.0.3、実装実測は 3.1.0。
+2. 計画にある MINIO_BUCKET_STAGING と MINIO_BUCKET_FINAL が .env.example と AppConfig に反映されていない。
+3. 環境変数ベースの設定管理は、現状では DB と API 起動に必要な最小 subset のみ。
+
+### PR/完了結果
+
+- pr_ready: false
+
+### 追加の再検証結果
+
+- cargo test --workspace: 成功
+- docker compose up -d && docker compose ps: PostgreSQL / Redis / MinIO healthy
+- GET /healthz: 200 と status ok を確認
+- GET /api/v1/openapi.json: openapi 3.1.0 と BoardFlow API を確認
+
+### 残リスク
+
+1. OpenAPI バージョン差分を放置すると、後続 Issue の契約テストと型生成で再調整が必要になる。
+2. 設定スコープが曖昧なままだと、Redis / MinIO を使う Issue で設定方式の再設計が入りやすい。
+3. 条件付きスキップのままでは、CI の DB セットアップ欠落を見逃しやすい。

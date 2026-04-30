@@ -19,7 +19,7 @@ KiCad 実行そのものは GitHub Actions 上の Docker Action が担当する�
 
 | 領域 | 採用方針 | 理由 |
 |---|---|---|
-| API 仕様 | OpenAPI 3.0.3 | Action / SaaS / 将来の公開 API の契約を一元化しやすい |
+| API 仕様 | OpenAPI 3.1.0 | Action / SaaS / 将来の公開 API の契約を一元化しやすい |
 | API サーバー | Rust + Axum | 単一バイナリ、非同期処理、アップロード制御、GitHub API 連携に向く |
 | 非同期実行基盤 | Tokio | HTTP server、worker、DB、object storage 操作を同じ async runtime 上で扱いやすい |
 | OpenAPI 生成 | utoipa / utoipa-axum | Rust の handler / schema から OpenAPI を生成し、実装とのずれを抑えやすい |
