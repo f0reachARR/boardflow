@@ -377,3 +377,69 @@ plan_invalid_json_returns_400 ... ok
 1. **hash_changed判定のテスト不足**: DBにlatest_tree_hashが設定済みのBoardProjectに対する差分判定テストが未実装（2回連続planを呼ぶテストが必要）
 2. **並行リクエスト**: 同一repository/projectへの同時upsertは PostgreSQL の row-level locking で安全だが、負荷テストは未実施
 3. **display_name生成ロジック**: パスに`.kicad_pro`が含まれない場合はファイル名そのままとなる（仕様上問題なし）
+
+---
+
+## レビュー指摘対応 (2026-05-01)
+
+### 修正内容
+
+#### 修正1 (重大): 認可判定を Repository upsert より前に移動
+
+- `crates/db/src/queries/repository.rs` に `find_by_id()` クエリを追加
+- handler内で `auth.0.repository_id` → `find_by_id` → `github_repository_id` 比較 → 403判定を upsert の前に実行
+- tokenが参照する repository が存在しない場合は 500 (internal_error)
+
+#### 修正2 (重大): Project単位validation
+
+- `PlanReason` に `DuplicateProjectPath`, `InvalidProjectPath` を追加
+- projects配列内の `project_path` 重複を `HashSet` で検出し、重複分は全て `decision: error, reason: duplicate_project_path`
+- 空文字の `project_path` は `decision: error, reason: invalid_project_path`
+- validationでerrorとなったprojectはDB upsertをスキップ
+
+#### 修正3 (中): new_project vs no_previous_snapshot の区別
+
+- `bp.created_at == bp.updated_at` で新規INSERT判定（INSERT時は両方NOW()で同値、UPDATE時はupdated_atのみNOW()で更新）
+- 新規: `decision: build, reason: new_project`
+- 既存でlatest_tree_hash=None: `decision: build, reason: no_previous_snapshot`
+
+#### 修正4 (中): JSON parse rejection の ErrorResponse 統一
+
+- handler引数を `Json(req): Json<PlanRequest>` → `payload: Result<Json<PlanRequest>, JsonRejection>` に変更
+- `payload.map_err(|e| AppError::validation_failed(e.body_text(), rid))` でrequest_id付きのAppErrorに変換
+- これによりJSON parse失敗時もErrorResponse形式（`{"error": {"code": "validation_failed", ...}}`）で返却
+
+### 変更ファイル
+
+| ファイル | 操作 | 内容 |
+|---|---|---|
+| `crates/db/src/queries/repository.rs` | 編集 | `find_by_id()` 追加 |
+| `crates/api/src/routes/plan.rs` | 編集 | 認可判定移動、validation追加、new_project判定、JsonRejection対応 |
+| `crates/api/tests/plan_test.rs` | 編集 | テスト修正・追加 |
+
+### テスト結果
+
+全19テスト（workspace全体）が成功:
+
+```
+plan_new_project_returns_build_new_project ... ok
+plan_mode_all_returns_build_manual_dispatch ... ok
+plan_without_auth_returns_401 ... ok
+plan_wrong_repository_returns_403 ... ok
+plan_invalid_github_repository_id_returns_400 ... ok
+plan_invalid_json_returns_400 ... ok (ErrorResponse形式確認)
+plan_duplicate_project_path_returns_error ... ok (新規追加)
+plan_empty_project_path_returns_error ... ok (新規追加)
+```
+
+テスト観点:
+1. **新規プロジェクト**: `created_at == updated_at` → reason=new_project
+2. **重複project_path**: 同名project_pathが複数 → 全てdecision=error, reason=duplicate_project_path
+3. **空project_path**: project_path="" → decision=error, reason=invalid_project_path
+4. **JSON parse失敗**: 不正JSON → 400 + `{"error": {"code": "validation_failed", ...}}` 形式
+5. **認可チェック**: tokenのrepository.github_repository_id ≠ リクエストのgithub_repository_id → 403 (upsert前)
+
+### 残リスク
+
+1. utoipaのOpenAPIスキーマ上、handlerの実際のextractor型(`Result<Json<PlanRequest>, JsonRejection>`)とrequest_body定義(`PlanRequest`)が異なるが、生成されるOpenAPI仕様は正しい（utoipa macroはrequest_body属性を参照するため）
+2. `PlanReason::ConfigChanged` と `PlanReason::PreviousFailed` は未使用だが仕様上の将来拡張のため残置
