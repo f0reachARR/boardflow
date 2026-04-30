@@ -106,6 +106,8 @@ pub enum PlanReason {
     NoPreviousSnapshot,
     DuplicateProjectPath,
     InvalidProjectPath,
+    InvalidTreeHash,
+    InvalidConfigPath,
 }
 
 #[utoipa::path(
@@ -201,6 +203,30 @@ pub async fn plan_run(
                 board_project_id: String::new(),
                 decision: PlanDecision::Error,
                 reason: PlanReason::DuplicateProjectPath,
+                latest_completed_run_id: None,
+            });
+            continue;
+        }
+
+        // Validation: empty tree_hash
+        if project.tree_hash.is_empty() {
+            project_outputs.push(PlanProjectOutput {
+                project_path: project.project_path.clone(),
+                board_project_id: String::new(),
+                decision: PlanDecision::Error,
+                reason: PlanReason::InvalidTreeHash,
+                latest_completed_run_id: None,
+            });
+            continue;
+        }
+
+        // Validation: empty config_path
+        if project.config_path.is_empty() {
+            project_outputs.push(PlanProjectOutput {
+                project_path: project.project_path.clone(),
+                board_project_id: String::new(),
+                decision: PlanDecision::Error,
+                reason: PlanReason::InvalidConfigPath,
                 latest_completed_run_id: None,
             });
             continue;

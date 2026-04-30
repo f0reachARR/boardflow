@@ -443,3 +443,95 @@ plan_empty_project_path_returns_error ... ok (新規追加)
 
 1. utoipaのOpenAPIスキーマ上、handlerの実際のextractor型(`Result<Json<PlanRequest>, JsonRejection>`)とrequest_body定義(`PlanRequest`)が異なるが、生成されるOpenAPI仕様は正しい（utoipa macroはrequest_body属性を参照するため）
 2. `PlanReason::ConfigChanged` と `PlanReason::PreviousFailed` は未使用だが仕様上の将来拡張のため残置
+
+---
+
+## 再レビュー結果 (2026-05-01)
+
+### 対象Issue
+
+- Issue ID: #4
+- タイトル: Action API: Plan API実装
+
+### 総評
+
+- 前回の4指摘そのものは、現行コード上で概ね是正されている。
+- 具体的には、認可が Repository upsert より前に移動され、`new_project` と `no_previous_snapshot` も区別され、JSON parse rejection も handler 内で `AppError` に統一されている。
+- ただし、project 単位 validation の実装は仕様で期待される範囲をまだ満たしておらず、さらに `reason` に undocumented な値を追加しているため、現時点では API 契約との整合が取れていない。
+- 判定: `pr_ready: false`
+
+### 確認結果
+
+1. **認可判定を upsert 前へ移動**
+  - `auth.0.repository_id` から既存 Repository を先に取得し、`github_repository_id` の一致を確認してから upsert している。
+  - 不一致時は 403 を返し、Repository / BoardProject への副作用は発生しない。
+  - 前回の重大指摘に対する修正として妥当。
+
+2. **project 単位 validation**
+  - 同一 request 内の `project_path` 重複と空文字 `project_path` は `decision: error` で返すようになっている。
+  - ただし、仕様で明記されている `tree_hash` / `config_path` の形式不正は未検証であり、validation 範囲は不十分。
+
+3. **`new_project` と `no_previous_snapshot` の区別**
+  - `created_at == updated_at` で新規 INSERT を識別し、新規時は `new_project`、既存かつ `latest_tree_hash == None` なら `no_previous_snapshot` を返している。
+  - 前回指摘への修正として妥当。
+
+4. **JSON parse rejection の ErrorResponse 統一**
+  - `Result<Json<PlanRequest>, JsonRejection>` を受け取り、handler 内で `AppError::validation_failed(..., request_id)` に変換している。
+  - 400 のエラーレスポンスは `ErrorResponse` 形式に統一される。
+  - 前回指摘への修正として妥当。
+
+### レビュー結果
+
+#### 重大度順の指摘
+
+1. **中**: `decision: error` 用の `reason` 値が仕様書と一致していない
+  - 実装は `duplicate_project_path` / `invalid_project_path` を返すが、現行仕様書の `reason` 一覧には存在しない。
+  - 仕様準拠を重視するなら、API 仕様書更新か、reason の表現変更のどちらかが必要。
+
+2. **中**: project 単位 validation が仕様で要求された範囲をまだ満たしていない
+  - 仕様では `project_path` / `tree_hash` / `config_path` の形式不正を `decision: error` の対象としている。
+  - 現実装は `project_path` の空文字・重複のみで、`tree_hash` と `config_path` に対する validation とテストが不足している。
+
+3. **低**: テストが request_id の存在まで担保していない
+  - invalid JSON の 400 化と `error.code` は確認されているが、`request_id` が実際に埋まることまでは未検証。
+
+#### 必須修正
+
+- `duplicate_project_path` / `invalid_project_path` を API 契約として採用するなら、仕様書に明記すること。
+- 仕様書を変更しないなら、`reason` の返却値を仕様に合わせて再設計すること。
+- `tree_hash` / `config_path` の形式 validation を追加し、`decision: error` の適用範囲を仕様に合わせること。
+
+#### 任意改善
+
+- invalid JSON のテストで `request_id` 非空も確認する。
+- `decision: error` の validation failure ごとに、どの field が不正かを将来的に response details で返せる形に整理する。
+
+#### テスト不足
+
+- `tree_hash` 不正時の `decision: error`
+- `config_path` 不正時の `decision: error`
+- invalid JSON 時の `request_id` 非空確認
+
+#### ドキュメント確認
+
+- `docs/backend/api.md` と `docs/spec.md` は前回指摘1, 3, 4 と整合する。
+- ただし `reason` の列挙値と project validation 範囲は現実装と不整合。
+
+#### plan / research / docs との不整合
+
+- docs では `reason` は `new_project`, `hash_changed`, `config_changed`, `manual_dispatch`, `unchanged`, `previous_failed`, `no_previous_snapshot` のみ定義。
+- 実装は `duplicate_project_path`, `invalid_project_path` を追加している。
+- docs では project 単位 validation の対象に `tree_hash` / `config_path` の形式不正も含むが、実装は未対応。
+
+#### テスト結果
+
+- `cargo test -p boardflow-api --test plan_test` を再実行し、8件すべて成功。
+
+#### PR/完了結果
+
+- `pr_ready: false`
+
+#### 残リスク
+
+- クライアントが仕様書ベースで実装されている場合、undocumented reason 値の追加で互換性問題が起こりうる。
+- project validation の未実装分により、不正 payload が `error` ではなく通常処理へ流れる可能性が残る。

@@ -310,6 +310,8 @@ async fn plan_invalid_json_returns_400() {
     let body_bytes = response.into_body().collect().await.unwrap().to_bytes();
     let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
     assert_eq!(json["error"]["code"], "validation_failed");
+    assert!(json["error"]["request_id"].as_str().is_some());
+    assert!(!json["error"]["request_id"].as_str().unwrap().is_empty());
 }
 
 /// 異常系: 重複project_path → decision: error
