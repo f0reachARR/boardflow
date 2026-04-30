@@ -20,21 +20,22 @@ KiCad 実行そのものは GitHub Actions 上の Docker Action が担当する�
 | 領域 | 採用方針 | 理由 |
 |---|---|---|
 | API 仕様 | OpenAPI 3.0.3 | Action / SaaS / 将来の公開 API の契約を一元化しやすい |
-| API サーバー | Go | 単一バイナリ、並行処理、アップロード制御、GitHub API 連携に向く |
-| HTTP ルータ | chi | `net/http` 互換で薄く、生成コードと合わせやすい |
-| OpenAPI 生成 | oapi-codegen | models、strict server、chi server、client を生成できる |
+| API サーバー | Rust + Axum | 単一バイナリ、非同期処理、アップロード制御、GitHub API 連携に向く |
+| 非同期実行基盤 | Tokio | HTTP server、worker、DB、object storage 操作を同じ async runtime 上で扱いやすい |
+| OpenAPI 生成 | utoipa / utoipa-axum | Rust の handler / schema から OpenAPI を生成し、実装とのずれを抑えやすい |
 | DB | PostgreSQL | 制約、transaction、JSONB を活かしやすい |
-| DB access | sqlc + pgx | SQL を明示しつつ型安全なコードを得られる |
-| Migration | goose または Atlas | MVP は軽さ優先で goose、有力候補として Atlas |
+| DB access | SQLx | SQL を明示しつつ compile-time checked query で型安全なコードを得られる |
+| Migration | SQLx migrations | DB access と migration を同じ Rust / SQLx toolchain に寄せられる |
 | Queue | PostgreSQL backed queue | 冪等性と永続性を優先できる |
 | Redis | rate limit / debounce / lock / short-lived state | 補助用途に限定できる |
 | Artifact storage | S3-compatible object storage | 大きな成果物を DB から分離できる |
-| Observability | OpenTelemetry + structured logging | Action から worker まで追跡しやすい |
+| Observability | tracing / tracing-subscriber + OpenTelemetry | Action から worker まで追跡しやすい |
 
 ## 3. API 契約
 
-OpenAPI を `api/openapi.yaml` のような canonical source として管理する。
-OpenAPI 化前の詳細な契約仕様は [docs/backend/api.md](/Users/f0reach/workspace/boardflow/docs/backend/api.md) を基準にする。
+OpenAPI は Rust の handler / request / response schema から utoipa で生成する。
+生成された OpenAPI JSON / YAML を frontend 型生成と契約テストに使う公開成果物として管理する。
+実装前の詳細な契約仕様は [docs/backend/api.md](/Users/f0reach/workspace/boardflow/docs/backend/api.md) を基準にする。
 
 MVP で重要な API 群:
 
@@ -54,20 +55,19 @@ MVP で重要な API 群:
 同一リポジトリ内で、API と worker を別プロセスとして持つ構成を基本にする。
 
 ```text
-cmd/api
-cmd/worker
-internal/api
-internal/domain
-internal/db
-internal/github
-internal/artifact
-internal/jobs
+crates/api
+crates/worker
+crates/domain
+crates/db
+crates/github
+crates/artifact
+crates/jobs
 ```
 
 設計上のポイント:
 
 - HTTP 層は薄く保つ
-- 業務ロジックは `internal/domain` に寄せる
+- 業務ロジックは `crates/domain` に寄せる
 - GitHub API、artifact storage、DB は明確な境界で分ける
 - worker からも再利用できるユースケースにしておく
 
@@ -230,8 +230,8 @@ Run ResultコメントはMVPではERC/DRC error状態変化、新規error発生�
 
 主な実行要素:
 
-- Go API server
-- Go worker
+- Rust API server
+- Rust worker
 - Next.js server
 - reverse proxy
 - PostgreSQL
@@ -241,7 +241,7 @@ Run ResultコメントはMVPではERC/DRC error状態変化、新規error発生�
 
 ```text
 boardflow.example.com           -> Next.js
-api.boardflow.example.com       -> Go API
+api.boardflow.example.com       -> Rust API
 artifacts.boardflow.example.com -> artifact proxy or object storage origin
 ```
 
@@ -325,7 +325,7 @@ Action 連携、OpenAPI 管理、worker 共有を考えると責務が濁る。
 
 ## 14. 今後の深掘り候補
 
-- OpenAPI ファイルの分割方針
+- 生成 OpenAPI の出力形式、公開場所、frontend 型生成への渡し方
 - `board_runs` / `artifacts` / `snapshots` の詳細 schema
 - queue 実装を自前にするか既存ライブラリを使うか
 - zip intake / staging import の失敗回復設計

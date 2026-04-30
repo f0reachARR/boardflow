@@ -3,7 +3,7 @@
 ## ファイル構成
 
 ```text
-- boardflow/: バックエンド
+- crates/: Rust バックエンド workspace
 - frontend/: フロントエンド
 ```
 
@@ -13,5 +13,5 @@
 
 ## 使用技術
 
-- Go 1.26.1 (mise経由で使用)
+- Rust stable (mise経由で使用)
 - pnpm 10.33.2 (mise経由で使用)

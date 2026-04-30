@@ -1,3 +1,6 @@
 [tools]
-go = "1.26.1"
+rust = "nightly"
 pnpm = "10.33.2"
+
+[settings]
+lockfile = true
