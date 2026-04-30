@@ -108,3 +108,31 @@
 3. **LightStick の ERC/DRC violation**: テスト用サンプルに4件の ERC エラーと39件の DRC 違反がある。boardflow-action の動作確認時に exit code の扱いに注意
 4. **日本語フォント**: Docker イメージに日本語フォントが含まれない。日本語テキストを含む回路図の PDF 出力で文字化けの可能性
 5. **KiCad 10 への移行**: 9.0 → 10.0 で DRC/ERC JSON スキーマの破壊的変更の可能性（スキーマ URL のバージョンは v1 のまま）
+
+---
+
+## PR 作成結果（2026-04-30）
+
+### PR 情報
+
+- **PR タイトル**: docs: add KiCad CLI / iBOM Docker headless research
+- **PR URL**: https://github.com/f0reachARR/boardflow/pull/11
+- **ブランチ**: `research/issue-10-kicad-docker-cli` → `main`
+- **コミット**: `9974172` — docs: add KiCad CLI / iBOM Docker headless research (#10)
+- **ラベル**: documentation, research
+- **コミット対象ファイル**:
+  - `docs/research/kicad-docker-cli.md`（新規）
+  - `docs/logs/10/worklog.md`（新規）
+
+### review/docs 判定
+
+- **pr_ready**: true（調査 Issue のため実装なし）
+- **docs_ready**: true（調査ドキュメント自体が成果物）
+
+### 残リスク（最終）
+
+1. DRC/ERC JSON スキーマ URL がリンク切れ（`schemas.kicad.org`）
+2. InteractiveHtmlBom の xvfb 依存は将来バージョンで解消される可能性
+3. LightStick に ERC 4件・DRC 39件の violation あり（exit code 注意）
+4. Docker イメージに日本語フォントが含まれない
+5. KiCad 10 への移行時に DRC/ERC スキーマ破壊的変更の可能性
