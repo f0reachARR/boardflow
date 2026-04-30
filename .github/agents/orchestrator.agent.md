@@ -10,6 +10,7 @@ tools:
     read,
     agent,
     search,
+    "edit",
     web,
     "io.github.upstash/context7/*",
     ms-vscode.vscode-websearchforcopilot/websearch,

@@ -5,6 +5,7 @@ tools:
     "execute",
     "read",
     "search",
+    "edit",
     "todo",
     "web",
     "ms-vscode.vscode-websearchforcopilot/websearch",
