@@ -704,3 +704,85 @@ plan_empty_project_path_returns_error ... ok (新規追加)
 #### 更新した作業ログパス
 
 - `docs/logs/4/worklog.md`
+
+---
+
+## 最終レビュー (5回目) (2026-05-01)
+
+### 対象Issue
+
+- Issue ID: #4
+- タイトル: Action API: Plan API実装
+
+### 総評
+
+- 前回指摘していた差分判定テスト不足は解消された。`hash_changed`、`unchanged`、`no_previous_snapshot` の3分岐が [crates/api/tests/plan_test.rs](crates/api/tests/plan_test.rs#L613) から [crates/api/tests/plan_test.rs](crates/api/tests/plan_test.rs#L734) で追加され、DB 接続ありで 13 件全件成功も再確認できた。
+- 認可順序の問題は解消済みで、[crates/api/src/routes/plan.rs](crates/api/src/routes/plan.rs#L124) から [crates/api/src/routes/plan.rs](crates/api/src/routes/plan.rs#L140) で token の repository と request の `github_repository_id` を先に照合してから repository metadata を更新している。認可前書き込みの副作用は残っていない。
+- ただし、Plan API 仕様が要求する project payload の「形式不正」validation は、実装・テストともに依然として空文字ケースに縮退している。仕様は `project_path` / `tree_hash` / `config_path` の空または形式不正を `decision: error` の対象としているが、実装は [crates/api/src/routes/plan.rs](crates/api/src/routes/plan.rs#L188) から [crates/api/src/routes/plan.rs](crates/api/src/routes/plan.rs#L229) の通り空文字しか見ていない。
+- 判定: `pr_ready: false`
+
+### 確認結果
+
+1. **差分判定テスト**
+  - [crates/api/tests/plan_test.rs](crates/api/tests/plan_test.rs#L613) で既存 project の hash 変更時に `build / hash_changed` を確認している。
+  - [crates/api/tests/plan_test.rs](crates/api/tests/plan_test.rs#L655) で既存 project の hash 一致時に `skip / unchanged` を確認している。
+  - [crates/api/tests/plan_test.rs](crates/api/tests/plan_test.rs#L698) で `latest_tree_hash = NULL` 時に `build / no_previous_snapshot` を確認している。
+
+2. **仕様整合**
+  - reason 列挙は [docs/spec.md](docs/spec.md#L518) から [docs/spec.md](docs/spec.md#L525)、[docs/backend/api.md](docs/backend/api.md#L205) から [docs/backend/api.md](docs/backend/api.md#L209)、[crates/api/src/routes/plan.rs](crates/api/src/routes/plan.rs#L99) から [crates/api/src/routes/plan.rs](crates/api/src/routes/plan.rs#L110) で一致している。
+  - 一方で、仕様本文は [docs/spec.md](docs/spec.md#L503) と [docs/spec.md](docs/spec.md#L523) から [docs/spec.md](docs/spec.md#L525)、[docs/backend/api.md](docs/backend/api.md#L205) にある通り「空または形式不正」を要求しているが、実装とテストは空文字しか担保していない。
+
+3. **テスト実行結果**
+  - `DATABASE_URL="postgresql://boardflow:boardflow@localhost:5432/boardflow" cargo test -p boardflow-api --test plan_test`
+  - 結果: 13 passed, 0 failed
+
+4. **ドキュメント確認**
+  - [README.md](README.md) はリポジトリ概要のみで、今回の Plan API 仕様判断に追加の制約は見当たらない。
+  - `CONTRIBUTING.md` はリポジトリ内に存在しなかったため確認対象なし。
+
+### レビュー結果
+
+#### 重大度順の指摘
+
+1. **中**: project payload の「形式不正」validation が未実装
+  - [docs/spec.md](docs/spec.md#L523) から [docs/spec.md](docs/spec.md#L525) と [docs/backend/api.md](docs/backend/api.md#L205) は、`project_path` / `tree_hash` / `config_path` が空または形式不正なら `decision: error` にすると定義している。
+  - しかし実装は [crates/api/src/routes/plan.rs](crates/api/src/routes/plan.rs#L188) から [crates/api/src/routes/plan.rs](crates/api/src/routes/plan.rs#L229) の空文字チェックのみで、相対パスでない値、`.kicad_pro` で終わらない `project_path`、`.boardflow.yml` でない `config_path`、想定外形式の `tree_hash` は通過する。
+  - 追加された 13 テストも空文字 validation と差分判定まではカバーしているが、形式不正ケースは未検証。
+
+#### 必須修正
+
+- `project_path`、`tree_hash`、`config_path` の形式要件を明文化した上で、Plan API 実装に形式 validation を追加すること。
+- 上記3項目の形式不正ケースに対する `decision: error` テストを追加し、仕様の「空または形式不正」を満たすこと。
+
+#### 任意改善
+
+- 形式 validation の具体ルールを [docs/backend/api.md](docs/backend/api.md) に例付きで補強し、Action 側が送るべき canonical な値を固定すること。
+- diff 判定分岐と payload validation 分岐を helper 化して、DB 前のロジックをユニットテストしやすくすること。
+
+#### テスト不足
+
+- `project_path` の形式不正ケース
+- `tree_hash` の形式不正ケース
+- `config_path` の形式不正ケース
+
+#### ドキュメント更新漏れ
+
+- 形式不正の具体定義が仕様上あいまいなまま残っている。少なくとも repository-relative path、期待拡張子、hash 形式の扱いは [docs/backend/api.md](docs/backend/api.md) 側に補足が必要。
+
+#### plan / research / docs との不整合
+
+- research と計画では `project_path` / `tree_hash` / `config_path` の形式不正を `decision: error` にする前提だったが、現実装は空文字のみ。
+- [docs/external/sqlx-postgresql-upsert.md](docs/external/sqlx-postgresql-upsert.md#L110) と当初計画は 1 トランザクション実行を前提にしていた一方、実装は pool 直実行である。これは現時点で即時の仕様違反とは言い切れないが、計画との差分として残っている。
+
+#### PR/完了結果
+
+- `pr_ready: false`
+
+#### 残リスク
+
+- Action 側の不正入力や将来の呼び出し元変更で、仕様上は弾くべき不正 path / hash がそのまま DB upsert まで到達する。
+- validation ルールが曖昧なまま実装を先行させると、Action 側と backend 側で path 正規化や hash 表現が食い違う可能性がある。
+
+#### 更新した作業ログパス
+
+- `docs/logs/4/worklog.md`

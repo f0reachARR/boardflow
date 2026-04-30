@@ -482,6 +482,195 @@ async fn plan_empty_project_path_returns_error() {
     assert_eq!(json["projects"][0]["reason"], "invalid_project_path");
 }
 
+/// 異常系: project_pathが.kicad_proで終わらない → decision: error / invalid_project_path
+#[tokio::test]
+async fn plan_invalid_project_path_extension_returns_error() {
+    let pool = match setup_pool().await {
+        Some(p) => p,
+        None => return,
+    };
+
+    let github_repo_id: i64 = rand_i64();
+    let installation_id: i64 = 1013;
+    let repo_id = create_test_repository(&pool, github_repo_id, installation_id).await;
+    let token = create_test_token(&pool, repo_id, installation_id).await;
+
+    let app = create_app(pool);
+    let body = serde_json::json!({
+        "repository": {
+            "github_repository_id": github_repo_id.to_string(),
+            "owner": "test-owner",
+            "name": "test-repo"
+        },
+        "git": {
+            "ref": "refs/heads/main",
+            "branch": "main",
+            "commit_sha": "abc123def456",
+            "event_name": "push"
+        },
+        "action": {
+            "workflow": "boardflow.yml",
+            "run_id": "12345",
+            "run_attempt": "1"
+        },
+        "mode": "auto",
+        "projects": [{
+            "project_path": "hardware/board.txt",
+            "config_path": "hardware/boardflow.yml",
+            "project_dir": "hardware",
+            "tree_hash": "deadbeef1234567890",
+            "files": []
+        }]
+    });
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/runs/plan")
+                .header("content-type", "application/json")
+                .header("authorization", format!("Bearer {}", token))
+                .body(Body::from(serde_json::to_vec(&body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body_bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+
+    assert_eq!(json["projects"][0]["decision"], "error");
+    assert_eq!(json["projects"][0]["reason"], "invalid_project_path");
+}
+
+/// 異常系: project_pathにパストラバーサル → decision: error / invalid_project_path
+#[tokio::test]
+async fn plan_path_traversal_project_path_returns_error() {
+    let pool = match setup_pool().await {
+        Some(p) => p,
+        None => return,
+    };
+
+    let github_repo_id: i64 = rand_i64();
+    let installation_id: i64 = 1014;
+    let repo_id = create_test_repository(&pool, github_repo_id, installation_id).await;
+    let token = create_test_token(&pool, repo_id, installation_id).await;
+
+    let app = create_app(pool);
+    let body = serde_json::json!({
+        "repository": {
+            "github_repository_id": github_repo_id.to_string(),
+            "owner": "test-owner",
+            "name": "test-repo"
+        },
+        "git": {
+            "ref": "refs/heads/main",
+            "branch": "main",
+            "commit_sha": "abc123def456",
+            "event_name": "push"
+        },
+        "action": {
+            "workflow": "boardflow.yml",
+            "run_id": "12345",
+            "run_attempt": "1"
+        },
+        "mode": "auto",
+        "projects": [{
+            "project_path": "../../../etc/passwd.kicad_pro",
+            "config_path": "hardware/boardflow.yml",
+            "project_dir": "hardware",
+            "tree_hash": "deadbeef1234567890",
+            "files": []
+        }]
+    });
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/runs/plan")
+                .header("content-type", "application/json")
+                .header("authorization", format!("Bearer {}", token))
+                .body(Body::from(serde_json::to_vec(&body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body_bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+
+    assert_eq!(json["projects"][0]["decision"], "error");
+    assert_eq!(json["projects"][0]["reason"], "invalid_project_path");
+}
+
+/// 異常系: config_pathにパストラバーサル → decision: error / invalid_config_path
+#[tokio::test]
+async fn plan_path_traversal_config_path_returns_error() {
+    let pool = match setup_pool().await {
+        Some(p) => p,
+        None => return,
+    };
+
+    let github_repo_id: i64 = rand_i64();
+    let installation_id: i64 = 1015;
+    let repo_id = create_test_repository(&pool, github_repo_id, installation_id).await;
+    let token = create_test_token(&pool, repo_id, installation_id).await;
+
+    let app = create_app(pool);
+    let body = serde_json::json!({
+        "repository": {
+            "github_repository_id": github_repo_id.to_string(),
+            "owner": "test-owner",
+            "name": "test-repo"
+        },
+        "git": {
+            "ref": "refs/heads/main",
+            "branch": "main",
+            "commit_sha": "abc123def456",
+            "event_name": "push"
+        },
+        "action": {
+            "workflow": "boardflow.yml",
+            "run_id": "12345",
+            "run_attempt": "1"
+        },
+        "mode": "auto",
+        "projects": [{
+            "project_path": "hardware/LightStick.kicad_pro",
+            "config_path": "../../etc/config.yml",
+            "project_dir": "hardware",
+            "tree_hash": "deadbeef1234567890",
+            "files": []
+        }]
+    });
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/runs/plan")
+                .header("content-type", "application/json")
+                .header("authorization", format!("Bearer {}", token))
+                .body(Body::from(serde_json::to_vec(&body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body_bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+
+    assert_eq!(json["projects"][0]["decision"], "error");
+    assert_eq!(json["projects"][0]["reason"], "invalid_config_path");
+}
+
 /// 異常系: 空のtree_hash → decision: error / invalid_tree_hash
 #[tokio::test]
 async fn plan_empty_tree_hash_returns_error() {

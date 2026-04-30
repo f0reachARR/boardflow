@@ -184,8 +184,12 @@ pub async fn plan_run(
     // 5. Process each project
     let mut project_outputs = Vec::with_capacity(req.projects.len());
     for project in &req.projects {
-        // Validation: empty project_path
-        if project.project_path.is_empty() {
+        // Validation: empty or malformed project_path
+        if project.project_path.is_empty()
+            || project.project_path.starts_with('/')
+            || project.project_path.contains("..")
+            || !project.project_path.ends_with(".kicad_pro")
+        {
             project_outputs.push(PlanProjectOutput {
                 project_path: project.project_path.clone(),
                 board_project_id: String::new(),
@@ -208,8 +212,8 @@ pub async fn plan_run(
             continue;
         }
 
-        // Validation: empty tree_hash
-        if project.tree_hash.is_empty() {
+        // Validation: empty or malformed tree_hash
+        if project.tree_hash.is_empty() || project.tree_hash.contains(' ') {
             project_outputs.push(PlanProjectOutput {
                 project_path: project.project_path.clone(),
                 board_project_id: String::new(),
@@ -220,8 +224,11 @@ pub async fn plan_run(
             continue;
         }
 
-        // Validation: empty config_path
-        if project.config_path.is_empty() {
+        // Validation: empty or malformed config_path
+        if project.config_path.is_empty()
+            || project.config_path.starts_with('/')
+            || project.config_path.contains("..")
+        {
             project_outputs.push(PlanProjectOutput {
                 project_path: project.project_path.clone(),
                 board_project_id: String::new(),
