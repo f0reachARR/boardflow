@@ -75,9 +75,19 @@ sqlx = { version = "0.8", features = ["runtime-tokio", "tls-rustls", "postgres",
 
 ## BoardFlow への示唆
 
-- 全 `created_at`、`updated_at`、`completed_at` 等は `TIMESTAMPTZ NOT NULL DEFAULT now()`
-- nullable なタイムスタンプ（`completed_at`、`revoked_at` 等）は `TIMESTAMPTZ` (DEFAULT なし)
+- 全タイムスタンプは DDL 上 `TIMESTAMPTZ NOT NULL`（DEFAULT なし）
+- `created_at`、`updated_at` の値は Rust 側で `chrono::Utc::now()` を設定してから INSERT/UPDATE する
+- nullable なタイムスタンプ（`completed_at`、`revoked_at` 等）は `TIMESTAMPTZ`（DEFAULT なし）
 - Rust 側: `DateTime<Utc>` (必須) / `Option<DateTime<Utc>>` (nullable)
+
+## 採用方針
+
+**採用**: アプリ層で timestamp を設定する（DDL に DEFAULT now() を付けない）
+
+理由（Issue #2 実装時に決定）:
+- テスト時に特定のタイムスタンプを注入でき、再現性が高い
+- アプリ層で一貫して `Utc::now()` を呼ぶことで、INSERT 文の責務が明確になる
+- DB 側 DEFAULT に依存しないため、マイグレーション間の暗黙的な挙動差が生じない
 - `now()` はアプリ層ではなく DB 側で生成（トランザクション内の一貫性のため）
 
 ## 採用/不採用判断

@@ -50,19 +50,20 @@ SQLx は `_sqlx_migrations` テーブルを自動作成し、適用済みマイ�
 
 ## BoardFlow への示唆
 
-- 既存の `20260430000000_init.sql` は simple 形式を採用済み
-- Issue #2 で追加する13テーブルのマイグレーションも simple 形式で統一する
-- ファイル名例: `20260430000001_create_schema.sql`
-- MVP段階では forward-only で十分。down migration は運用開始後に必要に応じて追加
+- 全マイグレーションは reversible 形式（`.up.sql` / `.down.sql`）で統一
+- ファイル名例: `20260430000001_create_schema.up.sql` + `20260430000001_create_schema.down.sql`
+- `sqlx migrate revert` で1ステップずつロールバック可能
+- 開発中のスキーマ反復・ブランチ切り替えに対応できる
 
 ## 採用/不採用判断
 
-**採用**: Simple (非可逆) 形式
+**採用**: Reversible (可逆) 形式
 
-理由:
-- 既存マイグレーションが simple 形式
-- MVP 段階ではロールバックより再作成のほうが現実的
-- 13テーブル全体を1ファイルに入れるか分割するかは実装者判断（推奨: 1ファイルで全テーブル作成）
+理由（Issue #2 レビューで決定）:
+- Issue #2 の受け入れ条件に `sqlx migrate revert` が含まれており、simple 形式では満たせない
+- 開発中のスキーマ反復が多く、revert できる方が安全
+- down.sql は循環FK制約の DROP → テーブル逆依存順 DROP で構成
+- 当初は simple 形式を計画していたが、レビュー時に reversible へ変更した
 
 ## 制約とpitfall
 
