@@ -13,296 +13,8 @@
 
 ## 後続処理タイプの初期仮説
 `implementation_required`
-
----
-
-## 調査フェーズ (2026-04-30)
-
-### 調査トピックと結論
-
-#### 1. SQLx migration ファイル形式
-- **結論**: Simple (非可逆) 形式を採用 **[SUPERSEDED: reversible (.up.sql / .down.sql) 採用に変更]**
-- `<timestamp>_<name>.sql` 形式（14桁タイムスタンプ）
-- 既存 `20260430000000_init.sql` と同一形式
-- 13テーブルは1ファイルで作成推奨
-- 詳細: `docs/external/sqlx-migration-format.md`
-
-#### 2. PostgreSQL UUID 生成
-- **結論**: アプリ層で UUID v7 生成（`Uuid::now_v7()`）
-- `gen_random_uuid()` は PG 13+ でビルトイン（拡張不要）だが v4 のみ
-- `uuidv7()` は PG 18+ のみ（PG 16 では使えない）
-- DDL: `id UUID PRIMARY KEY`（DEFAULT なし）
-- Rust: `uuid::Uuid::now_v7()` で生成して INSERT 時に渡す
-- 詳細: `docs/external/postgresql-uuid-generation.md`
-
-#### 3. PostgreSQL ENUM vs CHECK 制約
-- **結論**: TEXT + CHECK 制約を採用
-- マイグレーションでの値変更が容易（O(1) + VALIDATE）
-- ロックが軽い（SHARE UPDATE EXCLUSIVE、SaaS向き）
-- SQLx: `#[derive(sqlx::Type)]` + `#[sqlx(type_name = "text", rename_all = "snake_case")]`
-- 制約名: `<table>_<column>_check` で統一
-- 詳細: `docs/external/postgresql-enum-vs-check.md`
-
-#### 4. chrono::DateTime<Utc> と TIMESTAMPTZ
-- **結論**: `TIMESTAMPTZ NOT NULL DEFAULT now()` + `DateTime<Utc>` **[SUPERSEDED: アプリ入力前提（DEFAULT now() なし）に変更]**
-- SQLx `chrono` feature で追加実装なし
-- 全タイムスタンプは TIMESTAMPTZ で統一
-- nullable: `Option<DateTime<Utc>>`
-- 詳細: `docs/external/sqlx-chrono-timestamptz.md`
-
-### 実装時の具体的方針まとめ
-
-| 項目 | 方針 |
-|---|---|
-| マイグレーション形式 | Simple、1ファイルで全テーブル **[SUPERSEDED: reversible 採用]** |
-| UUID 主キー | `id UUID PRIMARY KEY`、Rust で v7 生成 |
-| ステータスカラム | `TEXT NOT NULL CHECK (col IN (...))` |
-| タイムスタンプ | `TIMESTAMPTZ NOT NULL DEFAULT now()` **[SUPERSEDED: アプリ入力前提、DEFAULT なし]** |
-| nullable タイムスタンプ | `TIMESTAMPTZ`（DEFAULT なし） |
-| CHECK 制約名 | `<table>_<column>_check` |
-| JSONB カラム | インデックスなし（MVP後に判断） |
-
-### 結論ステータス
-`implementation_required`
-
-### 残リスク
-- ~~PostgreSQL enum vs CHECK 制約の選択が未決定~~ → CHECK 制約に決定
-- JSONB index の要否はMVP後に判断
-- PG 18+ への移行時に `uuidv7()` DEFAULT への切り替えを検討可能
-
----
-
-## 計画フェーズ (2026-04-30)
-
-### ユーザー確認済み列挙値（spec.md 未定義分）
-
-| カラム | 確定値 |
-|---|---|
-| board_projects.issue_sync_status | pending, syncing, synced, failed |
-| board_runs.review_status | pending, ready, no_baseline, failed |
-| board_runs.diff_status | pending, ready, no_baseline, unavailable, failed |
-| board_runs.erc_status / drc_status | passed, failed, skipped (nullable) |
-| artifact_bundles.status | pending, validating, importing, completed, failed |
-| artifact_bundles.intake_mode | TEXT NOT NULL (CHECKなし) |
-| github_jobs.status | pending, running, completed, failed |
-| artifacts.type | TEXT NOT NULL (CHECKなし) |
-
-### 実装計画
-
-#### 1. 目的
-spec.md Section 10 の13テーブルを PostgreSQL 16+ 上に SQLx マイグレーションとして作成し、全 API/Worker が依存するスキーマ基盤を構築する。合わせて Rust ドメインモデル構造体を crates/domain に定義する。
-
-#### 2. 非目的
-- クエリ層の実装（crates/db へのリポジトリパターン追加は後続Issue）
-- JSONB カラムへのインデックス追加（MVP後判断）
-- API エンドポイントの実装
-- テストデータ投入用 seed/fixture
-
-#### 3. 受け入れ条件
-- [ ] 20260430000001_create_schema.sql が sqlx migrate run で正常適用される
-- [ ] 13テーブル + 全UNIQUE制約 + 全CHECK制約 + 全FK制約 + FKインデックスが作成される
-- [ ] crates/domain に全13テーブル対応のRust構造体と列挙型が定義される
-- [ ] cargo build が通る
-- [ ] cargo test が通る（既存テスト含む）
-- [ ] PostgreSQL上でマイグレーションの適用・検証テスト通過
-
-#### 4. 詳細要件
-
-##### 4.1 マイグレーションSQL
-
-**ファイル**: crates/db/migrations/20260430000001_create_schema.sql
-
-**テーブル作成順序**（FK依存関係順）:
-
-```
-1.  repositories                        -- 基底テーブル
-2.  board_projects                      -- FK: repositories
-3.  board_runs                          -- FK: board_projects
-4.  ALTER board_projects                -- 遅延FK: latest_completed_run_id -> board_runs
-5.  artifact_bundles                    -- FK: board_runs
-6.  artifacts                           -- FK: board_runs, artifact_bundles
-7.  run_checks                          -- FK: board_runs, artifacts
-8.  run_check_findings                  -- FK: run_checks
-9.  board_project_snapshots             -- FK: board_projects, board_runs
-10. board_run_diff_metadata             -- FK: board_runs
-11. board_run_diffs                     -- FK: board_runs x2
-12. boardflow_api_tokens                -- FK: repositories
-13. github_jobs                         -- FK: repositories, board_projects, board_runs
-14. board_project_issue_history         -- FK: board_projects
-```
-
-**循環依存の解決**: board_projects.latest_completed_run_id -> board_runs は board_runs 作成後に ALTER TABLE で FK 追加。
-
-**FKインデックス**:
-- board_projects(repository_id), board_projects(latest_completed_run_id)
-- board_runs(board_project_id)
-- artifacts(board_run_id), artifacts(source_bundle_id)
-- artifact_bundles(board_run_id)
-- run_checks(board_run_id), run_checks(report_artifact_id)
-- run_check_findings(run_check_id)
-- board_project_snapshots(board_project_id)
-- board_run_diffs(base_board_run_id)
-- boardflow_api_tokens(repository_id), boardflow_api_tokens(installation_id)
-- github_jobs(repository_id), github_jobs(board_project_id), github_jobs(board_run_id)
-- board_project_issue_history(board_project_id)
-- UNIQUE でカバー済: board_project_snapshots(board_run_id), board_run_diff_metadata(board_run_id), board_run_diffs(board_run_id)
-
-**追加機能インデックス**:
-- github_jobs(status, run_after) WHERE status = pending -- ジョブキューポーリング用 partial index
-
-##### 4.2 ドメインモデル（crates/domain）
-
-**ファイル構成**:
-```
-crates/domain/src/
-  lib.rs                # pub mod 宣言
-  models/
-    mod.rs              # 全モデル re-export
-    repository.rs       # Repository
-    board_project.rs    # BoardProject, IssueSyncStatus
-    board_run.rs        # BoardRun, RunStatus, ReviewStatus, DiffStatus, CheckStatus
-    artifact.rs         # Artifact, ArtifactStatus, ArtifactBundle, BundleStatus
-    check.rs            # RunCheck, CheckKind, CheckRunStatus, RunCheckFinding, Severity, SubjectKind
-    snapshot.rs         # BoardProjectSnapshot
-    diff.rs             # BoardRunDiffMetadata, BoardRunDiff, DiffRunStatus
-    token.rs            # BoardflowApiToken
-    github_job.rs       # GithubJob, JobType, JobStatus
-    issue_history.rs    # BoardProjectIssueHistory, IssueHistoryReason
-```
-
-**Cargo.toml 変更**: chrono, sqlx, serde_json を依存に追加
-**workspace Cargo.toml**: chrono をワークスペース依存に追加
-
-**型マッピング**:
-| SQL型 | Rust型 |
-|---|---|
-| UUID | uuid::Uuid |
-| BIGINT | i64 |
-| INTEGER | i32 |
-| TEXT | String |
-| BOOLEAN | bool |
-| TIMESTAMPTZ | chrono::DateTime<chrono::Utc> |
-| TIMESTAMPTZ nullable | Option<chrono::DateTime<chrono::Utc>> |
-| JSONB | serde_json::Value |
-| JSONB nullable | Option<serde_json::Value> |
-
-##### 4.3 crates/db 変更
-変更なし。run_migrations() の sqlx::migrate!() が新マイグレーションを自動ピックアップ。
-
-#### 5. 影響範囲
-- crates/db/migrations/ -- 新規マイグレーション追加
-- crates/domain/ -- モデル定義追加（Cargo.toml + src/）
-- Cargo.toml -- workspace dependency に chrono 追加
-- 既存コードへの破壊的変更なし
-
-#### 6. 設計方針
-- Simple (非可逆) マイグレーション、1ファイルで全テーブル
-- FK依存関係順にテーブル作成、循環依存は ALTER TABLE で解決
-- ステータスカラムは TEXT + CHECK 制約（制約名: <table>_<column>_check）
-- UUID主キーは DEFAULT なし（アプリ層で v7 生成）
-- TIMESTAMPTZ + DEFAULT now() で作成・更新日時管理
-- FKカラムにはインデックスを明示作成
-- ドメインモデルは機能グループ別にファイル分割
-
-#### 7. テスト観点
-- マイグレーション適用テスト: sqlx migrate run で全テーブル正常作成
-- コンパイルテスト: cargo build パス
-- CHECK制約テスト: 不正値 INSERT が拒否される
-- FK制約テスト: 存在しない親への INSERT が拒否される
-- UNIQUE制約テスト: 重複 INSERT が拒否される
-- 既存テストの回帰なし
-
-#### 8. ドキュメント更新対象
-- docs/logs/2/worklog.md -- 本計画（本ファイル）
-- spec.md への変更不要（spec 準拠実装）
-
-#### 9. 変更ファイル一覧
-
-| ファイル | 操作 | 内容 |
-|---|---|---|
-| Cargo.toml | 修正 | chrono ワークスペース依存追加 |
-| crates/domain/Cargo.toml | 修正 | chrono, sqlx, serde_json 依存追加 |
-| crates/db/migrations/20260430000001_create_schema.sql | 新規 | 13テーブル + 制約 + インデックス |
-| crates/domain/src/lib.rs | 修正 | pub mod models 宣言 |
-| crates/domain/src/models/mod.rs | 新規 | 全モデル re-export |
-| crates/domain/src/models/repository.rs | 新規 | Repository |
-| crates/domain/src/models/board_project.rs | 新規 | BoardProject, IssueSyncStatus |
-| crates/domain/src/models/board_run.rs | 新規 | BoardRun + enum 4種 |
-| crates/domain/src/models/artifact.rs | 新規 | Artifact, ArtifactBundle + enum |
-| crates/domain/src/models/check.rs | 新規 | RunCheck, RunCheckFinding + enum |
-| crates/domain/src/models/snapshot.rs | 新規 | BoardProjectSnapshot |
-| crates/domain/src/models/diff.rs | 新規 | BoardRunDiffMetadata, BoardRunDiff + enum |
-| crates/domain/src/models/token.rs | 新規 | BoardflowApiToken |
-| crates/domain/src/models/github_job.rs | 新規 | GithubJob, JobType, JobStatus |
-| crates/domain/src/models/issue_history.rs | 新規 | BoardProjectIssueHistory + enum |
-
-#### 10. 実装順序
-
-1. ブランチ作成: feature/issue-2-db-migration
-2. ワークスペース Cargo.toml: chrono 依存追加
-3. domain Cargo.toml: chrono, sqlx, serde_json 依存追加
-4. マイグレーション SQL 作成: 全13テーブル + 制約 + インデックス
-5. ドメインモデル作成: models/ ディレクトリ + 各ファイル
-6. domain/src/lib.rs 更新: pub mod models
-7. ビルド検証: cargo build
-8. PostgreSQL テスト: docker-compose で DB 起動 -> マイグレーション適用確認
-9. 既存テスト確認: cargo test
-10. コミット・プッシュ
-
-#### 11. 実装要否
-implementation_required
-
-#### 12. 未解決の疑問
 なし（全列挙値をユーザーに確認済み）
 
-#### 13. 残リスク
-- JSONB カラムのインデックスはMVP後に要否判断
-- PG 18+ 移行時に uuidv7() DEFAULT への切り替えを検討可能
-- artifacts.type と artifact_bundles.intake_mode は CHECK なしのため、アプリ層バリデーション必要
-
----
-
-## 実装フェーズ (2026-04-30)
-
-### 実装内容
-
-#### ブランチ
-`feature/issue-2-db-migration` (from main)
-
-#### 変更ファイル一覧
-
-| ファイル | 種別 | 内容 |
-|---|---|---|
-| Cargo.toml | 修正 | workspace.dependencies に chrono 追加 |
-| Cargo.lock | 自動更新 | chrono 依存解決 |
-| crates/domain/Cargo.toml | 修正 | serde_json, chrono, sqlx 追加 |
-| crates/domain/src/lib.rs | 修正 | `pub mod models;` 追加 |
-| crates/domain/src/models/mod.rs | 新規 | 全サブモジュール宣言 |
-| crates/domain/src/models/repository.rs | 新規 | Repository 構造体 |
-| crates/domain/src/models/board_project.rs | 新規 | BoardProject + IssueSyncStatus |
-| crates/domain/src/models/board_run.rs | 新規 | BoardRun + 4 enum |
-| crates/domain/src/models/artifact.rs | 新規 | Artifact + ArtifactStatus |
-| crates/domain/src/models/artifact_bundle.rs | 新規 | ArtifactBundle + ArtifactBundleStatus |
-| crates/domain/src/models/run_check.rs | 新規 | RunCheck, RunCheckFinding + 4 enum |
-| crates/domain/src/models/snapshot.rs | 新規 | BoardProjectSnapshot, BoardRunDiffMetadata, BoardRunDiff + enum |
-| crates/domain/src/models/api_token.rs | 新規 | BoardflowApiToken |
-| crates/domain/src/models/github_job.rs | 新規 | GithubJob + GithubJobStatus |
-| crates/domain/src/models/issue_history.rs | 新規 | BoardProjectIssueHistory + IssueHistoryReason |
-| crates/db/migrations/20260430000001_create_schema.sql | 新規 | 13テーブル DDL |
-
-### テスト結果
-
-| テスト | 結果 |
-|---|---|
-| `cargo build` | ✅ 成功 |
-| `cargo test` | ✅ 全テスト通過 (既存テスト回帰なし) |
-| `sqlx database reset` (PostgreSQL 16) | ✅ マイグレーション正常適用 |
-| テーブル確認 (`\dt`) | ✅ 13テーブル + _sqlx_migrations 確認 |
-
-### 更新ドキュメント
-- `docs/logs/2/worklog.md` (本ファイル)
-
-### 残リスク
 - SQLx compile-time checking (offline mode / sqlx-data.json) は未設定 → CI/後続Issueで対応
 - JSONB カラムのインデックスはMVP後に要否判断
 - artifacts.type / artifact_bundles.intake_mode は CHECK なし → アプリ層バリデーション必要
@@ -310,150 +22,6 @@ implementation_required
 
 ---
 
-## レビューフェーズ (2026-04-30)
-
-### 対象Issue
-- Issue #2: DBマイグレーション・データモデル実装
-
-### 調査結果
-- spec.md Section 10、README、backend設計文書、docs/external の調査メモ、既存 worklog、実装済み SQL / domain model を照合した。
-- 外部調査では、SQLx の migrate revert は reversible migration（.up.sql / .down.sql）前提であり、simple migration では満たせないことを再確認した。
-- PostgreSQL 15+ では UNIQUE ... NULLS NOT DISTINCT が使えるため、nullable 列を含む重複防止は単純な複合 UNIQUE より明示設計が必要と確認した。
-
-### テスト結果
-- cargo build : 成功
-- cargo test : 成功
-- PostgreSQL 16 コンテナ上で 20260430000000_init.sql + 20260430000001_create_schema.sql を適用し、13テーブル作成を確認
-
-### ドキュメント確認
-- spec.md Section 10 の13テーブル定義との大枠整合は確認
-- README は依然として高レベル概要のみで、本Issue向けの追加更新は不要
-- docs/external/sqlx-migration-format.md の方針と、Issue本文の成功条件 sqlx migrate revert の間に不整合が残っている
-
-### レビュー結果
-- 判定: pr_ready: false
-
-#### 必須修正
-1. artifacts に、spec.md が要求する board_run_id + type + source_path 相当の同一run内重複防止制約を追加すること。
-   - source_path が nullable のため、PostgreSQL 15+ の NULLS NOT DISTINCT を使うか、source_path IS NULL / IS NOT NULL を分けた一意インデックス等で要件を満たす必要がある。
-2. Issue本文の成功条件にある sqlx migrate revert を満たす migration 形式へ修正するか、少なくとも Issue / 計画 / 成功条件のいずれかを更新して forward-only 方針へ明示的に再合意すること。
-   - 現状は simple migration しか存在せず、受け入れ条件との差分が未解消。
-
-#### 任意改善
-1. boardflow_api_tokens(installation_id) インデックスは計画にあるが未実装のため、lookup 予定があるなら追加を検討する。
-2. board_project_snapshots(board_run_id) の一意性または索引方針は、1 run 1 snapshot を前提にするなら明示した方がよい。
-3. created_at / updated_at や一部 JSONB カラムの DEFAULT 方針は、Issue本文・research・実装で揺れがあるため後続Issue向けに明文化した方がよい。
-
-#### plan / research / docs との不整合
-- research / plan では simple migration 採用としている一方、Issue本文の成功条件には sqlx migrate revert が含まれている。
-- 計画では boardflow_api_tokens(installation_id) と github_jobs(status, run_after) WHERE status = pending を明示しているが、前者は未実装、後者は run_after 単独 partial index 実装に変わっている。
-- spec.md は artifacts の重複防止を要求しているが、実装 SQL に対応制約がない。
-
-#### テスト不足
-- artifacts の重複防止制約に関する失敗系テストがない。
-- reversible migration を前提にするなら sqlx migrate revert の実測がない。
-- CHECK / UNIQUE / FK の失敗系を検証する DB テストが未追加。
-
-#### 残リスク
-- 現状の artifacts は重複行を受け入れるため、import 冪等性や Web UI 集計の前提を崩す可能性がある。
-- migration 形式の合意が曖昧なまま進むと、後続Issueで sqlx migrate revert を前提にした開発フローが成立しない。
-
----
-
-## レビュー修正実装フェーズ (2026-04-30)
-
-### 実施した修正
-
-#### 修正1: artifacts の重複防止制約
-- `CREATE UNIQUE INDEX idx_artifacts_run_type_path ON artifacts(board_run_id, type, source_path) NULLS NOT DISTINCT;` を up.sql に追加
-- PostgreSQL 16 で NULLS NOT DISTINCT が使用可能であることを実機確認済み
-- 同一 board_run_id + type + source_path（NULL含む）の重複が制約で防止される
-
-#### 修正2: Reversible migration への変換
-- `20260430000000_init.sql` → `20260430000000_init.up.sql` + `20260430000000_init.down.sql`
-- `20260430000001_create_schema.sql` → `20260430000001_create_schema.up.sql` + `20260430000001_create_schema.down.sql`
-- down.sql: 循環FK制約の DROP → テーブルの逆依存順 DROP
-- `sqlx migrate run` + `sqlx migrate revert` の往復テスト通過
-
-#### 修正3: boardflow_api_tokens(installation_id) インデックス追加
-- `CREATE INDEX idx_boardflow_api_tokens_installation_id ON boardflow_api_tokens(installation_id);` を up.sql に追加
-
-### 検証結果
-
-| テスト | 結果 |
-|---|---|
-| `cargo build` | ✅ 成功 |
-| `cargo test` | ✅ 全テスト通過 |
-| `sqlx migrate run` | ✅ Applied 20260430000000/migrate init + 20260430000001/migrate create schema |
-| テーブル確認 (13テーブル) | ✅ 全テーブル作成確認 |
-| `idx_artifacts_run_type_path` 存在確認 | ✅ |
-| `idx_boardflow_api_tokens_installation_id` 存在確認 | ✅ |
-| `sqlx migrate revert` (create_schema) | ✅ 全テーブル DROP 確認 |
-| `sqlx migrate revert` (init) | ✅ |
-| 再度 `sqlx migrate run` | ✅ 再適用成功 |
-
-### 変更ファイル
-
-| ファイル | 操作 |
-|---|---|
-| `crates/db/migrations/20260430000000_init.sql` | 削除 |
-| `crates/db/migrations/20260430000000_init.up.sql` | 新規（元の内容） |
-| `crates/db/migrations/20260430000000_init.down.sql` | 新規（SELECT 1） |
-| `crates/db/migrations/20260430000001_create_schema.sql` | 削除 |
-| `crates/db/migrations/20260430000001_create_schema.up.sql` | 新規（元の内容 + 修正1,3 のインデックス追加） |
-| `crates/db/migrations/20260430000001_create_schema.down.sql` | 新規（循環FK DROP + テーブル逆順 DROP） |
-
-### 残リスク
-- CHECK / UNIQUE / FK の失敗系 DB テストは未追加（後続Issueでの統合テスト実装時に対応）
-- SQLx compile-time checking (offline mode) は未設定
-
-### PR/完了結果
-- pr_ready: false
-- 再レビュー条件: artifacts 重複防止制約の追加、および migration 受け入れ条件の不整合解消
-
----
-
-## 再レビューフェーズ (2026-04-30)
-
-### 対象Issue
-- Issue #2: DBマイグレーション・データモデル実装
-
-### 調査結果
-- spec.md Section 10、対象 migration 4ファイル、domain model 群、README、docs/external、既存 worklog を再照合した。
-- cargo test はローカルで再実行し成功を確認した。
-- PostgreSQL 16 上で sqlx migrate run → revert → run を再実行し、reversible migration と 13 テーブル再作成を確認した。
-
-### レビュー結果
-- 判定: pr_ready: false
-
-#### 指摘
-1. board_projects.latest_completed_run_id の FK が board_runs(id) の存在だけを保証しており、同じ board_project に属する run であることを DB が保証していない。
-   - 現状は board_projects.id と board_runs.board_project_id の対応が制約に含まれていないため、別 BoardProject の run を latest_completed_run_id に入れても整合性違反にならない。
-   - latest_completed_run_id は completed baseline の参照先なので、誤参照が入ると差分基準や表示整合性を壊す。
-
-#### 必須修正
-1. latest_completed_run_id が同一 board_project の board_run のみを参照できるよう、複合 FK か同等の整合性制約を追加する。
-   - 例: board_runs に UNIQUE (id, board_project_id) を追加し、board_projects の (latest_completed_run_id, id) から board_runs(id, board_project_id) を参照する。
-
-#### 任意改善
-1. docs/external/sqlx-chrono-timestamptz.md では TIMESTAMPTZ NOT NULL DEFAULT now() を採用としている一方、DDL は created_at / updated_at をすべてアプリ入力前提にしている。schema か調査メモのどちらかに方針を寄せた方がよい。
-
-#### テスト不足
-1. latest_completed_run_id が別 board_project の run を拒否することを確認する DB レベルの失敗系テストがない。
-
-#### plan / research / docs との不整合
-- docs/external/sqlx-chrono-timestamptz.md の採用方針では DEFAULT now() を前提としているが、現行 DDL には反映されていない。
-
-#### 残リスク
-- アプリ層の更新ミスがあると、別 project の BoardRun を latest_completed_run_id に永続化できてしまう。
-
-### PR/完了結果
-- pr_ready: false
-- 再レビュー条件: latest_completed_run_id の同一 board_project 整合性保証を追加すること
-
----
-
-## レビュー指摘修正フェーズ (2026-04-30)
 
 ### 対応内容: latest_completed_run_id の整合性保証
 
@@ -473,21 +41,21 @@ implementation_required
 
 | テスト | 結果 |
 |---|---|
-| `cargo build` | ✅ 成功 |
-| `cargo test` | ✅ 全テスト通過 (3 passed, 0 failed) |
-| `sqlx migrate run` | ✅ 成功 |
-| `sqlx migrate revert` | ✅ 成功 |
-| revert → run ラウンドトリップ | ✅ 成功 |
+#### 不整合のあるドキュメント
+- なし
 
-### コミット
-- `506d844` fix(db): use composite FK for latest_completed_run_id integrity
+#### 不足しているドキュメント
+- なし
+
+#### 外部調査メモに関する指摘
+- なし
 
 ### 残リスク
-- DB レベルの失敗系テスト（別 project の run を latest_completed_run_id に入れて拒否確認）は後続Issueの統合テストで対応
-- タイムスタンプ DEFAULT now() 方針の不整合は後続Issueで整理
+- 実装とドキュメントの不整合は現時点では確認されなかった。
+- 上記の `TIMESTAMPTZ` 表現は非ブロッカーだが、将来の誤読防止のためには厳密化の余地がある。
 
 ### PR/完了結果
-- pr_ready: true
+- docs_ready: true
 - レビュー指摘事項: 解決済み
 
 ---
@@ -731,6 +299,104 @@ implementation_required
 
 ### 残リスク
 - なし
+
+### PR/完了結果
+- docs_ready: true
+
+---
+
+## ドキュメント再レビュー完了フェーズ (2026-04-30)
+
+### 対象Issue
+- Issue #2: DBマイグレーション・データモデル実装
+
+### 調査結果
+- 今回の doc-only 修正対象である [docs/external/sqlx-chrono-timestamptz.md](docs/external/sqlx-chrono-timestamptz.md) を確認し、文書全体が「アプリ層で timestamp を生成し、DDL に DEFAULT を付けない」方針へ統一されていることを確認した。
+- 現行実装である [crates/db/migrations/20260430000001_create_schema.up.sql](crates/db/migrations/20260430000001_create_schema.up.sql) では、`created_at`、`updated_at`、`received_at`、`run_after` などの TIMESTAMPTZ カラムに `DEFAULT now()` が付与されておらず、文書の説明と一致している。
+- ドメインモデル側も [crates/domain/src/models/board_run.rs](crates/domain/src/models/board_run.rs) をはじめ `chrono::DateTime<Utc>` / `Option<DateTime<Utc>>` に統一されており、外部調査メモの型マッピング説明と矛盾しない。
+- [docs/logs/2/worklog.md](docs/logs/2/worklog.md) の直近フェーズでは、前回誤って `docs_ready: true` としていた状態を訂正したうえで、今回の全面書き換え内容が記録されている。
+- Web 上の一般的な注意点としても、PostgreSQL の `now()` はトランザクション開始時刻を返すため、アプリ層で `Utc::now()` を与える方針を採る説明は妥当であることを確認した。
+
+### テスト結果
+- コード変更なしのため、今回レビューでは追加テストは実行していない。
+- ユーザー提示の `cargo build`、`cargo test`、`sqlx migrate run`、`sqlx migrate revert` 成功を前提結果として採用した。
+- 本レビューでは、実装スキーマ、ドメイン型、修正文書、worklog の整合確認を実施した。
+
+### ドキュメント確認
+- [docs/external/sqlx-chrono-timestamptz.md](docs/external/sqlx-chrono-timestamptz.md) は、以前の `DEFAULT now()` 前提の自己矛盾が解消され、現行実装と整合している。
+- [docs/external/sqlx-migration-format.md](docs/external/sqlx-migration-format.md) の reversible migration 前提、および [docs/spec.md](docs/spec.md) の仕様背景とも矛盾は見当たらない。
+- [docs/logs/2/worklog.md](docs/logs/2/worklog.md) の最新記録は、今回のドキュメント修正の実態を適切に反映している。
+
+### レビュー結果
+- 判定: pr_ready: true
+- 重大な指摘事項なし
+
+#### 必須修正
+- なし
+
+#### 任意改善
+- なし
+
+#### テスト不足
+- コード変更がないため、今回のレビュー観点では追加テスト不足はなし。
+
+#### ドキュメント更新漏れ
+- なし
+
+#### plan / research / docs との不整合
+- なし
+
+### 残リスク
+- コード変更を伴わないため新規の実装リスクは増えていない。
+- 将来 timestamp 方針を変更する場合は、[docs/external/sqlx-chrono-timestamptz.md](docs/external/sqlx-chrono-timestamptz.md) と migration 設計を同時に更新する必要がある。
+
+### PR/完了結果
+- pr_ready: true
+
+---
+
+## ドキュメント最終確認フェーズ (2026-04-30)
+
+### 対象Issue
+- Issue #2: DBマイグレーション・データモデル実装
+
+### 調査結果
+- [docs/external/sqlx-chrono-timestamptz.md](docs/external/sqlx-chrono-timestamptz.md) を再確認し、要約、DDL例、採用判断、INSERT例がいずれも「アプリ層で `chrono::Utc::now()` を設定し、DDL に `DEFAULT now()` を付けない」前提で揃っていることを確認した。
+- [docs/external/sqlx-migration-format.md](docs/external/sqlx-migration-format.md) は reversible migration（`.up.sql` / `.down.sql`）前提で統一されており、現行の migration 構成および `sqlx migrate revert` 前提と整合している。
+- 実装側の [crates/db/migrations/20260430000001_create_schema.up.sql](crates/db/migrations/20260430000001_create_schema.up.sql) は、timestamp 系カラムに `DEFAULT now()` を付けず、複合 FK と reversible migration 前提を含めて調査メモの最終判断と一致している。
+- [README.md](README.md)、[docs/spec.md](docs/spec.md)、[docs/backend/summary.md](docs/backend/summary.md) には、本Issueの最終実装と矛盾する必須更新箇所は見当たらなかった。
+
+### テスト結果
+- コード変更なしのため、今回フェーズで追加テストは未実施
+- ドキュメントと DDL の整合確認をレビューとして実施
+
+### ドキュメント確認
+- [docs/external/sqlx-chrono-timestamptz.md](docs/external/sqlx-chrono-timestamptz.md): 自己整合している
+- [docs/external/sqlx-migration-format.md](docs/external/sqlx-migration-format.md): reversible 前提で整合している
+- [crates/db/migrations/20260430000001_create_schema.up.sql](crates/db/migrations/20260430000001_create_schema.up.sql): 上記方針と一致
+- [README.md](README.md)、[docs/spec.md](docs/spec.md)、[docs/backend/summary.md](docs/backend/summary.md): 必須更新なし
+
+### レビュー結果
+- docs_ready: true
+
+#### 必須修正
+- なし
+
+#### 任意改善
+- [docs/external/sqlx-chrono-timestamptz.md](docs/external/sqlx-chrono-timestamptz.md) の `TIMESTAMPTZ` 説明で「タイムゾーン情報を保持する」と読める表現は、PostgreSQL の実挙動により厳密に寄せるなら「UTC の時点として保存し、表示時にセッションタイムゾーンで変換される」と書くと誤読が減る。
+
+#### 不整合のあるドキュメント
+- なし
+
+#### 不足しているドキュメント
+- なし
+
+#### 外部調査メモに関する指摘
+- なし
+
+### 残リスク
+- 実装とドキュメントの不整合は現時点では確認されなかった。
+- 上記の `TIMESTAMPTZ` 表現は非ブロッカーだが、将来の誤読防止のためには厳密化の余地がある。
 
 ### PR/完了結果
 - docs_ready: true
