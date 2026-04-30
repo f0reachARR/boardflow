@@ -14,6 +14,7 @@ use utoipa_axum::routes;
 pub fn create_app(pool: PgPool) -> Router {
     let (router, api) = OpenApiRouter::with_openapi(ApiDoc::openapi())
         .routes(routes!(routes::health::healthz))
+        .routes(routes!(routes::plan::plan_run))
         .split_for_parts();
 
     router

@@ -1,3 +1,4 @@
+use axum::extract::rejection::JsonRejection;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::Json;
@@ -82,8 +83,22 @@ impl AppError {
         Self::new(ErrorCode::Unauthorized, message, request_id)
     }
 
+    pub fn forbidden(message: impl Into<String>, request_id: impl Into<String>) -> Self {
+        Self::new(ErrorCode::Forbidden, message, request_id)
+    }
+
+    pub fn validation_failed(message: impl Into<String>, request_id: impl Into<String>) -> Self {
+        Self::new(ErrorCode::ValidationFailed, message, request_id)
+    }
+
     pub fn internal_error(message: impl Into<String>, request_id: impl Into<String>) -> Self {
         Self::new(ErrorCode::InternalError, message, request_id)
+    }
+}
+
+impl From<JsonRejection> for AppError {
+    fn from(rejection: JsonRejection) -> Self {
+        Self::new(ErrorCode::ValidationFailed, rejection.body_text(), "")
     }
 }
 

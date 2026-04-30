@@ -1,0 +1,329 @@
+use axum::body::Body;
+use axum::http::{Request, StatusCode};
+use boardflow_api::create_app;
+use http_body_util::BodyExt;
+use sha2::{Digest, Sha256};
+use sqlx::PgPool;
+use tower::ServiceExt;
+use uuid::Uuid;
+
+async fn setup_pool() -> Option<PgPool> {
+    let database_url = match std::env::var("DATABASE_URL") {
+        Ok(url) => url,
+        Err(_) => {
+            eprintln!("Skipping test: DATABASE_URL not set");
+            return None;
+        }
+    };
+    let pool = PgPool::connect(&database_url).await.unwrap();
+    sqlx::migrate!("../db/migrations").run(&pool).await.unwrap();
+    Some(pool)
+}
+
+async fn create_test_token(pool: &PgPool, repository_id: Uuid, installation_id: i64) -> String {
+    let raw_token = format!("test_token_{}", Uuid::now_v7());
+    let mut hasher = Sha256::new();
+    hasher.update(raw_token.as_bytes());
+    let token_hash = format!("{:x}", hasher.finalize());
+    let token_id = Uuid::now_v7();
+
+    sqlx::query(
+        "INSERT INTO boardflow_api_tokens (id, installation_id, repository_id, name, token_hash, created_at) \
+         VALUES ($1, $2, $3, $4, $5, NOW())",
+    )
+    .bind(token_id)
+    .bind(installation_id)
+    .bind(repository_id)
+    .bind("test-token")
+    .bind(&token_hash)
+    .execute(pool)
+    .await
+    .unwrap();
+
+    raw_token
+}
+
+async fn create_test_repository(pool: &PgPool, github_repository_id: i64, installation_id: i64) -> Uuid {
+    let id = Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO repositories (id, github_repository_id, owner, name, installation_id, created_at, updated_at) \
+         VALUES ($1, $2, $3, $4, $5, NOW(), NOW()) \
+         ON CONFLICT (github_repository_id) DO UPDATE SET updated_at = NOW() \
+         RETURNING id",
+    )
+    .bind(id)
+    .bind(github_repository_id)
+    .bind("test-owner")
+    .bind("test-repo")
+    .bind(installation_id)
+    .execute(pool)
+    .await
+    .unwrap();
+    id
+}
+
+fn plan_request_body(github_repository_id: &str) -> serde_json::Value {
+    serde_json::json!({
+        "repository": {
+            "github_repository_id": github_repository_id,
+            "owner": "test-owner",
+            "name": "test-repo"
+        },
+        "git": {
+            "ref": "refs/heads/main",
+            "branch": "main",
+            "commit_sha": "abc123def456",
+            "event_name": "push"
+        },
+        "action": {
+            "workflow": "boardflow.yml",
+            "run_id": "12345",
+            "run_attempt": "1"
+        },
+        "mode": "auto",
+        "projects": [{
+            "project_path": "hardware/LightStick.kicad_pro",
+            "config_path": "hardware/boardflow.yml",
+            "project_dir": "hardware",
+            "tree_hash": "deadbeef1234567890",
+            "files": [{
+                "path": "hardware/LightStick.kicad_pcb",
+                "sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890"
+            }]
+        }]
+    })
+}
+
+/// 正常系: 新規プロジェクト → build / no_previous_snapshot
+#[tokio::test]
+async fn plan_new_project_returns_build_no_previous_snapshot() {
+    let pool = match setup_pool().await {
+        Some(p) => p,
+        None => return,
+    };
+
+    let github_repo_id: i64 = rand_i64();
+    let installation_id: i64 = 1001;
+    let repo_id = create_test_repository(&pool, github_repo_id, installation_id).await;
+    let token = create_test_token(&pool, repo_id, installation_id).await;
+
+    let app = create_app(pool);
+    let body = plan_request_body(&github_repo_id.to_string());
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/runs/plan")
+                .header("content-type", "application/json")
+                .header("authorization", format!("Bearer {}", token))
+                .body(Body::from(serde_json::to_vec(&body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = response.into_body().collect().await.unwrap().to_bytes();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+
+    assert_eq!(json["repository"]["github_repository_id"], github_repo_id.to_string());
+    assert_eq!(json["repository"]["owner"], "test-owner");
+    assert_eq!(json["repository"]["name"], "test-repo");
+    assert_eq!(json["projects"][0]["decision"], "build");
+    assert_eq!(json["projects"][0]["reason"], "no_previous_snapshot");
+    assert!(json["projects"][0]["board_project_id"].as_str().unwrap().starts_with("bp_"));
+}
+
+/// 正常系: mode=all → build / manual_dispatch
+#[tokio::test]
+async fn plan_mode_all_returns_build_manual_dispatch() {
+    let pool = match setup_pool().await {
+        Some(p) => p,
+        None => return,
+    };
+
+    let github_repo_id: i64 = rand_i64();
+    let installation_id: i64 = 1002;
+    let repo_id = create_test_repository(&pool, github_repo_id, installation_id).await;
+    let token = create_test_token(&pool, repo_id, installation_id).await;
+
+    let app = create_app(pool);
+    let mut body = plan_request_body(&github_repo_id.to_string());
+    body["mode"] = serde_json::json!("all");
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/runs/plan")
+                .header("content-type", "application/json")
+                .header("authorization", format!("Bearer {}", token))
+                .body(Body::from(serde_json::to_vec(&body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = response.into_body().collect().await.unwrap().to_bytes();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+
+    assert_eq!(json["projects"][0]["decision"], "build");
+    assert_eq!(json["projects"][0]["reason"], "manual_dispatch");
+}
+
+/// 異常系: 認証なし → 401
+#[tokio::test]
+async fn plan_without_auth_returns_401() {
+    let pool = match setup_pool().await {
+        Some(p) => p,
+        None => return,
+    };
+
+    let app = create_app(pool);
+    let body = plan_request_body("12345");
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/runs/plan")
+                .header("content-type", "application/json")
+                .body(Body::from(serde_json::to_vec(&body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+}
+
+/// 異常系: 認可失敗(別repository) → 403
+#[tokio::test]
+async fn plan_wrong_repository_returns_403() {
+    let pool = match setup_pool().await {
+        Some(p) => p,
+        None => return,
+    };
+
+    let github_repo_id: i64 = rand_i64();
+    let installation_id: i64 = 1003;
+
+    // Create a repo and token for a DIFFERENT repository
+    let different_repo_id = Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO repositories (id, github_repository_id, owner, name, installation_id, created_at, updated_at) \
+         VALUES ($1, $2, $3, $4, $5, NOW(), NOW())",
+    )
+    .bind(different_repo_id)
+    .bind(github_repo_id + 9999) // different github repo
+    .bind("other-owner")
+    .bind("other-repo")
+    .bind(installation_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let token = create_test_token(&pool, different_repo_id, installation_id).await;
+
+    // The request targets github_repo_id which will upsert to a NEW repo.id
+    // but the token is associated with different_repo_id → 403
+    let app = create_app(pool);
+    let body = plan_request_body(&github_repo_id.to_string());
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/runs/plan")
+                .header("content-type", "application/json")
+                .header("authorization", format!("Bearer {}", token))
+                .body(Body::from(serde_json::to_vec(&body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+
+    let body_bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+    assert_eq!(json["error"]["code"], "forbidden");
+}
+
+/// 異常系: 不正な github_repository_id → 400
+#[tokio::test]
+async fn plan_invalid_github_repository_id_returns_400() {
+    let pool = match setup_pool().await {
+        Some(p) => p,
+        None => return,
+    };
+
+    let github_repo_id: i64 = rand_i64();
+    let installation_id: i64 = 1004;
+    let repo_id = create_test_repository(&pool, github_repo_id, installation_id).await;
+    let token = create_test_token(&pool, repo_id, installation_id).await;
+
+    let app = create_app(pool);
+    let body = plan_request_body("not_a_number");
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/runs/plan")
+                .header("content-type", "application/json")
+                .header("authorization", format!("Bearer {}", token))
+                .body(Body::from(serde_json::to_vec(&body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+    let body_bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+    assert_eq!(json["error"]["code"], "validation_failed");
+}
+
+/// 異常系: JSONパースエラー → 400
+#[tokio::test]
+async fn plan_invalid_json_returns_400() {
+    let pool = match setup_pool().await {
+        Some(p) => p,
+        None => return,
+    };
+
+    let github_repo_id: i64 = rand_i64();
+    let installation_id: i64 = 1005;
+    let repo_id = create_test_repository(&pool, github_repo_id, installation_id).await;
+    let token = create_test_token(&pool, repo_id, installation_id).await;
+
+    let app = create_app(pool);
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/runs/plan")
+                .header("content-type", "application/json")
+                .header("authorization", format!("Bearer {}", token))
+                .body(Body::from(b"not valid json".to_vec()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+}
+
+fn rand_i64() -> i64 {
+    // Use UUID timestamp bits for a unique i64 to avoid test collisions
+    let uuid = Uuid::now_v7();
+    let bytes = uuid.as_bytes();
+    i64::from_be_bytes(bytes[0..8].try_into().unwrap()).abs()
+}
