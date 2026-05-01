@@ -1189,3 +1189,24 @@ Cross-origin 前提では、viewer-sources API が返す proxy URL は絶対 URL
 ### 更新した作業ログパス
 
 `docs/logs/18/worklog.md`
+
+---
+
+## PR作成フェーズ（2026-05-01）
+
+### PR/完了結果
+
+- PR 作成: **https://github.com/f0reachARR/boardflow/pull/38**
+- タイトル: `feat: implement Artifact Proxy API (#18)`
+- ブランチ: `feat/18-artifact-proxy-api` → `main`
+- Closes #18
+
+### 残リスク
+
+1. S3 正常系ストリーミングテストは MinIO 統合テスト環境での検証が未実施
+2. iBOM HTML の実出力での CSP sandbox 動作確認は frontend 統合テストで実施予定
+3. storage 未設定 / S3 障害はどちらも 500 に集約（後続 Issue で 502/503 分離可）
+
+### 更新した作業ログパス
+
+`docs/logs/18/worklog.md`
