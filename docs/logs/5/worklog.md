@@ -252,3 +252,79 @@ DROP INDEX IF EXISTS idx_github_jobs_board_run_id_type;
 
 ### 更新した作業ログパス
 `docs/logs/5/worklog.md`
+
+---
+
+## 実装フェーズ (2026-05-01)
+
+### 実装内容
+
+計画通り全14ステップを完了:
+
+1. **マイグレーション追加** — `20260501000000_add_github_jobs_idempotent_index.{up,down}.sql`
+2. **workspace Cargo.toml** — `aws-config`, `aws-sdk-s3` (features=["behavior-version-latest"]) 追加
+3. **crates/api/Cargo.toml** — `aws-config`, `aws-sdk-s3` workspace依存追加
+4. **crates/api/src/error.rs** — `not_found()`, `conflict()`, `gone()` メソッド追加
+5. **crates/db/src/queries/board_run.rs** — `find_by_id`, `find_by_idempotency_key`, `insert`, `mark_failed`, `mark_importing`
+6. **crates/db/src/queries/artifact_bundle.rs** — `find_by_board_run_id`, `insert_staging`, `update_for_import`, `find_by_import_key`, `find_existing_for_run`
+7. **crates/db/src/queries/github_job.rs** — `enqueue_import` (ON CONFLICT で冪等)
+8. **crates/db/src/queries/mod.rs** — `board_run`, `artifact_bundle`, `github_job` モジュール追加
+9. **crates/api/src/routes/board_run.rs** — 3ハンドラ + 全request/response型 + utoipa annotations
+10. **crates/api/src/routes/mod.rs** — `pub mod board_run;` 追加
+11. **crates/api/src/lib.rs** — `create_app(pool, s3_client)` シグネチャ変更、3ルート登録、Extension(s3_client) レイヤー追加
+12. **crates/api/src/main.rs** — S3 client初期化ロジック追加 (MinIO互換設定: force_path_style等)
+13. **crates/api/tests/board_run_test.rs** — 12テストケース作成
+14. **docker-compose.yml** — MinIOサービスは既存で追加不要と判断
+
+追加で:
+- **crates/db/src/queries/board_project.rs** — `find_by_id()` 関数追加
+- **crates/db/Cargo.toml** — `serde_json` 依存追加 (github_job クエリの payload パラメータ用)
+- **既存テスト** — `create_app(pool)` → `create_app(pool, None)` に全更新
+
+### テスト結果
+
+```
+running 12 tests (board_run_test.rs)
+test test_create_board_run_success ... ok
+test test_create_board_run_idempotent ... ok
+test test_create_board_run_unauthorized ... ok
+test test_create_board_run_forbidden ... ok
+test test_fail_board_run_success ... ok
+test test_fail_board_run_idempotent ... ok
+test test_fail_board_run_conflict ... ok
+test test_fail_board_run_gone ... ok
+test test_import_artifact_bundle_success ... ok
+test test_import_artifact_bundle_idempotent ... ok
+test test_import_artifact_bundle_conflict ... ok
+test test_import_artifact_bundle_gone ... ok
+test result: ok. 12 passed; 0 failed
+
+running 16 tests (plan_test.rs) — 全pass (リグレッションなし)
+running 2 tests (integration_test.rs) — 全pass
+```
+
+### テスト観点
+
+| # | テスト名 | 観点 |
+|---|---|---|
+| 1 | test_create_board_run_success | 正常系: presigned URL取得、status=created |
+| 2 | test_create_board_run_idempotent | 冪等性: 同一run_id+attemptで同じboard_run_idが返る |
+| 3 | test_create_board_run_unauthorized | 認証: tokenなし→401 |
+| 4 | test_create_board_run_forbidden | 認可: 他リポジトリのproject→403 |
+| 5 | test_fail_board_run_success | 正常系: created→failed遷移 |
+| 6 | test_fail_board_run_idempotent | 冪等性: 既にfailed→同結果返却 |
+| 7 | test_fail_board_run_conflict | 状態遷移: completed run→409 |
+| 8 | test_fail_board_run_gone | 状態遷移: timed_out run→410 |
+| 9 | test_import_artifact_bundle_success | 正常系: bundle更新+job enqueue+status=queued |
+| 10 | test_import_artifact_bundle_idempotent | 冪等性: 同一key+sha256→同bundle_id |
+| 11 | test_import_artifact_bundle_conflict | コンフリクト: 異なるsha256→409 |
+| 12 | test_import_artifact_bundle_gone | 状態遷移: failed run→410 |
+
+### 更新ドキュメント
+- `docs/logs/5/worklog.md` (本ファイル)
+
+### 残リスク
+- presigned URL生成の実S3テスト未実施 (MinIO起動時のE2Eテストは別途)
+- トランザクション分離: import_artifact_bundleでのmark_importing + enqueue_importは個別クエリで実行 (race conditionリスクは低いがトランザクションにまとめる余地あり)
+- `board_run_id` 404ケースのテスト未追加 (存在しないUUIDでの404)
+
