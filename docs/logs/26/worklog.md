@@ -778,6 +778,66 @@ pub async fn handle_create_issue(
 | ファイル | 変更内容 |
 |---------|---------|
 | `crates/github/src/error.rs` | RateLimited の `retry_after_secs` を `Some(60)` に変更、テスト更新 |
+
+---
+
+## 最終再レビュー (2026-05-02)
+
+### 対象Issue
+
+- Issue ID: #26
+- 判定: `pr_ready: true`
+
+### 総評
+
+前回の差し戻し理由だった「closed Issue 再作成判定で stale job の `board_run_id` を使ってしまう」問題は、`create_dashboard_comment` / `update_dashboard_comment` / `create_run_result_comment` の3ハンドラすべてで `bp.latest_completed_run_id.unwrap_or(board_run_id)` を使う形に揃えられていることを確認した。これにより、closed Issue の再作成判定と Dashboard 本文生成の双方で、常に最新 completed run を基準に評価できる。
+
+あわせて、過去レビューで必須としていた項目も現行コードと仕様の照合で満たされている。404/closed Issue 検出、Dashboard コメントの create fallback、初回 Run Result 非投稿、Issue/Dashboard 本文の spec 寄せ、GitHubClientError の分類、README の環境変数追記はいずれも確認できた。今回確認した範囲では、PR を止めるべき不整合は残っていない。
+
+### レビュー結果
+
+- `create_dashboard_comment` は closed Issue 分岐で `effective_run_id = bp.latest_completed_run_id.unwrap_or(board_run_id)` を使って `tree_hash_changed()` を評価し、本文生成側でも `run_id = bp.latest_completed_run_id.unwrap_or(board_run_id)` を使っているため、Issue 作成遅延中に複数 run が完了したケースでも stale な初回 Dashboard コメントを作りにくい構成になっている。
+- `update_dashboard_comment` も同様に `effective_run_id` ベースで closed Issue 判定と本文生成を行っており、古い update job 実行時に状態が巻き戻る前回指摘は解消されている。
+- `create_run_result_comment` でも closed Issue 再作成判定に `effective_run_id` が使われており、再作成要否が stale job に引きずられない。
+- `comment_body::should_post_run_result()` は初回 run で `false` を返す実装になっており、spec 12.3 に整合している。
+- `comment_body::issue_body()` の Latest diff link、`dashboard_comment()` の Latest run link は現行 spec の最低要件を満たしている。
+- `README.md` に `GITHUB_APP_ID` / `GITHUB_PRIVATE_KEY_PEM` / `APP_BASE_URL` が追記されている。
+
+### 重大度順の指摘
+
+- blocking な指摘事項なし
+
+### 必須修正
+
+- なし
+
+### 任意改善
+
+1. `comment_body` 以外の handler 単体テストや統合テストはまだ薄いため、closed/404/recreate 分岐と Dashboard fallback を mock `GitHubAppClient` で固定化すると回帰に強くなる。
+2. `handle_github_error()` の重複は将来的に共通化余地があるが、本Issueの受け入れ判定には影響しない。
+
+### テスト不足
+
+- `mise exec -- cargo test -p boardflow-worker` は 12 件成功、`mise exec -- cargo check` も成功した。
+- ただし現状の自動テストは主に `comment_body` に集中しており、dispatcher / handler / DB 連携の振る舞いまでは直接固定していない。
+
+### ドキュメント確認
+
+- `docs/spec.md` の 11.7 / 12.1 / 12.3 / 13.1 / 13.3 との照合では、今回レビュー対象の修正に関する明確な不整合は確認できなかった。
+- `README.md` の worker 環境変数説明も実装と整合している。
+
+### PR/完了結果
+
+- `pr_ready: true`
+
+### 残リスク
+
+- rate limit や 404/closed 分岐の end-to-end テストは未整備のため、将来の改修で退行しても unit test だけでは拾いにくい。
+- Dashboard debounce は「常に最新 completed run を読む」実装で実質的に満たしているが、キュー件数自体を抑制する設計ではない。
+
+### 更新した作業ログパス
+
+`docs/logs/26/worklog.md`
 | `crates/worker/src/handlers/mod.rs` | `tree_hash_changed()` ヘルパー関数追加 |
 | `crates/worker/src/handlers/create_dashboard_comment.rs` | tree_hash 変化判定を closed Issue 分岐に追加 |
 | `crates/worker/src/handlers/update_dashboard_comment.rs` | tree_hash 判定追加、`latest_completed_run_id` 使用に変更 |
@@ -893,6 +953,62 @@ pub async fn handle_create_issue(
 
 - closed Issue のまま複数 run が進んだ後、古い job が先に処理されると、最新 run では再作成すべき条件を満たしていても Issue 再作成が起きない可能性がある。
 - 逆に、古い run 基準で不要な再作成が走ると、Issue 履歴が不要に分岐する可能性がある。
+
+### 更新した作業ログパス
+
+- `docs/logs/26/worklog.md`
+
+---
+
+## ドキュメント確認フェーズ (2026-05-02 追記)
+
+### 対象Issue
+
+- Issue ID: #26
+- タイトル: Worker: GitHub APIジョブ汎用ディスパッチャ実装
+
+### 確認対象
+
+- `README.md`
+- `docs/spec.md`
+- `docs/backend/summary.md`
+- `docs/external/postgresql-job-queue-enqueue.md`
+- `docs/external/postgresql-job-queue-polling.md`
+- `crates/worker/src/main.rs`
+- `crates/worker/src/comment_body.rs`
+- `crates/worker/src/handlers/create_dashboard_comment.rs`
+- `crates/worker/src/handlers/update_dashboard_comment.rs`
+- `crates/worker/src/handlers/create_run_result_comment.rs`
+
+### 総評
+
+- 前回 docs 指摘だった `README.md` の環境変数追記と `docs/external/postgresql-job-queue-enqueue.md` の Job Type 一覧修正は確認できた。
+- ただし `docs/external/postgresql-job-queue-polling.md` がまだ「worker は `artifact_bundle_import` のみをポーリングする」と読める内容で残っており、Issue #26 実装後の現状と一致していない。
+
+### 判定
+
+- `docs_ready: false`
+
+### 必須修正
+
+1. `docs/external/postgresql-job-queue-polling.md` の要約と本文を更新し、worker が `artifact_bundle_import` に加えて `create_issue`、`create_dashboard_comment`、`update_dashboard_comment`、`create_run_result_comment` を優先度順に処理する汎用ディスパッチャであることを明記する。
+
+### 任意改善
+
+1. 同ファイルに、Issue #26 後のポーリング順序と「GitHub API ジョブ未設定時は defer される」挙動を補足すると README との対応が分かりやすくなる。
+
+### 不整合のあるドキュメント
+
+- `docs/external/postgresql-job-queue-polling.md`
+
+### 不足しているドキュメント
+
+- 追加必須なし
+
+### 外部調査メモに関する指摘
+
+- `docs/external/postgresql-job-queue-enqueue.md` は最新実装に追従している。
+- 一方で `docs/external/postgresql-job-queue-polling.md` は Issue #7 時点の import worker 前提が残っており、外部調査メモ同士で整合していない。
 
 ### 更新した作業ログパス
 
