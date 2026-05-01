@@ -348,7 +348,71 @@ Response:
 `fail-on-drc=true` または `fail-on-erc=true` の場合でも、Action は可能な成果物 bundle を upload し、Import API 要求を完了してから GitHub Actions job の終了コードだけを失敗にする。
 この場合、SaaS 上の BoardRun は import 成功により `completed` になり得る。
 
-## 3. Web UI Read API
+## 3. Web UI Auth API
+
+Web UI の認証は GitHub OAuth を使う。session は HTTP-only cookie で管理する。
+
+### 3.0.1 Login
+
+```http
+GET /api/v1/auth/login
+```
+
+GitHub OAuth 認証画面へリダイレクトする。
+server 側で CSRF 防御用の `state` (UUID v4) を生成し、`boardflow_oauth_state` cookie に保存する。
+
+Response: `302 Found` → GitHub OAuth authorize URL
+
+### 3.0.2 Callback
+
+```http
+GET /api/v1/auth/callback?code=...&state=...
+```
+
+GitHub OAuth コールバック。`state` を cookie と照合し、不一致時は `403 forbidden` を返す。
+`code` を GitHub token endpoint で access token に交換し、user 情報を取得、DB upsert、session 作成を行う。
+
+Response: `302 Found` → `/` (固定、open redirect 防止)
+
+Cookie 設定:
+- `boardflow_session`: session ID (HTTP-only, SameSite=Lax)
+- `boardflow_oauth_state`: 削除
+
+### 3.0.3 Logout
+
+```http
+POST /api/v1/auth/logout
+```
+
+session を削除し、cookie をクリアする。
+
+Response:
+
+```json
+{ "ok": true }
+```
+
+### 3.0.4 Me
+
+```http
+GET /api/v1/auth/me
+```
+
+現在の session に紐づくユーザー情報を返す。
+
+Response:
+
+```json
+{
+  "github_user_id": "12345",
+  "github_login": "username",
+  "github_avatar_url": "https://avatars.githubusercontent.com/u/12345"
+}
+```
+
+未認証の場合は `401 unauthorized` を返す。
+
+## 3.1 Web UI Read API
 
 Web UI read API は GitHub OAuth session を前提にし、backend が repository 権限を確認する。
 存在しない resource と閲覧不可 resource は、情報漏洩を避けるためどちらも `404 not_found` を返してよい。

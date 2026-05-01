@@ -36,6 +36,10 @@ pub struct AppConfig {
     pub api_host: String,
     pub api_port: u16,
     pub rust_log: String,
+    pub github_client_id: Option<String>,
+    pub github_client_secret: Option<String>,
+    pub session_secret: Option<String>,
+    pub artifact_secret: Option<String>,
 }
 
 impl AppConfig {
@@ -61,6 +65,10 @@ impl AppConfig {
             api_host: std::env::var("API_HOST").unwrap_or_else(|_| "0.0.0.0".to_string()),
             api_port,
             rust_log: std::env::var("RUST_LOG").unwrap_or_else(|_| "info".to_string()),
+            github_client_id: std::env::var("GITHUB_CLIENT_ID").ok(),
+            github_client_secret: std::env::var("GITHUB_CLIENT_SECRET").ok(),
+            session_secret: std::env::var("BOARDFLOW_SESSION_SECRET").ok(),
+            artifact_secret: std::env::var("BOARDFLOW_ARTIFACT_SECRET").ok(),
         })
     }
 }

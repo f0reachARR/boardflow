@@ -7,4 +7,6 @@ pub mod github_job;
 pub mod issue_history;
 pub mod repository;
 pub mod run_check;
+pub mod session;
 pub mod snapshot;
+pub mod user;

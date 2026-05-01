@@ -8,10 +8,9 @@ use tower::ServiceExt;
 /// OpenAPI JSONエンドポイントが200を返し、有効なJSONを含むことを確認
 #[tokio::test]
 async fn test_openapi_endpoint_returns_json() {
-    // テスト用に接続不要のダミープールは作れないので、
-    // OpenAPIエンドポイントはDB不要のため正常動作する想定
-    // ただし PgPool は接続が必要なので、このテストはDB接続がある環境でのみ実行
-    // ここでは cargo test 時にスキップするようにする
+    // SAFETY: tests run sequentially via #[tokio::test] default single-thread;
+    // no other thread reads this var concurrently at this point.
+    unsafe { std::env::set_var("BOARDFLOW_ARTIFACT_SECRET", "test-secret-for-tests") };
     let database_url = match std::env::var("DATABASE_URL") {
         Ok(url) => url,
         Err(_) => {
@@ -47,6 +46,9 @@ async fn test_openapi_endpoint_returns_json() {
 /// healthzエンドポイントがDB接続成功時に200を返すことを確認
 #[tokio::test]
 async fn test_healthz_returns_ok_with_db() {
+    // SAFETY: tests run sequentially via #[tokio::test] default single-thread;
+    // no other thread reads this var concurrently at this point.
+    unsafe { std::env::set_var("BOARDFLOW_ARTIFACT_SECRET", "test-secret-for-tests") };
     let database_url = match std::env::var("DATABASE_URL") {
         Ok(url) => url,
         Err(_) => {

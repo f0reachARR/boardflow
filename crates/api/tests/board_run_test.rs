@@ -8,6 +8,10 @@ use tower::ServiceExt;
 use uuid::Uuid;
 
 async fn setup_pool() -> Option<PgPool> {
+    // Ensure artifact secret is set for create_app
+    // SAFETY: tests run sequentially via #[tokio::test] default single-thread;
+    // no other thread reads this var concurrently at this point.
+    unsafe { std::env::set_var("BOARDFLOW_ARTIFACT_SECRET", "test-secret-for-tests") };
     let database_url = match std::env::var("DATABASE_URL") {
         Ok(url) => url,
         Err(_) => {
@@ -45,7 +49,7 @@ async fn create_test_token(pool: &PgPool, repository_id: Uuid, installation_id: 
 
 async fn create_test_repository(pool: &PgPool, github_repository_id: i64, installation_id: i64) -> Uuid {
     let id = Uuid::now_v7();
-    sqlx::query(
+    let actual_id: Uuid = sqlx::query_scalar(
         "INSERT INTO repositories (id, github_repository_id, owner, name, installation_id, created_at, updated_at) \
          VALUES ($1, $2, $3, $4, $5, NOW(), NOW()) \
          ON CONFLICT (github_repository_id) DO UPDATE SET updated_at = NOW() \
@@ -56,15 +60,15 @@ async fn create_test_repository(pool: &PgPool, github_repository_id: i64, instal
     .bind("test-owner")
     .bind("test-repo")
     .bind(installation_id)
-    .execute(pool)
+    .fetch_one(pool)
     .await
     .unwrap();
-    id
+    actual_id
 }
 
 async fn create_test_board_project(pool: &PgPool, repository_id: Uuid) -> Uuid {
     let id = Uuid::now_v7();
-    sqlx::query(
+    let actual_id: Uuid = sqlx::query_scalar(
         "INSERT INTO board_projects (id, repository_id, project_path, project_dir, display_name, \
          issue_sync_status, recreate_issue_on_update, created_at, updated_at) \
          VALUES ($1, $2, $3, $4, $5, 'pending', true, NOW(), NOW()) \
@@ -76,10 +80,10 @@ async fn create_test_board_project(pool: &PgPool, repository_id: Uuid) -> Uuid {
     .bind(format!("hardware/Project_{}.kicad_pro", id))
     .bind("hardware")
     .bind("TestProject")
-    .execute(pool)
+    .fetch_one(pool)
     .await
     .unwrap();
-    id
+    actual_id
 }
 
 async fn create_test_board_run(pool: &PgPool, board_project_id: Uuid, status: &str) -> Uuid {

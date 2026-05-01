@@ -1,6 +1,18 @@
 use boardflow_domain::models::run_check::RunCheck;
 use uuid::Uuid;
 
+pub async fn list_by_board_run(
+    executor: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
+    board_run_id: Uuid,
+) -> Result<Vec<RunCheck>, sqlx::Error> {
+    sqlx::query_as::<_, RunCheck>(
+        "SELECT * FROM run_checks WHERE board_run_id = $1 ORDER BY check_kind, created_at",
+    )
+    .bind(board_run_id)
+    .fetch_all(executor)
+    .await
+}
+
 pub async fn insert(
     executor: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
     id: Uuid,
