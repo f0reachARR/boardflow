@@ -575,6 +575,69 @@ Issue #27 の実装差分、`docs/spec.md`、`docs/backend/api.md`、既存 read
 
 ---
 
+## 最終レビュー（3回目）（2026-05-01）
+
+### レビュー結果
+
+Issue #27 の3回目最終レビューとして、Issue本文、既存 research / plan、`docs/spec.md`、`docs/backend/api.md`、現行実装、直近修正コミット、関連テストを再確認した。
+
+今回の確認結果:
+
+- revoke API の utoipa annotation に `400 Validation error` が追加済み
+- `docs/backend/api.md` の revoke エラー表に `400 validation_failed` が追加済み
+- `mise exec rust@nightly -- cargo test -p boardflow-api --test api_token_test -- --test-threads=1` が 15/15 pass
+- Issue #27 の revoke 修正に関する Critical / High の新規問題は確認できなかった
+
+追加で確認した残差分:
+
+- `crates/api/src/routes/api_token.rs` の list API は `invalid cursor` 時に `400 validation_failed` を返す実装になっている
+- しかし list API の utoipa responses には `400` が未記載で、OpenAPI 契約だけ実装と不一致のまま残っている
+
+### 指摘事項
+
+#### Medium: list API の utoipa annotation に 400 が未定義
+
+- `crates/api/src/routes/api_token.rs` の list endpoint は `decode_cursor(c).ok_or_else(|| AppError::validation_failed("invalid cursor", &request_id))?` により `400 validation_failed` を返す
+- 一方で同 endpoint の `#[utoipa::path]` responses は `200 / 401 / 404` のみで、`400 Validation error` が未記載
+- `docs/backend/api.md` には list API の `400 validation_failed` が記載済みのため、現状は「実装 + backend API doc」と「OpenAPI」がずれている
+
+### テスト結果
+
+- `mise exec rust@nightly -- cargo test -p boardflow-api --test api_token_test -- --test-threads=1` → 15/15 pass
+
+### ドキュメント確認
+
+- `docs/spec.md`: token の平文は作成時のみ表示、hash 保存、revoke 済み token は認可不可、という要件と整合
+- `docs/backend/api.md`: revoke の `400 validation_failed` は反映済み
+- OpenAPI annotation: revoke は修正済みだが、list の invalid cursor に対する `400` が未反映
+
+### PR/完了結果
+
+- `pr_ready: false`
+
+### 必須修正
+
+1. `crates/api/src/routes/api_token.rs` の list endpoint の utoipa responses に `400 Validation error` を追加する
+
+### 任意改善
+
+1. token 管理 API で validation error を返す endpoint は、実装・utoipa・backend API doc・テストを同一観点で点検できるチェックリストに寄せる
+
+### テスト不足
+
+- list API の invalid cursor に対する `400 validation_failed` の統合テストはまだ無い
+
+### 残リスク
+
+- 現状のままだと OpenAPI 利用者だけが list API の `400 validation_failed` を把握できず、クライアント生成やハンドリング分岐で契約齟齬が残る
+- revoke 修正観点では Critical / High の残課題は確認できなかった
+
+### 更新した作業ログパス
+
+- `docs/logs/27/worklog.md`
+
+---
+
 ## 最終レビューフェーズ（2026-05-01）
 
 ### レビュー結果

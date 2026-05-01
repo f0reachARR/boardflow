@@ -194,6 +194,7 @@ pub async fn create_api_token(
     ),
     responses(
         (status = 200, description = "Token list", body = ApiTokenListResponse),
+        (status = 400, description = "Validation error", body = crate::error::ErrorResponse),
         (status = 401, description = "Unauthorized", body = crate::error::ErrorResponse),
         (status = 404, description = "Not found", body = crate::error::ErrorResponse),
     )
