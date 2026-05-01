@@ -3,7 +3,6 @@ use axum::{Extension, Json};
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use chrono::{DateTime, Utc};
-use futures::future::join_all;
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use utoipa::{IntoParams, ToSchema};
@@ -13,7 +12,7 @@ use boardflow_domain::models::artifact::ArtifactStatus;
 
 use crate::error::{AppError, RequestId};
 use crate::extractors::AuthenticatedSession;
-use crate::github_access::DynGithubAccessChecker;
+use crate::github_access::{AccessError, AccessResult, DynGithubAccessChecker};
 use crate::ArtifactSecret;
 
 // ─── ID prefix helpers ───────────────────────────────────────────────────────
@@ -88,6 +87,39 @@ fn decode_repository_cursor(cursor: &str) -> Option<(DateTime<Utc>, i64)> {
 }
 
 // ─── Query parameters ────────────────────────────────────────────────────────
+
+// Helper: convert AccessResult::Denied/Error to AppError
+fn access_result_to_error(result: &AccessResult, not_found_msg: &str, request_id: &str) -> Option<AppError> {
+    match result {
+        AccessResult::Allowed => None,
+        AccessResult::Denied => Some(AppError::not_found(not_found_msg, request_id)),
+        AccessResult::Error(AccessError::TokenExpired) => {
+            Some(AppError::unauthorized("github session expired, please re-login", request_id))
+        }
+        AccessResult::Error(AccessError::RateLimited) => {
+            Some(AppError::new(crate::error::ErrorCode::RateLimited, "rate limited", request_id))
+        }
+        AccessResult::Error(AccessError::Upstream(detail)) => {
+            tracing::error!("GitHub API error: {detail}");
+            Some(AppError::internal_error("upstream error", request_id))
+        }
+    }
+}
+
+fn access_error_to_app_error(err: &AccessError, request_id: &str) -> AppError {
+    match err {
+        AccessError::TokenExpired => {
+            AppError::unauthorized("github session expired, please re-login", request_id)
+        }
+        AccessError::RateLimited => {
+            AppError::new(crate::error::ErrorCode::RateLimited, "rate limited", request_id)
+        }
+        AccessError::Upstream(detail) => {
+            tracing::error!("GitHub API error: {detail}");
+            AppError::internal_error("upstream error", request_id)
+        }
+    }
+}
 
 #[derive(Debug, Deserialize, IntoParams)]
 pub struct PaginationParams {
@@ -371,31 +403,27 @@ pub async fn list_repositories(
     let limit = params.effective_limit();
     let cursor = params.decoded_repository_cursor(&request_id)?;
 
-    let rows = boardflow_db::queries::repository::list_with_stats(&pool, limit + 1, cursor)
-        .await
-        .map_err(|e| {
-            tracing::error!("list_repositories failed: {e}");
-            AppError::internal_error("database error", &request_id)
-        })?;
-
-    // Filter by repository access in parallel
+    // Pre-filter: get accessible repo ids from GitHub API
     let token = &session.user.github_access_token;
-    let checks = rows.iter().map(|r| {
-        let checker = access_checker.clone();
-        let token = token.clone();
-        let owner = r.owner.clone();
-        let name = r.name.clone();
-        async move { checker.check_access(&token, &owner, &name).await }
-    });
-    let results = join_all(checks).await;
-    let accessible_rows: Vec<_> = rows
-        .into_iter()
-        .zip(results)
-        .filter_map(|(r, ok)| if ok { Some(r) } else { None })
-        .collect();
+    let accessible_ids = access_checker
+        .list_accessible_repo_ids(token)
+        .await
+        .map_err(|e| access_error_to_app_error(&e, &request_id))?;
 
-    let has_more = accessible_rows.len() as i64 > limit;
-    let items: Vec<_> = accessible_rows
+    let rows = boardflow_db::queries::repository::list_with_stats(
+        &pool,
+        limit + 1,
+        cursor,
+        accessible_ids.as_deref(),
+    )
+    .await
+    .map_err(|e| {
+        tracing::error!("list_repositories failed: {e}");
+        AppError::internal_error("database error", &request_id)
+    })?;
+
+    let has_more = rows.len() as i64 > limit;
+    let items: Vec<_> = rows
         .iter()
         .take(limit as usize)
         .map(|r| RepositoryListItem {
@@ -411,7 +439,7 @@ pub async fn list_repositories(
 
     let next_cursor = if has_more {
         items.last().map(|_| {
-            let last = &accessible_rows[limit as usize - 1];
+            let last = &rows[limit as usize - 1];
             encode_repository_cursor(&last.updated_at, last.github_repository_id)
         })
     } else {
@@ -452,11 +480,11 @@ pub async fn get_repository(
         })?
         .ok_or_else(|| AppError::not_found("repository not found", &request_id))?;
 
-    if !access_checker
+    let result = access_checker
         .check_access(&session.user.github_access_token, &repo.owner, &repo.name)
-        .await
-    {
-        return Err(AppError::not_found("repository not found", &request_id));
+        .await;
+    if let Some(err) = access_result_to_error(&result, "repository not found", &request_id) {
+        return Err(err);
     }
 
     let board_project_count: i64 =
@@ -514,11 +542,11 @@ pub async fn list_board_projects(
         })?
         .ok_or_else(|| AppError::not_found("repository not found", &request_id))?;
 
-    if !access_checker
+    let result = access_checker
         .check_access(&session.user.github_access_token, &repo.owner, &repo.name)
-        .await
-    {
-        return Err(AppError::not_found("repository not found", &request_id));
+        .await;
+    if let Some(err) = access_result_to_error(&result, "repository not found", &request_id) {
+        return Err(err);
     }
 
     let limit = params.effective_limit();
@@ -598,11 +626,14 @@ pub async fn get_board_project(
         })?
         .ok_or_else(|| AppError::not_found("board project not found", &request_id))?;
 
-    if !access_checker
-        .check_access(&session.user.github_access_token, &row.repo_owner, &row.repo_name)
-        .await
-    {
-        return Err(AppError::not_found("board project not found", &request_id));
+    if let Some(err) = access_result_to_error(
+        &access_checker
+            .check_access(&session.user.github_access_token, &row.repo_owner, &row.repo_name)
+            .await,
+        "board project not found",
+        &request_id,
+    ) {
+        return Err(err);
     }
 
     // Get latest run status for state derivation
@@ -671,11 +702,11 @@ pub async fn list_board_runs(
         })?
         .ok_or_else(|| AppError::not_found("board project not found", &request_id))?;
 
-    if !access_checker
+    let result = access_checker
         .check_access(&session.user.github_access_token, &repo.owner, &repo.name)
-        .await
-    {
-        return Err(AppError::not_found("board project not found", &request_id));
+        .await;
+    if let Some(err) = access_result_to_error(&result, "board project not found", &request_id) {
+        return Err(err);
     }
 
     let limit = params.effective_limit();
@@ -760,11 +791,11 @@ pub async fn get_board_run(
         })?
         .ok_or_else(|| AppError::not_found("board run not found", &request_id))?;
 
-    if !access_checker
+    let result = access_checker
         .check_access(&session.user.github_access_token, &repo.owner, &repo.name)
-        .await
-    {
-        return Err(AppError::not_found("board run not found", &request_id));
+        .await;
+    if let Some(err) = access_result_to_error(&result, "board run not found", &request_id) {
+        return Err(err);
     }
 
     let run = boardflow_db::queries::board_run::find_by_id(&pool, id)
@@ -860,11 +891,11 @@ pub async fn list_artifacts(
         })?
         .ok_or_else(|| AppError::not_found("board run not found", &request_id))?;
 
-    if !access_checker
+    let result = access_checker
         .check_access(&session.user.github_access_token, &repo.owner, &repo.name)
-        .await
-    {
-        return Err(AppError::not_found("board run not found", &request_id));
+        .await;
+    if let Some(err) = access_result_to_error(&result, "board run not found", &request_id) {
+        return Err(err);
     }
 
     let artifacts = boardflow_db::queries::artifact::list_by_board_run(&pool, id)
@@ -929,11 +960,11 @@ pub async fn get_viewer_sources(
         })?
         .ok_or_else(|| AppError::not_found("board run not found", &request_id))?;
 
-    if !access_checker
+    let result = access_checker
         .check_access(&session.user.github_access_token, &repo.owner, &repo.name)
-        .await
-    {
-        return Err(AppError::not_found("board run not found", &request_id));
+        .await;
+    if let Some(err) = access_result_to_error(&result, "board run not found", &request_id) {
+        return Err(err);
     }
 
     // Verify board_run exists

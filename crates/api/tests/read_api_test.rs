@@ -1448,3 +1448,120 @@ async fn test_list_artifacts_denied_returns_404() {
 
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
 }
+
+// ─── Pagination with Access Filter Tests ─────────────────────────────────────
+
+/// Pagination整合性: deny-allでrepository一覧が空かつhas_more=false（pre-filterのため）
+#[tokio::test]
+async fn test_list_repositories_deny_all_pagination_integrity() {
+    let pool = match setup_pool().await {
+        Some(p) => p,
+        None => return,
+    };
+
+    let user_id = create_test_user(&pool).await;
+    let session_id = create_test_session(&pool, user_id).await;
+
+    // Create multiple repos that would normally cause has_more=true with limit=1
+    for _ in 0..3 {
+        create_test_repository(&pool, rand_i64()).await;
+    }
+
+    let app = create_deny_app(pool);
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/api/v1/repositories?limit=1")
+                .header("cookie", session_cookie(session_id))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body_bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+
+    // With pre-filter, deny-all means empty list with no false has_more
+    assert_eq!(json["items"].as_array().unwrap().len(), 0);
+    assert_eq!(json["has_more"], false);
+    assert!(json["next_cursor"].is_null());
+}
+
+/// Pagination整合性: allow-allでrepository一覧のページ遷移が正しく動作する
+#[tokio::test]
+async fn test_list_repositories_allow_all_pagination_cursor() {
+    let pool = match setup_pool().await {
+        Some(p) => p,
+        None => return,
+    };
+
+    let user_id = create_test_user(&pool).await;
+    let session_id = create_test_session(&pool, user_id).await;
+
+    // Create 3 repos with small delays for distinct updated_at
+    let mut repo_ids = Vec::new();
+    for _ in 0..3 {
+        let gid = rand_i64();
+        create_test_repository(&pool, gid).await;
+        repo_ids.push(gid);
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+
+    // First page (limit=2)
+    let app = create_test_app(pool.clone());
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/api/v1/repositories?limit=2")
+                .header("cookie", session_cookie(session_id))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body_bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+
+    let page1_items = json["items"].as_array().unwrap();
+    assert_eq!(page1_items.len(), 2);
+    assert_eq!(json["has_more"], true);
+    let next_cursor = json["next_cursor"].as_str().unwrap();
+
+    // Second page using cursor
+    let app2 = create_test_app(pool);
+    let response2 = app2
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(&format!("/api/v1/repositories?limit=2&cursor={next_cursor}"))
+                .header("cookie", session_cookie(session_id))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response2.status(), StatusCode::OK);
+    let body_bytes2 = response2.into_body().collect().await.unwrap().to_bytes();
+    let json2: serde_json::Value = serde_json::from_slice(&body_bytes2).unwrap();
+
+    let page2_items = json2["items"].as_array().unwrap();
+    // Should have at least 1 item (could be more from other tests but that's fine)
+    assert!(!page2_items.is_empty());
+
+    // No overlap between page 1 and page 2
+    let page1_ids: Vec<&str> = page1_items
+        .iter()
+        .map(|i| i["github_repository_id"].as_str().unwrap())
+        .collect();
+    for item in page2_items {
+        let id = item["github_repository_id"].as_str().unwrap();
+        assert!(!page1_ids.contains(&id), "page 2 should not contain items from page 1");
+    }
+}

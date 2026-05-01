@@ -61,7 +61,7 @@ pub fn create_app_with_config(
     });
 
     let checker: DynGithubAccessChecker =
-        access_checker.unwrap_or_else(|| Arc::new(RealGithubAccessChecker));
+        access_checker.unwrap_or_else(|| Arc::new(RealGithubAccessChecker::new()));
 
     router
         .route(

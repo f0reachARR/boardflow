@@ -625,3 +625,42 @@ limit+1行取得し、N+1行目が存在すれば `has_more=true`、N行目で n
 - Repository権限ベースの認可は後続Issueで実装予定（MVP = session認証のみ）
 - OAuth login/callback の統合テスト（外部GitHub API呼び出し含む）は mock server が必要で未実装
 - session cookie に `Secure` flag未付与（HTTPS環境専用にする場合は追加が必要）
+
+---
+
+## Phase 9: 最終レビュー (Final Review)
+- 開始: 2026-05-01
+- 状態: 完了
+- 対象Issue: #6
+- PR作成可否: `pr_ready: false`
+
+### レビュー結果
+- `cargo test -p boardflow-api` はこの環境で 85 件すべて成功した。Read API 実装、session 認証、artifact token、repository 権限チェック wiring 自体は入っている。
+- `docs/backend/api.md` が要求する「GitHub OAuth session + repository 権限確認」「閲覧不可は 404」に対して、detail 系 7 endpoint の制御は概ね仕様方向に沿っている。
+- ただし、repository 一覧だけは DB pagination の後段で access filter をかけており、認可結果しだいで `has_more` / `next_cursor` が壊れる。accessible な repository が後続ページに存在しても、手前に denied repository が混じると空配列または `has_more=false` で打ち切られ得るため、一覧 contract として不正確。
+- また、GitHub access check が `200 OK` 以外と transport error をすべて「権限なし」と同一視しており、GitHub API 障害・rate limit・token 失効時でも empty list / 404 に倒れる。情報秘匿のための 404 と、上流障害・再認証要求を分離できていない。
+
+### 重大な指摘
+1. `list_repositories` の pagination は認可フィルタ込みで正しくない。`limit + 1` 件取得後に access filter をかけて `has_more` を算出しているため、denied row が混じると accessible row を取りこぼす。
+2. `RealGithubAccessChecker` は `200` 以外の status と reqwest error をすべて `false` に畳んでおり、認可失敗と一時障害を区別できない。
+
+### 必須修正
+1. `GET /api/v1/repositories` は認可後の可視 row 基準で pagination を成立させるよう修正する。少なくとも、1ページ分の accessible row が揃うまで追加取得するか、別経路で accessible repository 集合を先に得る必要がある。
+2. GitHub access check の戻り値を bool ではなく結果型にし、`not_found/forbidden` 相当と `upstream failure / invalid token` を分離する。invalid token は再認証導線、upstream failure は 5xx 系で返す余地を残すべき。
+
+### 任意改善
+1. `GithubAccessChecker` に test double を追加し、repository ごとに allow/deny/error を切り替えられるようにすると pagination と障害系のテストが書きやすい。
+2. `reqwest::Client` を毎回生成せず共有化すると、Read API の一覧・詳細での GitHub API 呼び出しコストを抑えやすい。
+
+### テスト不足
+- deny テストは 6 本あるが、`list_board_runs` と `get_viewer_sources` の deny ケースが未追加。
+- `list_repositories` に allow/deny 混在時の pagination テストがない。
+- GitHub API error / rate limit / token invalid 時の振る舞いを検証するテストがない。
+
+### ドキュメント確認
+- `docs/backend/api.md` の認可方針とは大筋整合しているが、repository 一覧の pagination contract までは満たしていない。
+- `docs/technology.md` の GitHub OAuth + GitHub App / Artifact の認可付き配信方針とは整合している。
+
+### 残リスク
+- 現状の repository 一覧は、ユーザーがアクセス可能な repository を持っていても、先頭ページに denied repository が多いだけで到達不能になる可能性がある。
+- GitHub API 障害時に UI からは「見えない repository / resource」に見えるため、障害調査とユーザーサポートが難しくなる。
