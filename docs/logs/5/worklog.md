@@ -518,3 +518,55 @@ total: 45 passed; 0 failed
 ### 更新した作業ログパス
 - `docs/logs/5/worklog.md`
 
+---
+
+## Race Condition 修正 (2026-05-01)
+
+### 問題
+`import_artifact_bundle` ハンドラで `find_by_import_key` と `find_existing_for_run` がトランザクション外で実行されており、並行リクエストで整合性が崩れる可能性があった。また `update_for_import` が無条件に sha256/size_bytes を上書きしていた。
+
+### 修正内容
+
+#### 1. DB層の変更
+- `crates/db/src/queries/board_run.rs`: `find_by_id_for_update` 追加 (SELECT ... FOR UPDATE)
+- `crates/db/src/queries/artifact_bundle.rs`: `update_for_import` を条件付き更新に変更
+  - シグネチャに `staging_object_key` パラメータ追加
+  - `WHERE sha256 IS NULL AND staging_object_key = $2` ガード追加
+  - 戻り値を `Result<Option<ArtifactBundle>>` に変更 (条件不一致時 None)
+
+#### 2. ハンドラの変更
+- `crates/api/src/routes/board_run.rs`: `import_artifact_bundle` を全面リファクタ
+  - トランザクション開始をハンドラ冒頭に移動
+  - `find_by_id_for_update` で board_run をロック
+  - 全 DB 読み取り (`find_by_import_key`, `find_existing_for_run`, `find_by_board_run_id`) をトランザクション内に移動
+  - `update_for_import` の結果が None の場合 409 Conflict を返す
+
+#### 3. テスト追加
+- `crates/api/tests/board_run_test.rs`: `test_import_artifact_bundle_update_conflict` 追加
+  - 先着リクエスト成功 → 後着が異なる sha256 で 409 になることを確認
+  - トランザクション内 conflict 判定の正しさを順次実行で擬似テスト
+
+### テスト結果
+```
+cargo test -p boardflow-api
+
+board_run_test: 19 passed; 0 failed (新規1テスト追加)
+plan_test: 16 passed; 0 failed
+integration_test: 2 passed; 0 failed
+config_test: 1 passed; 0 failed
+total: 38 passed; 0 failed
+```
+
+### 変更ファイル
+- `crates/db/src/queries/board_run.rs` — `find_by_id_for_update` 追加
+- `crates/db/src/queries/artifact_bundle.rs` — `update_for_import` 条件付き更新化
+- `crates/api/src/routes/board_run.rs` — 全体トランザクション化
+- `crates/api/tests/board_run_test.rs` — race condition テスト追加
+
+### 残リスク
+- 真の並行テスト (tokio::spawn で2リクエスト同時送信) は未実施。順次実行による擬似テストのみ
+- FOR UPDATE による行ロックはデッドロックリスクが理論上あるが、単一行ロック＋短トランザクションなので実害なし
+
+### 更新した作業ログパス
+- `docs/logs/5/worklog.md`
+
