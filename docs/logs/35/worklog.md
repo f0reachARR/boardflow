@@ -188,6 +188,17 @@ test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 42 filtered out
 
 - なし。
 
+## PR/完了結果
+
+- **PR**: https://github.com/f0reachARR/boardflow/pull/39
+- **タイトル**: feat: Diff詳細Read API実装 (#35)
+- **ステータス**: PR作成完了、レビュー/ドキュメント確認済み
+- **マージ先**: main
+
+## 残リスク
+
+- なし。既存パターンに完全に従った実装。optional 改善として `summary` の field presence テスト追加が挙げられたが、blocking ではない。
+
 ### 最終任意改善
 
 1. `summary` についても `json.get("summary").is_some()` を追加し、null と field omission の差をテストで完全に固定する。
