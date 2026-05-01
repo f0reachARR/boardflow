@@ -21,7 +21,7 @@ async fn test_openapi_endpoint_returns_json() {
     };
 
     let pool = PgPool::connect(&database_url).await.unwrap();
-    let app = create_app(pool);
+    let app = create_app(pool, None);
 
     let response = app
         .oneshot(
@@ -56,7 +56,7 @@ async fn test_healthz_returns_ok_with_db() {
     };
 
     let pool = PgPool::connect(&database_url).await.unwrap();
-    let app = create_app(pool);
+    let app = create_app(pool, None);
 
     let response = app
         .oneshot(

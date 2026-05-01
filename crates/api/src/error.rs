@@ -91,6 +91,18 @@ impl AppError {
         Self::new(ErrorCode::ValidationFailed, message, request_id)
     }
 
+    pub fn not_found(message: impl Into<String>, request_id: impl Into<String>) -> Self {
+        Self::new(ErrorCode::NotFound, message, request_id)
+    }
+
+    pub fn conflict(message: impl Into<String>, request_id: impl Into<String>) -> Self {
+        Self::new(ErrorCode::Conflict, message, request_id)
+    }
+
+    pub fn gone(message: impl Into<String>, request_id: impl Into<String>) -> Self {
+        Self::new(ErrorCode::Gone, message, request_id)
+    }
+
     pub fn internal_error(message: impl Into<String>, request_id: impl Into<String>) -> Self {
         Self::new(ErrorCode::InternalError, message, request_id)
     }
