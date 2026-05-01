@@ -3,7 +3,7 @@ use std::sync::Arc;
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use boardflow_api::create_app_with_config;
-use boardflow_api::github_access::{AllowAllGithubAccessChecker, DenyAllGithubAccessChecker, DynGithubAccessChecker};
+use boardflow_api::github_access::{AllowAllGithubAccessChecker, DenyAllGithubAccessChecker, DynGithubAccessChecker, RateLimitedGithubAccessChecker, UpstreamErrorGithubAccessChecker};
 use http_body_util::BodyExt;
 use sqlx::PgPool;
 use tower::ServiceExt;
@@ -1564,4 +1564,124 @@ async fn test_list_repositories_allow_all_pagination_cursor() {
         let id = item["github_repository_id"].as_str().unwrap();
         assert!(!page1_ids.contains(&id), "page 2 should not contain items from page 1");
     }
+}
+
+// ─── Rate Limited / Upstream Error tests ─────────────────────────────────────
+
+fn create_rate_limited_app(pool: PgPool) -> axum::Router {
+    let checker: DynGithubAccessChecker = Arc::new(RateLimitedGithubAccessChecker);
+    create_app_with_config(pool, None, None, None, Some(checker))
+}
+
+fn create_upstream_error_app(pool: PgPool) -> axum::Router {
+    let checker: DynGithubAccessChecker = Arc::new(UpstreamErrorGithubAccessChecker);
+    create_app_with_config(pool, None, None, None, Some(checker))
+}
+
+#[tokio::test]
+async fn test_get_repository_rate_limited_returns_429() {
+    let Some(pool) = setup_pool().await else { return };
+    let app = create_rate_limited_app(pool.clone());
+
+    let user_id = create_test_user(&pool).await;
+    let session_id = create_test_session(&pool, user_id).await;
+    let github_repo_id = rand_i64();
+    let _repo_id = create_test_repository(&pool, github_repo_id).await;
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(&format!("/api/v1/repositories/{}", github_repo_id))
+                .header("cookie", session_cookie(session_id))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+    let body_bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+    assert_eq!(json["error"]["code"], "rate_limited");
+}
+
+#[tokio::test]
+async fn test_get_repository_upstream_error_returns_500() {
+    let Some(pool) = setup_pool().await else { return };
+    let app = create_upstream_error_app(pool.clone());
+
+    let user_id = create_test_user(&pool).await;
+    let session_id = create_test_session(&pool, user_id).await;
+    let github_repo_id = rand_i64();
+    let _repo_id = create_test_repository(&pool, github_repo_id).await;
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(&format!("/api/v1/repositories/{}", github_repo_id))
+                .header("cookie", session_cookie(session_id))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    let body_bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+    assert_eq!(json["error"]["code"], "internal_error");
+}
+
+#[tokio::test]
+async fn test_list_repositories_rate_limited_returns_429() {
+    let Some(pool) = setup_pool().await else { return };
+    let app = create_rate_limited_app(pool.clone());
+
+    let user_id = create_test_user(&pool).await;
+    let session_id = create_test_session(&pool, user_id).await;
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/api/v1/repositories")
+                .header("cookie", session_cookie(session_id))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+    let body_bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+    assert_eq!(json["error"]["code"], "rate_limited");
+}
+
+#[tokio::test]
+async fn test_list_repositories_upstream_error_returns_500() {
+    let Some(pool) = setup_pool().await else { return };
+    let app = create_upstream_error_app(pool.clone());
+
+    let user_id = create_test_user(&pool).await;
+    let session_id = create_test_session(&pool, user_id).await;
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/api/v1/repositories")
+                .header("cookie", session_cookie(session_id))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    let body_bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+    assert_eq!(json["error"]["code"], "internal_error");
 }

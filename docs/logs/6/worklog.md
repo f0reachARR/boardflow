@@ -761,3 +761,67 @@ limit+1行取得し、N+1行目が存在すれば `has_more=true`、N行目で n
 ### 残リスク
 - GitHub API の rate limit を `404` に誤変換すると、フロントエンドは再ログインや再試行方針を誤りやすい
 - 実運用で rate limit が出た際に障害として可観測にならず、原因切り分けが難しくなる
+
+---
+
+## Phase 7: 最終レビュー（403修正の再確認）
+- 開始: 2026-05-01
+- 状態: 完了
+
+### Issueまでの経緯
+- 前回レビューでは、GitHub API の `403` を `Denied` とみなして `404 not_found` へ誤変換していた点を重大指摘として差し戻し
+- 今回はその一点の修正有無と、PR ready 判定を最終確認
+
+### ユーザー要望
+- `crates/api/src/github_access.rs` の 403 処理修正が妥当か確認すること
+- Issue #6 を `pr_ready: true/false` で最終判定すること
+
+### 調査結果
+- `crates/api/src/github_access.rs` を再確認し、`check_access` は `404 -> Denied`, `401 -> TokenExpired`, `429 -> RateLimited`, `403 -> rate limit header があれば RateLimited / それ以外は Upstream` に変更済み
+- `list_accessible_repo_ids` でも `403` を `RateLimited` と `Upstream` に分離しており、前回の `403 -> Denied` 変換は解消済み
+- `crates/api/src/routes/read.rs` では `AccessError::RateLimited -> 429 rate_limited`, `AccessError::Upstream -> 500 internal_error`, `Denied -> 404 not_found` に変換しており、API 契約との整合は取れている
+- `docs/backend/api.md` と GitHub REST API troubleshooting を確認し、private resource の非認可は `404`、rate limit は `403` または `429` になり得る外部仕様とも整合
+- `cargo test -p boardflow-api --test read_api_test -- --nocapture` を実行し 37 件成功、`cargo test -p boardflow-api --test auth_test -- --nocapture` を実行し 8 件成功を確認
+
+### 計画との差分
+- 実装コードは前回レビュー指摘どおりに修正されている
+- ただし、前回必須修正に含めた「`403 rate limit -> 429` と `403 upstream -> 500` の integration test 追加」は未完了
+
+### 実装内容
+- `RealGithubAccessChecker::check_access` の `403` を無条件 `Denied` にしない実装へ修正
+- `RealGithubAccessChecker::list_accessible_repo_ids` でも同様の判定を追加
+- 既存の deny-all/allow-all テスト群は維持されている
+
+### テスト結果
+- `cargo test -p boardflow-api --test read_api_test -- --nocapture`: 37 passed
+- `cargo test -p boardflow-api --test auth_test -- --nocapture`: 8 passed
+- ただし `403 rate limit` と `403 upstream` を route レベルで直接検証する回帰テストは未追加
+
+### ドキュメント確認
+- `docs/backend/api.md` の read API error contract とは整合
+- `docs/spec.md` とも矛盾は見当たらない
+- `docs/logs/6/worklog.md` には今回の最終レビュー結果を追記
+
+### レビュー結果
+- 前回の重大指摘であった「GitHub API 403 を Denied にマッピングする問題」は、実装上は解消済み
+- ただし、修正箇所そのものを保証する automated test が追加されていないため、再発防止の観点ではまだ弱い
+
+### 必須修正
+1. `GithubAccessChecker` の error path を返せる test double を追加し、read API で `403 rate limit -> 429 rate_limited` を検証する統合テストを追加すること
+2. 同様に `403 upstream -> 500 internal_error` を検証する統合テストを追加すること
+
+### 任意改善
+1. `retry-after` と `x-ratelimit-remaining: 0` の両方を個別に検証し、primary / secondary rate limit の検出意図を明文化すること
+2. `list_accessible_repo_ids` 側の `403` 判定も独立に unit test 化すること
+
+### テスト不足
+- `crates/api/src/github_access.rs` の `403` 分岐に対する unit test がない
+- `crates/api/tests/read_api_test.rs` には deny-all/allow-all はあるが、`AccessError::RateLimited` / `AccessError::Upstream` を返すケースがない
+
+### PR/完了結果
+- Issue ID: #6
+- `pr_ready: false`
+
+### 残リスク
+- いまのままでも実装が正しい可能性は高いが、GitHub 側ヘッダ差異や将来の refactor で 403 分類が崩れても CI で検知できない
+- 今回の修正点は前回の唯一の重大指摘だったため、回帰テストなしでのマージ判断は保守的に避けるべき

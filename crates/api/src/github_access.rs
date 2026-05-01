@@ -203,4 +203,36 @@ impl GithubAccessChecker for DenyAllGithubAccessChecker {
     }
 }
 
+// ─── Mock: rate limited ──────────────────────────────────────────────────────
+
+/// Mock implementation that always returns RateLimited (for error handling tests).
+pub struct RateLimitedGithubAccessChecker;
+
+#[async_trait::async_trait]
+impl GithubAccessChecker for RateLimitedGithubAccessChecker {
+    async fn check_access(&self, _token: &str, _owner: &str, _name: &str) -> AccessResult {
+        AccessResult::Error(AccessError::RateLimited)
+    }
+
+    async fn list_accessible_repo_ids(&self, _token: &str) -> Result<Option<Vec<i64>>, AccessError> {
+        Err(AccessError::RateLimited)
+    }
+}
+
+// ─── Mock: upstream error ────────────────────────────────────────────────────
+
+/// Mock implementation that always returns Upstream error (for error handling tests).
+pub struct UpstreamErrorGithubAccessChecker;
+
+#[async_trait::async_trait]
+impl GithubAccessChecker for UpstreamErrorGithubAccessChecker {
+    async fn check_access(&self, _token: &str, _owner: &str, _name: &str) -> AccessResult {
+        AccessResult::Error(AccessError::Upstream("simulated upstream failure".to_string()))
+    }
+
+    async fn list_accessible_repo_ids(&self, _token: &str) -> Result<Option<Vec<i64>>, AccessError> {
+        Err(AccessError::Upstream("simulated upstream failure".to_string()))
+    }
+}
+
 pub type DynGithubAccessChecker = Arc<dyn GithubAccessChecker>;
