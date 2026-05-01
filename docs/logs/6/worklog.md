@@ -246,7 +246,60 @@ limit+1行取得し、N+1行目が存在すれば `has_more=true`、N行目で n
 ## 残リスク
 - Viewer Sources の artifact proxy token 生成は後続Issue依存
 - board_project_count のサブクエリが大量データでパフォーマンス問題になる可能性（MVPでは許容）
-- GitHub OAuth session認証が未実装のため、全データが認証なしで閲覧可能（後続Issueで対応）
+- list_repositories の並列GitHub API呼び出しは件数が多い場合にスケーラビリティ課題あり（後続Issue）
+
+---
+
+## Phase 3: 実装 - 権限チェック (Authorization)
+- 開始: 2026-05-01
+- 状態: 完了
+
+### 実装内容
+
+#### 新規ファイル
+- `crates/api/src/github_access.rs`: `GithubAccessChecker` trait + `RealGithubAccessChecker` / `AllowAllGithubAccessChecker` / `DenyAllGithubAccessChecker` 実装
+
+#### DB クエリ追加
+- `crates/db/src/queries/board_project.rs`: `find_repository_by_board_project_id` - board_project → repository を辿るクエリ
+- `crates/db/src/queries/board_run.rs`: `find_repository_by_board_run_id` - board_run → board_project → repository を辿るクエリ
+
+#### Read API ハンドラ変更 (`crates/api/src/routes/read.rs`)
+全8ハンドラに権限チェック追加:
+1. `list_repositories`: 並列GitHub API呼び出しでフィルタリング（`futures::join_all`）
+2. `get_repository`: DB取得後、access_checker確認 → 失敗時404
+3. `list_board_projects`: 親repository取得 → access_checker確認 → 失敗時404
+4. `get_board_project`: find_by_id_with_repository → repo_owner/repo_name で確認 → 失敗時404
+5. `list_board_runs`: find_repository_by_board_project_id → 確認 → 失敗時404
+6. `get_board_run`: find_repository_by_board_run_id → 確認 → 失敗時404
+7. `list_artifacts`: find_repository_by_board_run_id → 確認 → 失敗時404
+8. `get_viewer_sources`: find_repository_by_board_run_id → 確認 → 失敗時404
+
+#### lib.rs 変更
+- `pub mod github_access;` 追加
+- `create_app_with_config` に `access_checker: Option<DynGithubAccessChecker>` パラメータ追加
+- Router に `Extension(checker)` layer追加
+
+#### Cargo.toml
+- `async-trait = "0.1"` と `futures = "0.3"` をワークスペース依存に追加
+- `crates/api/Cargo.toml` に workspace参照追加
+
+### テスト結果
+- 全35テスト合格（既存29テスト + 新規6テスト）
+- 新規テスト:
+  - `test_list_repositories_denied_returns_empty`: アクセス拒否時に空リスト返却
+  - `test_get_repository_denied_returns_404`: アクセス拒否時に404返却
+  - `test_list_board_projects_denied_returns_404`: 親repoアクセス拒否時に404
+  - `test_get_board_project_denied_returns_404`: 関連repoアクセス拒否時に404
+  - `test_get_board_run_denied_returns_404`: board_run経由のrepoアクセス拒否時に404
+  - `test_list_artifacts_denied_returns_404`: artifact経由のrepoアクセス拒否時に404
+
+### 設計判断
+- 情報漏洩防止のため、アクセス拒否は「存在しない」と同じ404を返す（仕様通り）
+- trait化によりテスト容易性を確保（AllowAll/DenyAll mock）
+- `create_app` のシグネチャは後方互換性を維持（デフォルトでRealGithubAccessChecker使用）
+
+### コミット
+- `97c1dd7` feat(api): implement repository permission-based authorization for Read API
 
 ---
 
