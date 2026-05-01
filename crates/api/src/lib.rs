@@ -52,6 +52,9 @@ pub fn create_app_with_config(
         .routes(routes!(routes::auth::callback))
         .routes(routes!(routes::auth::logout))
         .routes(routes!(routes::auth::me))
+        .routes(routes!(routes::api_token::create_api_token))
+        .routes(routes!(routes::api_token::list_api_tokens))
+        .routes(routes!(routes::api_token::revoke_api_token))
         .split_for_parts();
 
     let oauth = oauth_config.unwrap_or_else(|| OAuthConfig {
