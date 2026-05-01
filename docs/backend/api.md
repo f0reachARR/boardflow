@@ -810,6 +810,62 @@ Response:
 
 diff レコードが存在しない BoardRun（import 中、または diff 作成前）に対しては `404 not_found` を返す。
 
+### 3.10 Findings 一覧
+
+```http
+GET /api/v1/board-runs/{board_run_id}/checks/{check_kind}/findings?limit=50&cursor=...&severity=error
+```
+
+BoardRun に紐づく ERC/DRC チェック結果（findings）一覧を返す。Checks 画面で finding 一覧を表示するために使用される。
+
+パスパラメータ:
+- `board_run_id`: `br_<uuid>` 形式の BoardRun ID
+- `check_kind`: `erc` | `drc`
+
+クエリパラメータ:
+- `limit`: 1〜100 (デフォルト 50)
+- `cursor`: opaque cursor string (base64url encoded)
+- `severity`: `error` | `warning` | `notice` (省略時は全件)
+
+認可: `board_run_id` → `find_repository_by_board_run_id` → `access_checker.check_access`
+
+Response:
+
+```json
+{
+  "items": [
+    {
+      "id": "uuid-string",
+      "severity": "error",
+      "rule_code": "power_pin_not_driven",
+      "title": "Input Power pin not driven by any Output Power pins",
+      "message": "Symbol #PWR019 Pin 1",
+      "subject_kind": "schematic",
+      "subject_ref": "#PWR019",
+      "sheet_path": "/",
+      "pcb_layer": null,
+      "pos_mm": { "x": 5.715, "y": 2.667 }
+    }
+  ],
+  "next_cursor": "...",
+  "has_more": true
+}
+```
+
+注意事項:
+- `pos_mm` は DB の `x_um`, `y_um` (整数 µm) を mm に変換して返す (`x_um / 1000.0`)。座標が未設定の場合は `null`。
+- `raw_payload_json` と `bbox_json` は帯域節約のためレスポンスから除外される。
+- 指定 `board_run_id` + `check_kind` の `run_check` が存在しない場合は空リストを返す（404 ではない）。
+- 並び順: `sort_index ASC, id ASC`
+- cursor: `(sort_index, id)` ペアをエンコードした opaque 文字列
+
+エラーレスポンス:
+| ステータス | 条件 |
+|---|---|
+| 400 | 不正な `board_run_id` format / 不正な `check_kind` / 不正な `severity` / 不正な cursor |
+| 401 | 未認証 / セッション期限切れ |
+| 404 | `board_run` が存在しない / アクセス拒否 |
+
 ## 4. Artifact Proxy API
 
 artifact proxy は `viewer-sources` が返した短命 URL から利用される。
@@ -837,8 +893,8 @@ GET /proxy/artifacts/{artifact_id}?token=...
 
 > **注記: `run_check_findings` read API について**
 >
-> `run_check_findings` テーブルの read API（個別 finding の一覧取得・詳細取得）は今後の Issue で追加予定であり、現時点では Worker による INSERT のみが実装済みである。
-> BoardRun 詳細 API (3.6) が返す `checks` は集計値（error_count / warning_count / notice_count）のみであり、finding 明細の取得経路は未提供。
+> `run_check_findings` テーブルの read API（一覧取得）は Issue #36 で実装済み（セクション 3.10 参照）。
+> 個別 finding の詳細取得 API は今後の Issue で追加予定。
 
 MVP では以下を API contract test として優先する。
 
