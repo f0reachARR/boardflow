@@ -518,6 +518,53 @@ Issue #27 の実装差分、`docs/spec.md`、`docs/backend/api.md`、既存 read
 
 ---
 
+## ドキュメントレビューフェーズ（2026-05-01）
+
+### ドキュメント確認結果
+
+Issue #27 の対象として、`docs/spec.md`、`docs/backend/api.md`、`docs/backend/summary.md`、`README.md`、本 worklog を確認した。
+
+- `docs/backend/api.md` の 3.0.5 Token Management API セクションは、Issue 本文と実装概要にある create / list / revoke の3 endpoint、Session + GitHub access check、denied 時の 404、平文 token は作成時のみ返却、hash のみ永続化、revoke の冪等性、list の cursor pagination と整合している。
+- `docs/spec.md` の token 要件（repository 単位、hash 保存、成功認証時のみ `last_used_at` 更新、revoke 済み token は認可不可）との不整合は見当たらない。
+- `docs/backend/summary.md` は backend の責務と認証方針を要約する高レベル文書であり、Issue #27 のために endpoint 単位の追記は必須ではない。
+- `README.md` に API token 作成導線や `BOARDFLOW_TOKEN` の運用説明はまだ無いが、現時点では利用手順自体が README の対象として確立しておらず、Issue #27 の必須更新対象とは判断しない。
+
+### 指摘事項
+
+#### Medium: 契約テスト観点に Token Management API が未反映
+
+- `docs/backend/api.md` の 3.0.5 には Token Management API の契約が追加されている一方、同ファイルの §5 契約テスト観点には create / list / revoke に対応する項目がない。
+- 今回追加された API は Session 認証、404 による情報隠蔽、cursor pagination、revoke 冪等性、平文 token の一回限り返却という重要契約を持つため、契約テスト観点へ反映しないと将来の回帰を見落としやすい。
+
+### docs 判定
+
+- `docs_ready: false`
+
+### 必須修正
+
+1. `docs/backend/api.md` の §5 契約テスト観点に、少なくとも以下を追加する。
+  - create API が平文 token を初回レスポンスにのみ含み、以後 list / revoke では返さないこと
+  - list API が `limit` / `cursor` / `next_cursor` / `has_more` を含むこと
+  - access denied と token の repository 不一致が 404 `not_found` になること
+  - revoke API が冪等であること
+
+### 任意改善
+
+1. 将来 README に Action 設定手順を追加する段階で、`BOARDFLOW_TOKEN` の発行元として本 API か UI 導線への参照を追加する。
+
+### 外部調査メモ
+
+- Issue #27 については `docs/external/` に依存する新規外部調査成果物は見当たらず、既存の外部調査メモとの矛盾もない。
+
+### PR/完了結果
+
+- `docs_ready: false`
+
+### 残リスク
+
+- 契約テスト観点に token 管理 API が無いままだと、OpenAPI や統合テストが将来更新された際に token の公開範囲や pagination 契約の回帰を拾いにくい。
+
+
 ## 再レビューフェーズ（2026-05-01）
 
 ### レビュー結果
@@ -568,6 +615,133 @@ Issue #27 の実装差分、`docs/spec.md`、`docs/backend/api.md`、既存 read
 ### 残リスク
 
 - 主要な受け入れ要件と前回指摘は満たしているが、revoke の invalid path parameter だけ error contract の一貫性が崩れる余地が残る
+
+### 更新した作業ログパス
+
+- `docs/logs/27/worklog.md`
+
+---
+
+## ドキュメント最終確認フェーズ（2026-05-01, 最終）
+
+### ドキュメント確認
+
+Issue #27 の最終 docs 確認として、`docs/spec.md`、`docs/backend/api.md`、`docs/backend/summary.md`、`README.md`、本 worklog を再確認した。
+
+- `docs/backend/api.md` の §5 契約テスト観点には、前回必須だった Token Management API の4観点（平文 token の一回限り返却、list の cursor pagination、access denied / repository 不一致時の `404 not_found`、revoke の冪等性）が反映済み。
+- `docs/spec.md` の token 要件（repository 単位、hash 保存、認証成功時のみ `last_used_at` 更新、revoke 済み token は認可不可）と `docs/backend/api.md` の Token Management API 本文に不整合はない。
+- `docs/backend/summary.md` と `README.md` についても、Issue #27 の docs_ready を妨げる更新漏れは確認できなかった。
+
+### レビュー結果
+
+- 追加の必須修正はなし
+- 前回指摘の「§5 契約テスト観点に Token Management API 未反映」は解消済み
+
+### 判定
+
+- `docs_ready: true`
+
+### 任意改善
+
+1. 非ブロッキングとして、将来的に README へ `BOARDFLOW_TOKEN` の発行導線を追加する余地はあるが、Issue #27 の完了条件ではない。
+
+### 残リスク
+
+- 現時点で PR 作成を止めるドキュメント不整合は確認していない。
+
+### 更新した作業ログパス
+
+- `docs/logs/27/worklog.md`
+
+---
+
+## 最終確認レビュー（4回目）（2026-05-01）
+
+### レビュー結果
+
+Issue #27 の4回目最終確認として、Issue本文、既存 research / plan、`docs/spec.md`、`docs/backend/api.md`、現行実装、関連テスト、直近の契約ドキュメント修正を再確認した。
+
+確認した観点:
+
+- `crates/api/src/routes/api_token.rs` の create / list / revoke すべての utoipa annotation に `400 Validation error` が定義されている
+- create は handler 内で `JsonRejection` を `request_id` 付き `validation_failed` に変換している
+- revoke は `token_id` を `String` で受けて handler 内 parse しており、不正 format で `400 validation_failed` を返す
+- `docs/backend/api.md` の `3.0.5 Token Management API` と §5 契約テスト観点に、前回までの指摘内容が反映されている
+- `mise exec rust@nightly -- cargo test -p boardflow-api --test api_token_test -- --test-threads=1` が 15/15 pass
+- `mise exec rust@nightly -- cargo build -p boardflow-api` が pass
+
+外部観点としても、OpenAPI では実際に返しうるエラー response を明示するのが一般的な設計方針であり、現在の create / list / revoke の `400` 明記はその期待と整合していることを確認した。
+
+### 指摘事項
+
+- Critical / High の残指摘は確認できなかった
+- 前回までの必須指摘は解消済み
+
+### テスト結果
+
+- `mise exec rust@nightly -- cargo test -p boardflow-api --test api_token_test -- --test-threads=1` → 15/15 pass
+- `mise exec rust@nightly -- cargo build -p boardflow-api` → pass
+
+### ドキュメント確認
+
+- `docs/spec.md` の repository 単位発行、hash 保存、revoke 済み token の認可不可要件と実装は整合している
+- `docs/backend/api.md` の Token Management API 本文と §5 契約テスト観点は、create / list / revoke の契約と整合している
+- `docs/backend/summary.md` と `README.md` について、Issue #27 の追加修正が必要な不整合は見当たらなかった
+
+### PR/完了結果
+
+- `pr_ready: true`
+
+### 必須修正
+
+- なし
+
+### 任意改善
+
+1. `list` の invalid cursor に対する `400 validation_failed` の統合テストは依然として無いため、将来の回帰耐性を上げるなら追加余地がある
+
+### テスト不足
+
+- 非ブロッキング: `list_api_tokens` の invalid cursor ケースを直接検証する統合テストは未追加
+
+### 残リスク
+
+- 現時点で PR を止めるリスクは確認していないが、invalid cursor の回帰は統合テスト未整備のため将来的に見落とす余地がある
+
+### 更新した作業ログパス
+
+- `docs/logs/27/worklog.md`
+
+---
+
+## ドキュメント最終確認フェーズ（2026-05-01）
+
+### ドキュメント確認
+
+Issue #27 のドキュメント観点として、`docs/spec.md`、`docs/backend/api.md`、`docs/backend/summary.md`、`README.md`、本 worklog を再確認した。
+
+- `docs/spec.md` と `docs/backend/api.md` の Token Management API 本文は、create / list / revoke の仕様、平文 token の一回限り返却、hash 保存、revoke の冪等性、Session + GitHub access check、404 による情報隠蔽で整合している。
+- `docs/backend/summary.md` は高レベル要約として十分で、Issue #27 向けの endpoint 列挙追記は必須ではない。
+- `README.md` はまだ API token の利用導線を持たないが、現時点では Issue #27 の必須更新対象とはしない。
+
+### ドキュメント指摘
+
+#### Medium: `docs/backend/api.md` の §5 契約テスト観点に Token Management API が未反映
+
+- `docs/backend/api.md` には `3.0.5 Token Management API` が追記済みだが、同ファイルの §5 契約テスト観点には token 管理 API 向けの観点が追加されていない。
+- 少なくとも以下は契約テスト観点に含める必要がある。
+  - create API が平文 token を初回レスポンスにのみ含むこと
+  - list API が cursor pagination (`limit`, `cursor`, `next_cursor`, `has_more`) を満たすこと
+  - access denied / token の repository 不一致が 404 `not_found` になること
+  - revoke API が冪等であること
+
+### 判定
+
+- `docs_ready: false`
+
+### 残リスク
+
+- 契約テスト観点が未更新のままだと、今後の OpenAPI / 統合テスト変更時に token 管理 API の回帰を見落とす余地が残る。
 
 ### 更新した作業ログパス
 
@@ -731,6 +905,32 @@ Issue #27 の最終確認として、Issue本文、既存 research / plan、`doc
 ### 残リスク
 
 - なし（指摘箇所は全て解消済み）
+
+### 更新した作業ログパス
+
+- `docs/logs/27/worklog.md`
+
+---
+
+## PR作成フェーズ（2026-05-01）
+
+### PR作成前確認
+
+- `pr_ready: true`（最終レビュー3回目で確認済み）
+- `docs_ready: true`（§5 契約テスト観点追記後に確認済み）
+- 未コミット変更: `docs/logs/27/worklog.md` のみ（PR作成フェーズ追記）
+- テスト: api_token_test 15/15 pass、全パッケージ 175件 pass
+- research成果物と実装に矛盾なし
+
+### PR/完了結果
+
+- PR作成: `gh pr create` で `feat/27-api-token-management` → `main` のPRを作成
+- Closes #27
+
+### 残リスク
+
+- `list_api_tokens` の invalid cursor に対する統合テストは未追加（非ブロッキング）
+- 将来 README に Action 設定手順を追加する際は、`BOARDFLOW_TOKEN` の発行元として本 API への参照を追加することを推奨
 
 ### 更新した作業ログパス
 
