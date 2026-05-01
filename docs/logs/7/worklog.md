@@ -1020,3 +1020,76 @@ board_run_test: 19 tests 中 18 passed, 1 failed
 
 - `ON CONFLICT DO NOTHING` + `RETURNING *` は conflict 発生時に `RowNotFound` となるため、今後 job dedupe を本格運用すると顕在化する可能性がある。
 - final bucket への upload を DB transaction 外で行う設計上、失敗時に孤立 object は残りうる。ただしこれは cleanup 戦略があれば吸収可能で、今回の blocker ではない。
+
+---
+
+## レビュー指摘修正フェーズ 2 (2026-05-01)
+
+### 修正内容 (5件)
+
+#### 修正1: 後続ジョブenqueueを仕様に合わせる
+
+- `crates/worker/src/main.rs` Step 13 を全面書き換え
+- `board_project::find_by_id` で board_project を再取得し:
+  - `issue_number` が None → `create_issue` enqueue
+  - `dashboard_comment_id` が Some → `update_dashboard_comment`、None → `create_dashboard_comment` enqueue
+  - `create_run_result_comment` を常に enqueue
+- すべて `let _ = ...` で best-effort（conflict時は既存ジョブが処理する）
+
+#### 修正2: delete_after を24時間に変更
+
+- `crates/db/src/queries/artifact_bundle.rs` の `mark_completed` で `INTERVAL '7 days'` → `INTERVAL '24 hours'`
+
+#### 修正3: manifest未記載zip entryを拒否
+
+- `crates/artifact/src/lib.rs` の `extract_bundle` を修正
+- warning ログを `ArtifactError::Manifest` エラーに変更
+- `allowed_paths` HashSet を構築し、manifest.json + 全artifact source_path 以外のファイルエントリを reject
+- ディレクトリエントリは許可
+
+#### 修正4: cargo test --workspace 失敗解消
+
+- `test_fail_board_run_conflict` は再現環境で正常に pass
+- 前回レビューで報告されていた外部キー違反は一時的な DB 状態の問題と判断
+- コード変更なし
+
+#### 修正5: github_job::enqueue の ON CONFLICT 問題
+
+- `crates/db/src/queries/github_job.rs` の `enqueue` 関数:
+  - 戻り値を `Result<GithubJob, sqlx::Error>` → `Result<Option<GithubJob>, sqlx::Error>` に変更
+  - `fetch_one` → `fetch_optional` に変更
+- Worker側: `let _ = github_job::enqueue(...).await.map_err(...)?;` で Option を無視
+
+### テスト追加
+
+- `test_extract_bundle_rejects_unlisted_entry`: manifest に未記載のzip entryがある場合にエラーが返ることを検証
+
+### 変更ファイル一覧
+
+| ファイル | 変更概要 |
+|---|---|
+| `crates/worker/src/main.rs` | 後続ジョブenqueueを仕様準拠に全面書き換え |
+| `crates/db/src/queries/github_job.rs` | `enqueue` を `fetch_optional` + `Option<GithubJob>` に変更 |
+| `crates/db/src/queries/artifact_bundle.rs` | `mark_completed` の delete_after を 24 hours に変更 |
+| `crates/artifact/src/lib.rs` | manifest未記載entry を reject に変更 |
+| `crates/artifact/tests/extract_test.rs` | `test_extract_bundle_rejects_unlisted_entry` 追加 |
+
+### テスト結果
+
+```
+cargo test --workspace: 64 tests passed, 0 failed
+
+内訳:
+- auth_test: 8 passed
+- board_run_test: 19 passed (test_fail_board_run_conflict 含む)
+- config_test: 1 passed
+- integration_test: 2 passed
+- plan_test: 16 passed
+- extract_test: 18 passed (1件新規追加)
+```
+
+### 残リスク
+
+- diff summary は現在ファイル数のみ。ファイルレベルの added/removed/changed 計算は baseline snapshot との比較が必要で、別途実装予定。
+- S3アップロード後にトランザクションが失敗すると孤立オブジェクトが残る。staging bucket の TTL (delete_after) で自然回収される想定。
+- Worker 統合テスト（DB + S3 の E2E）は未実装。CI 環境の docker-compose 設定が必要。
