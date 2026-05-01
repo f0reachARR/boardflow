@@ -34,3 +34,21 @@ pub async fn upsert(
     .fetch_one(executor)
     .await
 }
+
+/// Update latest_completed_run_id and latest_tree_hash
+pub async fn update_latest_completed_run(
+    executor: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
+    id: Uuid,
+    board_run_id: Uuid,
+    tree_hash: &str,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "UPDATE board_projects SET latest_completed_run_id = $2, latest_tree_hash = $3, updated_at = NOW() WHERE id = $1",
+    )
+    .bind(id)
+    .bind(board_run_id)
+    .bind(tree_hash)
+    .execute(executor)
+    .await?;
+    Ok(())
+}
