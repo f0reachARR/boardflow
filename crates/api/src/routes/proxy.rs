@@ -10,8 +10,13 @@ use uuid::Uuid;
 use boardflow_domain::models::artifact::ArtifactStatus;
 
 use crate::artifact_token::verify_artifact_token;
-use crate::error::{AppError, RequestId};
+use crate::error::{AppError, ErrorCode, RequestId};
 use crate::{ArtifactSecret, FinalBucket};
+
+/// Parse artifact_id from path parameter, expecting `art_` prefix.
+fn parse_artifact_id(s: &str) -> Option<Uuid> {
+    s.strip_prefix("art_").and_then(|v| Uuid::parse_str(v).ok())
+}
 
 #[derive(Debug, Deserialize)]
 pub struct ProxyQuery {
@@ -33,14 +38,17 @@ pub async fn get_artifact(
         return Err(AppError::unauthorized("missing token", &request_id));
     }
 
+    // user_id is embedded in the token for audit purposes but not checked here;
+    // the proxy endpoint is accessed via img/iframe src without a session cookie,
+    // so authentication relies solely on the HMAC-signed short-lived token.
     let (token_artifact_id, _user_id) = verify_artifact_token(token, &secret.0)
         .ok_or_else(|| AppError::unauthorized("invalid or expired token", &request_id))?;
 
-    // Parse artifact_id from path
-    let artifact_id = Uuid::parse_str(&artifact_id_str)
-        .map_err(|_| AppError::not_found("artifact not found", &request_id))?;
+    // Parse artifact_id from path (expects art_ prefix per viewer-sources URL format)
+    let artifact_id = parse_artifact_id(&artifact_id_str)
+        .ok_or_else(|| AppError::new(ErrorCode::ValidationFailed, "invalid artifact_id format", &request_id))?;
 
-    // Verify token matches requested artifact
+    // Verify token's artifact_id matches the URL path artifact_id
     if token_artifact_id != artifact_id {
         return Err(AppError::unauthorized("token mismatch", &request_id));
     }
@@ -78,8 +86,8 @@ pub async fn get_artifact(
         .send()
         .await
         .map_err(|e| {
-            tracing::error!("S3 error fetching artifact {artifact_id}: {e}");
-            AppError::internal_error("storage error", &request_id)
+            tracing::error!("S3 upstream error fetching artifact {artifact_id}: {e}");
+            AppError::internal_error("upstream storage error", &request_id)
         })?;
 
     // Determine content type from DB metadata (preferred) or S3 response
@@ -88,10 +96,13 @@ pub async fn get_artifact(
         .as_deref()
         .unwrap_or("application/octet-stream");
 
-    // Determine CSP based on artifact type
-    let csp = match artifact.r#type.as_str() {
-        "ibom_html" => "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:",
-        _ => "default-src 'none'",
+    // Determine CSP and X-Frame-Options based on artifact type
+    let (csp, x_frame_options) = match artifact.r#type.as_str() {
+        "ibom_html" => (
+            "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; frame-ancestors 'self'",
+            "SAMEORIGIN",
+        ),
+        _ => ("default-src 'none'", "DENY"),
     };
 
     // Build streaming response body from S3 SdkBody
@@ -101,6 +112,8 @@ pub async fn get_artifact(
     let mut builder = Response::builder()
         .header(header::CONTENT_TYPE, content_type)
         .header("X-Content-Type-Options", "nosniff")
+        .header("X-Frame-Options", x_frame_options)
+        .header("Referrer-Policy", "no-referrer")
         .header("Content-Security-Policy", csp);
 
     // Add Content-Length if available
