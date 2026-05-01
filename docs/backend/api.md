@@ -758,6 +758,58 @@ viewer 単位の `status` は以下。
 `kicanvas` が `missing` / `failed` / `skipped` の場合でも、`schematic` や `pcb_preview` が `available` なら静的 fallback を提供する。
 KiCad source artifact は private design data として扱い、GitHub Issue には viewer-sources の URL を載せない。
 
+### 3.9 Diff 詳細
+
+```http
+GET /api/v1/board-runs/{board_run_id}/diff
+```
+
+BoardRun に紐づく差分情報を返す。差分レビュー画面で使用される。
+base_run は同一 BoardProject の直近 completed BoardRun として import worker が決定する。
+
+Response:
+
+```json
+{
+  "board_run_id": "br_abc123",
+  "base_board_run_id": "br_prev123",
+  "status": "ready",
+  "summary": {
+    "file_changes": { "added": 1, "removed": 0, "changed": 3, "unchanged": 10 },
+    "bom_changes": { "added": 2, "removed": 1, "changed": 1 },
+    "checks": {
+      "erc": { "status_change": "passed -> passed", "error_delta": 0, "warning_delta": -1 },
+      "drc": { "status_change": "failed -> passed", "error_delta": -1, "warning_delta": -2 }
+    },
+    "artifacts": { "added": 0, "removed": 0, "changed": 1 }
+  },
+  "metadata": {
+    "file_hashes": { ... },
+    "bom_summary": { ... },
+    "checks_summary": { ... },
+    "artifacts_summary": { ... },
+    "previews": { ... }
+  },
+  "error_message": null,
+  "created_at": "2030-01-01T12:05:00Z"
+}
+```
+
+`status` は以下。
+
+| status | 意味 |
+|---|---|
+| `ready` | 差分サマリを作成できた |
+| `no_baseline` | 初回 run などで比較元がない |
+| `unavailable` | 比較元または現在 run の必要データが不足している |
+| `failed` | 差分作成処理自体が失敗した |
+
+`status` が `no_baseline` の場合、`base_board_run_id` は `null`、`summary` は `null` とする。
+`status` が `failed` の場合、`error_message` に失敗理由を含めてよい。
+`metadata` は import worker が diff_metadata を保存した場合のみ返す。未保存時は `null`。
+
+diff レコードが存在しない BoardRun（import 中、または diff 作成前）に対しては `404 not_found` を返す。
+
 ## 4. Artifact Proxy API
 
 artifact proxy は `viewer-sources` が返した短命 URL から利用される。

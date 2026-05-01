@@ -1743,3 +1743,303 @@ async fn test_list_repositories_upstream_error_returns_500() {
     let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
     assert_eq!(json["error"]["code"], "internal_error");
 }
+
+// ─── Diff Read API Tests ─────────────────────────────────────────────────────
+
+async fn create_test_diff(
+    pool: &PgPool,
+    board_run_id: Uuid,
+    base_board_run_id: Option<Uuid>,
+    status: &str,
+) -> Uuid {
+    let id = Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO board_run_diffs (id, board_run_id, base_board_run_id, status, summary_json, error_message, created_at) \
+         VALUES ($1, $2, $3, $4, $5, $6, NOW())",
+    )
+    .bind(id)
+    .bind(board_run_id)
+    .bind(base_board_run_id)
+    .bind(status)
+    .bind(if status == "ready" {
+        Some(serde_json::json!({"added_files": 2, "removed_files": 0}))
+    } else {
+        None
+    })
+    .bind(if status == "failed" {
+        Some("diff computation failed")
+    } else {
+        None
+    })
+    .execute(pool)
+    .await
+    .unwrap();
+    id
+}
+
+async fn create_test_diff_metadata(pool: &PgPool, board_run_id: Uuid) -> Uuid {
+    let id = Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO board_run_diff_metadata (id, board_run_id, file_hashes_json, bom_summary_json, checks_summary_json, artifacts_summary_json, previews_json, created_at) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())",
+    )
+    .bind(id)
+    .bind(board_run_id)
+    .bind(Some(serde_json::json!({"main.kicad_sch": "changed"})))
+    .bind(Some(serde_json::json!({"added": 1, "removed": 0})))
+    .bind(Some(serde_json::json!({"erc_errors": 0})))
+    .bind(Some(serde_json::json!({"available": 5})))
+    .bind(Some(serde_json::json!({"top": "url1"})))
+    .execute(pool)
+    .await
+    .unwrap();
+    id
+}
+
+/// 正常系: diff status=ready、metadata あり
+#[tokio::test]
+async fn test_get_board_run_diff_ready() {
+    let Some(pool) = setup_pool().await else { return };
+
+    let user_id = create_test_user(&pool).await;
+    let session_id = create_test_session(&pool, user_id).await;
+    let github_repo_id = rand_i64();
+    let repo_id = create_test_repository(&pool, github_repo_id).await;
+    let bp_id = create_test_board_project(&pool, repo_id).await;
+    let br_id = create_test_board_run(&pool, bp_id, "completed").await;
+    let base_br_id = create_test_board_run(&pool, bp_id, "completed").await;
+
+    create_test_diff(&pool, br_id, Some(base_br_id), "ready").await;
+    create_test_diff_metadata(&pool, br_id).await;
+
+    let app = create_test_app(pool);
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(&format!("/api/v1/board-runs/br_{br_id}/diff"))
+                .header("cookie", session_cookie(session_id))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body_bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+    assert_eq!(json["board_run_id"], format!("br_{br_id}"));
+    assert_eq!(json["base_board_run_id"], format!("br_{base_br_id}"));
+    assert_eq!(json["status"], "ready");
+    assert!(json["summary"].is_object());
+    assert!(json["metadata"].is_object());
+    assert_eq!(json["metadata"]["file_hashes"], serde_json::json!({"main.kicad_sch": "changed"}));
+    assert_eq!(json["metadata"]["bom_summary"], serde_json::json!({"added": 1, "removed": 0}));
+    assert!(json["error_message"].is_null());
+    assert!(json["created_at"].is_string());
+}
+
+/// 正常系: diff status=no_baseline、base_board_run_id=null、metadata なし
+#[tokio::test]
+async fn test_get_board_run_diff_no_baseline() {
+    let Some(pool) = setup_pool().await else { return };
+
+    let user_id = create_test_user(&pool).await;
+    let session_id = create_test_session(&pool, user_id).await;
+    let github_repo_id = rand_i64();
+    let repo_id = create_test_repository(&pool, github_repo_id).await;
+    let bp_id = create_test_board_project(&pool, repo_id).await;
+    let br_id = create_test_board_run(&pool, bp_id, "completed").await;
+
+    create_test_diff(&pool, br_id, None, "no_baseline").await;
+
+    let app = create_test_app(pool);
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(&format!("/api/v1/board-runs/br_{br_id}/diff"))
+                .header("cookie", session_cookie(session_id))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body_bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+    assert_eq!(json["board_run_id"], format!("br_{br_id}"));
+    assert!(json["base_board_run_id"].is_null());
+    assert_eq!(json["status"], "no_baseline");
+    assert!(json["summary"].is_null());
+    assert!(json.get("metadata").is_some(), "metadata field must be present");
+    assert!(json["metadata"].is_null());
+    assert!(json.get("error_message").is_some(), "error_message field must be present");
+    assert!(json["error_message"].is_null());
+}
+
+/// 異常系: diff 未作成 → 404
+#[tokio::test]
+async fn test_get_board_run_diff_not_found() {
+    let Some(pool) = setup_pool().await else { return };
+
+    let user_id = create_test_user(&pool).await;
+    let session_id = create_test_session(&pool, user_id).await;
+    let github_repo_id = rand_i64();
+    let repo_id = create_test_repository(&pool, github_repo_id).await;
+    let bp_id = create_test_board_project(&pool, repo_id).await;
+    let br_id = create_test_board_run(&pool, bp_id, "completed").await;
+
+    let app = create_test_app(pool);
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(&format!("/api/v1/board-runs/br_{br_id}/diff"))
+                .header("cookie", session_cookie(session_id))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    let body_bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+    assert_eq!(json["error"]["code"], "not_found");
+}
+
+/// 異常系: 不正ID → 400
+#[tokio::test]
+async fn test_get_board_run_diff_invalid_id() {
+    let Some(pool) = setup_pool().await else { return };
+
+    let user_id = create_test_user(&pool).await;
+    let session_id = create_test_session(&pool, user_id).await;
+
+    let app = create_test_app(pool);
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/api/v1/board-runs/invalid_id/diff")
+                .header("cookie", session_cookie(session_id))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let body_bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+    assert_eq!(json["error"]["code"], "validation_failed");
+}
+
+/// 異常系: アクセス拒否 → 404
+#[tokio::test]
+async fn test_get_board_run_diff_denied() {
+    let Some(pool) = setup_pool().await else { return };
+
+    let user_id = create_test_user(&pool).await;
+    let session_id = create_test_session(&pool, user_id).await;
+    let github_repo_id = rand_i64();
+    let repo_id = create_test_repository(&pool, github_repo_id).await;
+    let bp_id = create_test_board_project(&pool, repo_id).await;
+    let br_id = create_test_board_run(&pool, bp_id, "completed").await;
+
+    create_test_diff(&pool, br_id, None, "ready").await;
+
+    let app = create_deny_app(pool);
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(&format!("/api/v1/board-runs/br_{br_id}/diff"))
+                .header("cookie", session_cookie(session_id))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    let body_bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+    assert_eq!(json["error"]["code"], "not_found");
+}
+
+/// 正常系: diff status=failed、error_message あり
+#[tokio::test]
+async fn test_get_board_run_diff_failed() {
+    let Some(pool) = setup_pool().await else { return };
+
+    let user_id = create_test_user(&pool).await;
+    let session_id = create_test_session(&pool, user_id).await;
+    let github_repo_id = rand_i64();
+    let repo_id = create_test_repository(&pool, github_repo_id).await;
+    let bp_id = create_test_board_project(&pool, repo_id).await;
+    let br_id = create_test_board_run(&pool, bp_id, "completed").await;
+    let base_br_id = create_test_board_run(&pool, bp_id, "completed").await;
+
+    create_test_diff(&pool, br_id, Some(base_br_id), "failed").await;
+
+    let app = create_test_app(pool);
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(&format!("/api/v1/board-runs/br_{br_id}/diff"))
+                .header("cookie", session_cookie(session_id))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body_bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+    assert_eq!(json["board_run_id"], format!("br_{br_id}"));
+    assert_eq!(json["status"], "failed");
+    assert_eq!(json["error_message"], "diff computation failed");
+    assert!(json["created_at"].is_string());
+}
+
+/// 正常系: diff status=unavailable
+#[tokio::test]
+async fn test_get_board_run_diff_unavailable() {
+    let Some(pool) = setup_pool().await else { return };
+
+    let user_id = create_test_user(&pool).await;
+    let session_id = create_test_session(&pool, user_id).await;
+    let github_repo_id = rand_i64();
+    let repo_id = create_test_repository(&pool, github_repo_id).await;
+    let bp_id = create_test_board_project(&pool, repo_id).await;
+    let br_id = create_test_board_run(&pool, bp_id, "completed").await;
+    let base_br_id = create_test_board_run(&pool, bp_id, "completed").await;
+
+    create_test_diff(&pool, br_id, Some(base_br_id), "unavailable").await;
+
+    let app = create_test_app(pool);
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(&format!("/api/v1/board-runs/br_{br_id}/diff"))
+                .header("cookie", session_cookie(session_id))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body_bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+    assert_eq!(json["board_run_id"], format!("br_{br_id}"));
+    assert_eq!(json["status"], "unavailable");
+    assert!(json["error_message"].is_null());
+    assert!(json["created_at"].is_string());
+}
