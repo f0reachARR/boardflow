@@ -664,3 +664,52 @@ limit+1行取得し、N+1行目が存在すれば `has_more=true`、N行目で n
 ### 残リスク
 - 現状の repository 一覧は、ユーザーがアクセス可能な repository を持っていても、先頭ページに denied repository が多いだけで到達不能になる可能性がある。
 - GitHub API 障害時に UI からは「見えない repository / resource」に見えるため、障害調査とユーザーサポートが難しくなる。
+
+---
+
+## レビュー指摘修正 (2026-05-01)
+
+### 実装内容
+
+#### 修正1: Repository一覧のpagination認可フィルタ
+- `GithubAccessChecker` traitに `list_accessible_repo_ids` メソッド追加
+  - 戻り値: `Result<Option<Vec<i64>>, AccessError>`
+  - `None` = フィルタ不要 (テスト時)、`Some(ids)` = DBクエリのWHERE句でフィルタ
+- `list_repositories` ハンドラを DB pre-filter 方式に変更
+  - GitHub APIから accessible repo id リストを先に取得
+  - DB クエリの WHERE 句で `github_repository_id = ANY($ids)` フィルタ
+  - pagination (has_more/next_cursor) が正しく動作するようになった
+- DBクエリ `list_with_stats` に `accessible_repo_ids: Option<&[i64]>` パラメータ追加
+
+#### 修正2: AccessResult型への変更
+- `check_access` の戻り値を `bool` → `AccessResult` enum に変更
+  - `AccessResult::Allowed` / `Denied` / `Error(AccessError)`
+- `AccessError` enum: `TokenExpired` (401) / `RateLimited` (429) / `Upstream(String)` (500)
+- 全ハンドラで適切なHTTPステータスコードを返すように:
+  - Denied → 404 not_found
+  - TokenExpired → 401 unauthorized
+  - RateLimited → 429 rate_limited
+  - Upstream → 500 internal_error (ログ記録)
+
+#### 修正3: reqwest::Client共有化
+- `RealGithubAccessChecker` を unit struct からフィールド付き struct に変更
+- `client: reqwest::Client` フィールドでHTTPクライアントを共有
+- `RealGithubAccessChecker::new()` コンストラクタ追加
+
+### 変更ファイル
+- `crates/api/src/github_access.rs` - trait/enum/impl 全面刷新
+- `crates/api/src/lib.rs` - `RealGithubAccessChecker::new()` 呼び出し
+- `crates/api/src/routes/read.rs` - 全ハンドラ AccessResult 対応、list_repositories pre-filter
+- `crates/api/tests/read_api_test.rs` - 新テスト2件追加
+- `crates/db/src/queries/repository.rs` - list_with_stats に accessible_repo_ids フィルタ追加
+
+### テスト結果
+- 全37テスト pass (既存35 + 新規2)
+- 新規テスト:
+  - `test_list_repositories_deny_all_pagination_integrity` - deny-all で空リスト+has_more=false確認
+  - `test_list_repositories_allow_all_pagination_cursor` - allow-all でページ遷移整合性確認
+
+### 残リスク
+- `list_accessible_repo_ids` は GitHub の `/user/repos` を全ページ取得するため、リポジトリ数が非常に多いユーザーではレイテンシ増加の可能性あり (将来的にキャッシュ検討)
+- `list_board_runs` / `get_viewer_sources` の deny テストは既存の deny テストでカバーされているが、明示的なテストケースとしては未追加
+- GitHub API error / rate limit 時の振る舞いは型レベルで対応済みだが、integration test は mock レベル（実際のGitHub APIを叩くテストは無し）
