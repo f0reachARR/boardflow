@@ -1,6 +1,6 @@
 use boardflow_artifact::{
-    extract_bundle, verify_sha256, ArtifactError, BundleManifest, ManifestArtifact, ManifestFile,
-    MAX_BUNDLE_SIZE,
+    extract_bundle, verify_sha256, ArtifactError, BundleManifest, CoordinateMm, ManifestArtifact,
+    ManifestCheck, ManifestFile, MAX_BUNDLE_SIZE,
 };
 use sha2::{Digest, Sha256};
 use std::io::Write;
@@ -326,6 +326,108 @@ fn test_extract_bundle_multiple_artifacts() {
     assert_eq!(extracted.len(), 2);
     assert_eq!(extracted[0].path, "artifacts/front.gbr");
     assert_eq!(extracted[1].path, "artifacts/back.gbr");
+}
+
+#[test]
+fn test_manifest_check_findings_deserialization() {
+    let json = serde_json::json!({
+        "kind": "erc",
+        "status": "failed",
+        "error_count": 2,
+        "warning_count": 1,
+        "notice_count": 0,
+        "tool_name": "kicad",
+        "tool_version": "8.0.0",
+        "raw_summary": null,
+        "findings": [
+            {
+                "severity": "error",
+                "rule_code": "E001",
+                "title": "Unconnected pin",
+                "message": "Pin VCC on U1 is unconnected",
+                "subject_kind": "symbol",
+                "subject_ref": "U1",
+                "sheet_path": "/Root",
+                "pos_mm": { "x": 100.5, "y": 50.25 }
+            },
+            {
+                "severity": "warning",
+                "rule_code": "W003",
+                "title": "Power pin not driven",
+                "subject_kind": "net",
+                "subject_ref": "VCC"
+            }
+        ]
+    });
+
+    let check: ManifestCheck = serde_json::from_value(json).unwrap();
+    assert_eq!(check.kind, "erc");
+    assert_eq!(check.status, "failed");
+    assert_eq!(check.error_count, 2);
+    assert_eq!(check.findings.len(), 2);
+
+    let f0 = &check.findings[0];
+    assert_eq!(f0.severity, "error");
+    assert_eq!(f0.rule_code, "E001");
+    assert_eq!(f0.title, "Unconnected pin");
+    assert_eq!(f0.message.as_deref(), Some("Pin VCC on U1 is unconnected"));
+    assert_eq!(f0.subject_kind.as_deref(), Some("symbol"));
+    assert_eq!(f0.subject_ref.as_deref(), Some("U1"));
+    assert_eq!(f0.sheet_path.as_deref(), Some("/Root"));
+    assert!(f0.pcb_layer.is_none());
+    let pos = f0.pos_mm.as_ref().unwrap();
+    assert!((pos.x - 100.5).abs() < f64::EPSILON);
+    assert!((pos.y - 50.25).abs() < f64::EPSILON);
+    assert!(f0.raw.is_none());
+
+    let f1 = &check.findings[1];
+    assert_eq!(f1.severity, "warning");
+    assert_eq!(f1.rule_code, "W003");
+    assert!(f1.message.is_none());
+    assert!(f1.pos_mm.is_none());
+}
+
+#[test]
+fn test_manifest_check_without_findings_backward_compat() {
+    let json = serde_json::json!({
+        "kind": "drc",
+        "status": "passed",
+        "error_count": 0,
+        "warning_count": 0,
+        "notice_count": 0
+    });
+
+    let check: ManifestCheck = serde_json::from_value(json).unwrap();
+    assert_eq!(check.kind, "drc");
+    assert_eq!(check.status, "passed");
+    assert!(check.findings.is_empty());
+    assert!(check.tool_name.is_none());
+    assert!(check.raw_summary.is_none());
+}
+
+#[test]
+fn test_coordinate_mm_to_um_conversion() {
+    let coord = CoordinateMm {
+        x: 100.5,
+        y: -25.75,
+    };
+    let x_um = (coord.x * 1000.0) as i32;
+    let y_um = (coord.y * 1000.0) as i32;
+    assert_eq!(x_um, 100500);
+    assert_eq!(y_um, -25750);
+
+    // Zero coordinate
+    let zero = CoordinateMm { x: 0.0, y: 0.0 };
+    assert_eq!((zero.x * 1000.0) as i32, 0);
+    assert_eq!((zero.y * 1000.0) as i32, 0);
+
+    // Small values
+    let small = CoordinateMm {
+        x: 0.001,
+        y: 0.999,
+    };
+    assert_eq!((small.x * 1000.0) as i32, 1);
+    assert_eq!((small.y * 1000.0) as i32, 999);
 }
 
 #[test]

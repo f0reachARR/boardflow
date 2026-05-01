@@ -7,4 +7,5 @@ pub mod diff;
 pub mod github_job;
 pub mod repository;
 pub mod run_check;
+pub mod run_check_finding;
 pub mod snapshot;

@@ -1291,3 +1291,310 @@ cargo test --workspace
 - S3孤立オブジェクト (upload後のTX失敗で孤立発生可能。delete_after TTLで自然回収)
 - 500MB全量メモリ展開 (大規模プロジェクトではストリーミング展開が必要な可能性)
 - Worker クラッシュ回復 (running状態で放置されたジョブの定期検出バッチは未実装)
+
+---
+
+## 追加調査: ERC/DRC findings manifest.json フォーマット設計 (2026-05-01)
+
+### 経緯
+
+- Issue #7 追加実装として、Worker の Step 5 で `run_check_findings` テーブルへの保存が必要
+- 現在の `ManifestCheck` 構造体に `findings` フィールドがない
+- KiCad CLI の ERC/DRC JSON 出力フォーマットを確認し、manifest.json の findings 配列を設計する必要がある
+
+### ユーザー要望
+
+1. KiCad CLI ERC/DRC 出力形式の確認
+2. manifest.json findings フィールドの設計
+3. KiCad JSON → manifest.json findings → run_check_findings テーブルへのマッピングルール
+
+### 調査結果
+
+KiCad 9.0 ソースコード (`include/rc_json_schema.h`, `pcbnew/drc/drc_item.cpp`, `eeschema/erc/erc_item.cpp`) を確認。
+
+#### KiCad JSON 構造体
+
+- **VIOLATION**: `{ type, description, severity, items: [AFFECTED_ITEM], excluded, comment }`
+- **AFFECTED_ITEM**: `{ uuid, description, pos: { x, y } }`
+- **ERC_REPORT**: sheets 配列内に sheet ごとの violations
+- **DRC_REPORT**: violations, unconnected_items, schematic_parity の3つの VIOLATION 配列
+
+#### severity マッピング
+
+- KiCad `"error"` → BoardFlow `"error"`
+- KiCad `"warning"` → BoardFlow `"warning"`
+- KiCad `"exclusion"` → 除外 (findings に含めない)
+
+#### manifest.json findings 設計
+
+`ManifestCheck` に `findings: Vec<ManifestFinding>` を追加。`ManifestFinding` は:
+- `severity`: "error" | "warning" | "notice"
+- `rule_code`: KiCad violation.type (例: "clearance")
+- `title`: KiCad violation.description
+- `message`: affected items の description を結合
+- `subject_kind`: "schematic" | "pcb" | "net" | "footprint" | "symbol"
+- `subject_ref`: 主要参照先
+- `sheet_path`: ERC の sheet path (DRC は null)
+- `pcb_layer`: null (KiCad JSON に含まれない)
+- `pos_mm`: 最初の affected item の位置 (mm)
+- `raw`: 生の KiCad VIOLATION オブジェクト
+
+#### 座標変換
+
+- KiCad: mm (float)
+- manifest.json: mm (float、`pos_mm` フィールド)
+- DB `x_um`/`y_um`: µm (integer、Worker で mm × 1000 に変換)
+
+### 成果物
+
+- `docs/external/kicad-erc-drc-findings.md` — 詳細な調査メモ (KiCad JSON スキーマ、violation type 一覧、manifest.json 設計、マッピングルール)
+
+### 参照URL
+
+- https://gitlab.com/kicad/code/kicad/-/blob/9.0/include/rc_json_schema.h
+- https://gitlab.com/kicad/code/kicad/-/blob/9.0/pcbnew/drc/drc_item.cpp
+- https://gitlab.com/kicad/code/kicad/-/blob/9.0/eeschema/erc/erc_item.cpp
+- https://docs.kicad.org/9.0/en/cli/cli.html
+- https://gitlab.com/kicad/code/kicad/-/issues/23948
+
+### 結論ステータス
+
+`implementation_required`
+
+実装が必要な変更:
+1. `crates/artifact/src/lib.rs`: `ManifestCheck` に `findings: Vec<ManifestFinding>` 追加、`ManifestFinding` / `CoordinateMm` 構造体追加
+2. `crates/db/src/queries/`: `run_check_finding::insert` クエリ追加
+3. `crates/worker/src/main.rs`: Step 5 に findings INSERT ループ追加
+
+### 残リスク
+
+- findings 上限数: 大規模プロジェクトでは数百〜数千の findings。MVP では全件保存 (上限は後で検討)
+- `pcb_layer` と `bbox_json` は KiCad JSON に含まれないため常に null
+- `notice` severity は KiCad には存在しないが、将来の拡張用にスキーマに残す
+
+---
+
+## 計画フェーズ: run_check_findings INSERT 実装 (2026-05-01)
+
+### 目的
+
+Worker の Import Job 処理 (Step 5) で、`manifest.checks[].findings` 配列を DB の `run_check_findings` テーブルに INSERT する。
+
+### 非目的
+
+- KiCad JSON → ManifestFinding への変換ロジック実装 (GitHub Actions 側の責務)
+- findings の集計・分析 API
+- findings 上限数の制限 (MVP 後に検討)
+- bbox_json の自動算出
+
+### 受け入れ条件
+
+1. `ManifestCheck` に `findings: Vec<ManifestFinding>` フィールドが追加されている (`#[serde(default)]`)
+2. `ManifestFinding`, `CoordinateMm` 構造体が `crates/artifact/src/lib.rs` に定義されている
+3. `crates/db/src/queries/run_check_finding.rs` が存在し、`insert` 関数がある
+4. Worker Step 5 で `run_check::insert` の後に findings ループ INSERT が実行される
+5. `pos_mm` (mm) → `x_um`, `y_um` (µm) の変換が正しく行われる (`× 1000`, `round()`)
+6. `findings` フィールドが空 (`[]`) の manifest.json でも既存処理が壊れない
+7. 既存のユニットテスト (`extract_test.rs`) が引き続きパスする
+8. 新規ユニットテストで findings INSERT の正常系・異常系を検証できる
+
+### 詳細要件
+
+#### 1. artifact crate (`crates/artifact/src/lib.rs`)
+
+**追加する構造体:**
+
+```rust
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ManifestFinding {
+    pub severity: String,
+    pub rule_code: String,
+    pub title: String,
+    #[serde(default)]
+    pub message: Option<String>,
+    #[serde(default)]
+    pub subject_kind: Option<String>,
+    #[serde(default)]
+    pub subject_ref: Option<String>,
+    #[serde(default)]
+    pub sheet_path: Option<String>,
+    #[serde(default)]
+    pub pcb_layer: Option<String>,
+    #[serde(default)]
+    pub pos_mm: Option<CoordinateMm>,
+    #[serde(default)]
+    pub raw: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CoordinateMm {
+    pub x: f64,
+    pub y: f64,
+}
+```
+
+**`ManifestCheck` 変更:**
+
+```rust
+pub struct ManifestCheck {
+    // ... 既存フィールド ...
+    #[serde(default)]
+    pub findings: Vec<ManifestFinding>,  // ← 追加
+}
+```
+
+#### 2. db crate (`crates/db/src/queries/run_check_finding.rs`)
+
+新規ファイル。`run_check.rs` と同じパターンに従う。
+
+```rust
+use boardflow_domain::models::run_check::RunCheckFinding;
+use uuid::Uuid;
+
+pub async fn insert(
+    executor: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
+    id: Uuid,
+    run_check_id: Uuid,
+    severity: &str,
+    rule_code: Option<&str>,
+    title: Option<&str>,
+    message: Option<&str>,
+    subject_kind: Option<&str>,
+    subject_ref: Option<&str>,
+    sheet_path: Option<&str>,
+    pcb_layer: Option<&str>,
+    x_um: Option<i32>,
+    y_um: Option<i32>,
+    bbox_json: Option<&serde_json::Value>,
+    raw_payload_json: Option<&serde_json::Value>,
+    sort_index: i32,
+) -> Result<RunCheckFinding, sqlx::Error> {
+    sqlx::query_as::<_, RunCheckFinding>(
+        r#"INSERT INTO run_check_findings (
+            id, run_check_id, severity, rule_code, title, message,
+            subject_kind, subject_ref, sheet_path, pcb_layer,
+            x_um, y_um, bbox_json, raw_payload_json,
+            sort_index, created_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, NOW())
+        RETURNING *"#,
+    )
+    .bind(id)
+    .bind(run_check_id)
+    .bind(severity)
+    .bind(rule_code)
+    .bind(title)
+    .bind(message)
+    .bind(subject_kind)
+    .bind(subject_ref)
+    .bind(sheet_path)
+    .bind(pcb_layer)
+    .bind(x_um)
+    .bind(y_um)
+    .bind(bbox_json)
+    .bind(raw_payload_json)
+    .bind(sort_index)
+    .fetch_one(executor)
+    .await
+}
+```
+
+#### 3. db crate (`crates/db/src/queries/mod.rs`)
+
+```rust
+pub mod run_check_finding;  // ← 追加
+```
+
+#### 4. worker crate (`crates/worker/src/main.rs`)
+
+Step 5 の `run_check::insert` 後に findings ループを追加:
+
+```rust
+// Import を追加
+use boardflow_db::queries::run_check_finding;
+
+// Step 5 内部、run_check::insert の後に:
+for (idx, finding) in check.findings.iter().enumerate() {
+    let x_um = finding.pos_mm.as_ref().map(|p| (p.x * 1000.0).round() as i32);
+    let y_um = finding.pos_mm.as_ref().map(|p| (p.y * 1000.0).round() as i32);
+    run_check_finding::insert(
+        &mut *tx,
+        Uuid::now_v7(),
+        check_id,
+        &finding.severity,
+        Some(finding.rule_code.as_str()),
+        Some(finding.title.as_str()),
+        finding.message.as_deref(),
+        finding.subject_kind.as_deref(),
+        finding.subject_ref.as_deref(),
+        finding.sheet_path.as_deref(),
+        finding.pcb_layer.as_deref(),
+        x_um,
+        y_um,
+        None, // bbox_json
+        finding.raw.as_ref(),
+        idx as i32,
+    )
+    .await
+    .map_err(|e| ArtifactError::S3(e.to_string()))?;
+}
+```
+
+### 影響範囲
+
+| クレート | ファイル | 変更種別 |
+|---|---|---|
+| `artifact` | `src/lib.rs` | 構造体追加 + `ManifestCheck` フィールド追加 |
+| `artifact` | `tests/extract_test.rs` | テスト追加 (findings付きZIPのデシリアライズ確認) |
+| `db` | `src/queries/run_check_finding.rs` | **新規作成** |
+| `db` | `src/queries/mod.rs` | モジュール追加 |
+| `worker` | `src/main.rs` | import追加 + Step 5 findings ループ追加 |
+
+### 設計方針
+
+1. **既存パターン踏襲**: `run_check.rs` の insert 関数と同じシグネチャスタイル
+2. **逐次 INSERT**: MVP では `for` ループでの逐次 INSERT。大量 findings のバッチ INSERT 最適化は後続タスク
+3. **エラーハンドリング**: findings INSERT 失敗は `ArtifactError::S3` でラップしてトランザクションをロールバック (全 findings が atomic)
+4. **後方互換**: `#[serde(default)]` により `findings` フィールドが無い旧 manifest.json でも空 Vec としてデシリアライズされる
+5. **座標変換**: `mm × 1000 → µm` (round して i32)。`pos_mm` が None の場合は `x_um`, `y_um` ともに None
+
+### テスト観点
+
+| # | テスト種別 | 内容 | ファイル |
+|---|---|---|---|
+| 1 | ユニット | ManifestFinding のデシリアライズ (全フィールド有り) | `artifact/tests/extract_test.rs` |
+| 2 | ユニット | ManifestFinding のデシリアライズ (optional フィールド無し) | `artifact/tests/extract_test.rs` |
+| 3 | ユニット | findings 付き ManifestCheck のデシリアライズ | `artifact/tests/extract_test.rs` |
+| 4 | ユニット | findings 無し (旧形式) ManifestCheck の後方互換 | `artifact/tests/extract_test.rs` |
+| 5 | ユニット | 座標変換 mm→µm (正常値、境界値、None) | `artifact/tests/extract_test.rs` |
+| 6 | 統合 | Worker import で findings 付き manifest → DB に正しく INSERT される | `api/tests/board_run_test.rs` (既存テスト拡張) |
+
+### ドキュメント更新対象
+
+- `docs/logs/7/worklog.md`: 本計画の記録 (本セクション)
+- `docs/external/kicad-erc-drc-findings.md`: 既に作成済み (変更不要)
+
+### 実装順序
+
+1. `crates/artifact/src/lib.rs`: `ManifestFinding`, `CoordinateMm` 構造体追加、`ManifestCheck` にフィールド追加
+2. `crates/artifact/tests/extract_test.rs`: デシリアライズテスト追加 → `cargo test -p boardflow-artifact` で確認
+3. `crates/db/src/queries/run_check_finding.rs`: 新規作成
+4. `crates/db/src/queries/mod.rs`: モジュール追加
+5. `crates/worker/src/main.rs`: import 追加 + Step 5 findings ループ追加
+6. `cargo check --workspace` で全体コンパイル確認
+7. 統合テスト確認
+
+### ブランチ名
+
+`feature/issue-7-run-check-findings-insert`
+
+### 実装要否
+
+`implementation_required`
+
+### 未解決の疑問
+
+なし (research フェーズで全て解決済み)
+
+### 更新した作業ログパス
+
+`docs/logs/7/worklog.md`
