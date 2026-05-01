@@ -139,19 +139,22 @@ Artifact Proxy では多数のヘッダを設定する必要があるため、**
 | `X-Content-Type-Options` | `nosniff` | MIME sniffing 防止 |
 | `Content-Security-Policy` | artifact種別で分岐 | XSS/injection 防止 |
 | `Access-Control-Allow-Origin` | app domain のみ | CORS 制限 |
+| `Access-Control-Allow-Methods` | `GET` | 許可メソッド制限 |
+| `Vary` | `Origin` | キャッシュ分離 |
+| `Referrer-Policy` | `no-referrer` | Referer 漏洩防止 |
 | `Content-Disposition` | `inline` or `attachment` | ブラウザ表示/DL制御 |
 
 #### Content-Security-Policy の分岐
 
 | artifact 種別 | CSP |
 |---|---|
-| 画像 (SVG/PNG) | `default-src 'none'; img-src 'self'` |
-| PDF | `default-src 'none'; plugin-types application/pdf` |
-| HTML (iBOM) | `default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'` |
-| KiCad source | `default-src 'none'` |
-| ZIP / ダウンロード | `default-src 'none'` |
+| 画像 (SVG/PNG) | `default-src 'none'; frame-ancestors 'none'` |
+| PDF | `default-src 'none'; frame-ancestors 'none'` |
+| HTML (iBOM) | `sandbox allow-scripts; default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; frame-ancestors <app_domain>` |
+| KiCad source | `default-src 'none'; frame-ancestors 'none'` |
+| ZIP / ダウンロード | `default-src 'none'; frame-ancestors 'none'` |
 
-iBOM は JavaScript を実行する HTML であるため、iframe sandbox (`sandbox="allow-scripts"`) と CSP の組み合わせで制御する。仕様は iframe 前提の配信を示唆している。
+iBOM は JavaScript を実行する HTML であるため、CSP `sandbox allow-scripts` で unique origin 化し、`frame-ancestors` で埋め込み元を app domain に制限する。非 iframe artifact は `frame-ancestors 'none'` で iframe 埋め込みを拒否する。
 
 ### 7. 完全な実装スケルトン
 
@@ -214,7 +217,7 @@ pub async fn proxy_artifact(
 1. **追加クレート不要**: `axum`, `aws-sdk-s3`, `futures` は workspace 依存に存在。http-body 変換に追加クレートは不要。
 2. **ルーティング**: 仕様に基づき `/proxy/artifacts/{artifact_id}` を別ルートとして設定。API prefix (`/api/v1`) の外に置く。
 3. **トークン検証**: query parameter `?token=...` で短命トークンを受け取り、HMAC 署名検証する。viewer-sources API でトークン生成、proxy API でトークン検証。
-4. **エラーハンドリング**: S3 NoSuchKey → 404、token 期限切れ → 401、その他 → 500。
+4. **エラーハンドリング**: token 無効/期限切れ → 401、artifact 未存在/非 available → 404、storage 未設定 → 500、S3 障害 → 500。
 5. **artifact metadata**: DB の artifact テーブルに `content_type`, `size_bytes`, `storage_key` が保存済みの前提で、S3 レスポンスのメタデータより DB を優先。
 
 ## 採用/不採用判断
