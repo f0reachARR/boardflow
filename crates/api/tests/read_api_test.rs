@@ -2043,3 +2043,431 @@ async fn test_get_board_run_diff_unavailable() {
     assert!(json["error_message"].is_null());
     assert!(json["created_at"].is_string());
 }
+
+// ─── Findings List Tests ─────────────────────────────────────────────────────
+
+async fn create_test_run_check_finding(
+    pool: &PgPool,
+    run_check_id: Uuid,
+    severity: &str,
+    sort_index: i32,
+    rule_code: Option<&str>,
+    title: Option<&str>,
+    x_um: Option<i32>,
+    y_um: Option<i32>,
+) -> Uuid {
+    let id = Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO run_check_findings (id, run_check_id, severity, rule_code, title, message, \
+         subject_kind, subject_ref, sheet_path, pcb_layer, x_um, y_um, sort_index, created_at) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW())",
+    )
+    .bind(id)
+    .bind(run_check_id)
+    .bind(severity)
+    .bind(rule_code)
+    .bind(title)
+    .bind(title.map(|t| format!("{t} detail message")))
+    .bind("schematic")
+    .bind(Some("U1"))
+    .bind(Some("/"))
+    .bind(None::<&str>)
+    .bind(x_um)
+    .bind(y_um)
+    .bind(sort_index)
+    .execute(pool)
+    .await
+    .unwrap();
+    id
+}
+
+/// 正常系: findings一覧を取得できる
+#[tokio::test]
+async fn test_list_findings_success() {
+    let Some(pool) = setup_pool().await else { return };
+
+    let user_id = create_test_user(&pool).await;
+    let session_id = create_test_session(&pool, user_id).await;
+    let github_repo_id = rand_i64();
+    let repo_id = create_test_repository(&pool, github_repo_id).await;
+    let bp_id = create_test_board_project(&pool, repo_id).await;
+    let br_id = create_test_board_run(&pool, bp_id, "completed").await;
+    let rc_id = create_test_run_check(&pool, br_id, "erc", "failed", 2, 1).await;
+
+    create_test_run_check_finding(&pool, rc_id, "error", 0, Some("ERC001"), Some("Pin not driven"), Some(5715), Some(2667)).await;
+    create_test_run_check_finding(&pool, rc_id, "error", 1, Some("ERC002"), Some("Missing connection"), Some(1000), Some(2000)).await;
+    create_test_run_check_finding(&pool, rc_id, "warning", 2, Some("ERC003"), Some("Unused pin"), None, None).await;
+
+    let app = create_test_app(pool);
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(&format!("/api/v1/board-runs/br_{br_id}/checks/erc/findings"))
+                .header("cookie", session_cookie(session_id))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body_bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+
+    let items = json["items"].as_array().unwrap();
+    assert_eq!(items.len(), 3);
+    assert_eq!(items[0]["severity"], "error");
+    assert_eq!(items[0]["rule_code"], "ERC001");
+    assert_eq!(items[0]["title"], "Pin not driven");
+    assert_eq!(items[0]["subject_kind"], "schematic");
+    assert_eq!(items[0]["subject_ref"], "U1");
+    // pos_mm conversion: 5715/1000 = 5.715, 2667/1000 = 2.667
+    assert_eq!(items[0]["pos_mm"]["x"], 5.715);
+    assert_eq!(items[0]["pos_mm"]["y"], 2.667);
+    // Third item has no position
+    assert!(items[2]["pos_mm"].is_null());
+    assert_eq!(json["has_more"], false);
+    assert!(json["next_cursor"].is_null());
+}
+
+/// 正常系: 空リスト (findingsなし)
+#[tokio::test]
+async fn test_list_findings_empty() {
+    let Some(pool) = setup_pool().await else { return };
+
+    let user_id = create_test_user(&pool).await;
+    let session_id = create_test_session(&pool, user_id).await;
+    let github_repo_id = rand_i64();
+    let repo_id = create_test_repository(&pool, github_repo_id).await;
+    let bp_id = create_test_board_project(&pool, repo_id).await;
+    let br_id = create_test_board_run(&pool, bp_id, "completed").await;
+    // run_check exists but no findings
+    create_test_run_check(&pool, br_id, "drc", "passed", 0, 0).await;
+
+    let app = create_test_app(pool);
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(&format!("/api/v1/board-runs/br_{br_id}/checks/drc/findings"))
+                .header("cookie", session_cookie(session_id))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body_bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+    assert_eq!(json["items"].as_array().unwrap().len(), 0);
+    assert_eq!(json["has_more"], false);
+}
+
+/// 正常系: run_checkが存在しない場合も空リスト (404ではない)
+#[tokio::test]
+async fn test_list_findings_no_run_check_returns_empty() {
+    let Some(pool) = setup_pool().await else { return };
+
+    let user_id = create_test_user(&pool).await;
+    let session_id = create_test_session(&pool, user_id).await;
+    let github_repo_id = rand_i64();
+    let repo_id = create_test_repository(&pool, github_repo_id).await;
+    let bp_id = create_test_board_project(&pool, repo_id).await;
+    let br_id = create_test_board_run(&pool, bp_id, "completed").await;
+    // No run_check created for this board_run
+
+    let app = create_test_app(pool);
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(&format!("/api/v1/board-runs/br_{br_id}/checks/erc/findings"))
+                .header("cookie", session_cookie(session_id))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body_bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+    assert_eq!(json["items"].as_array().unwrap().len(), 0);
+    assert_eq!(json["has_more"], false);
+}
+
+/// 正常系: severity filter
+#[tokio::test]
+async fn test_list_findings_severity_filter() {
+    let Some(pool) = setup_pool().await else { return };
+
+    let user_id = create_test_user(&pool).await;
+    let session_id = create_test_session(&pool, user_id).await;
+    let github_repo_id = rand_i64();
+    let repo_id = create_test_repository(&pool, github_repo_id).await;
+    let bp_id = create_test_board_project(&pool, repo_id).await;
+    let br_id = create_test_board_run(&pool, bp_id, "completed").await;
+    let rc_id = create_test_run_check(&pool, br_id, "erc", "failed", 1, 1).await;
+
+    create_test_run_check_finding(&pool, rc_id, "error", 0, Some("ERC001"), Some("Error finding"), None, None).await;
+    create_test_run_check_finding(&pool, rc_id, "warning", 1, Some("ERC002"), Some("Warning finding"), None, None).await;
+    create_test_run_check_finding(&pool, rc_id, "notice", 2, Some("ERC003"), Some("Notice finding"), None, None).await;
+
+    let app = create_test_app(pool);
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(&format!("/api/v1/board-runs/br_{br_id}/checks/erc/findings?severity=error"))
+                .header("cookie", session_cookie(session_id))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body_bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+    let items = json["items"].as_array().unwrap();
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0]["severity"], "error");
+    assert_eq!(items[0]["rule_code"], "ERC001");
+}
+
+/// 正常系: cursor pagination
+#[tokio::test]
+async fn test_list_findings_pagination() {
+    let Some(pool) = setup_pool().await else { return };
+
+    let user_id = create_test_user(&pool).await;
+    let session_id = create_test_session(&pool, user_id).await;
+    let github_repo_id = rand_i64();
+    let repo_id = create_test_repository(&pool, github_repo_id).await;
+    let bp_id = create_test_board_project(&pool, repo_id).await;
+    let br_id = create_test_board_run(&pool, bp_id, "completed").await;
+    let rc_id = create_test_run_check(&pool, br_id, "drc", "failed", 3, 0).await;
+
+    // Create 3 findings
+    create_test_run_check_finding(&pool, rc_id, "error", 0, Some("DRC001"), Some("Finding 1"), None, None).await;
+    create_test_run_check_finding(&pool, rc_id, "error", 1, Some("DRC002"), Some("Finding 2"), None, None).await;
+    create_test_run_check_finding(&pool, rc_id, "error", 2, Some("DRC003"), Some("Finding 3"), None, None).await;
+
+    let app = create_test_app(pool.clone());
+
+    // First page: limit=2
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(&format!("/api/v1/board-runs/br_{br_id}/checks/drc/findings?limit=2"))
+                .header("cookie", session_cookie(session_id))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body_bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+    let items = json["items"].as_array().unwrap();
+    assert_eq!(items.len(), 2);
+    assert_eq!(json["has_more"], true);
+    let next_cursor = json["next_cursor"].as_str().unwrap();
+
+    // Second page using cursor
+    let app2 = create_test_app(pool);
+    let response2 = app2
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(&format!(
+                    "/api/v1/board-runs/br_{br_id}/checks/drc/findings?limit=2&cursor={next_cursor}"
+                ))
+                .header("cookie", session_cookie(session_id))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response2.status(), StatusCode::OK);
+    let body_bytes2 = response2.into_body().collect().await.unwrap().to_bytes();
+    let json2: serde_json::Value = serde_json::from_slice(&body_bytes2).unwrap();
+    let items2 = json2["items"].as_array().unwrap();
+    assert_eq!(items2.len(), 1);
+    assert_eq!(json2["has_more"], false);
+    assert!(json2["next_cursor"].is_null());
+}
+
+/// バリデーション: 不正なcheck_kindで400
+#[tokio::test]
+async fn test_list_findings_invalid_check_kind() {
+    let Some(pool) = setup_pool().await else { return };
+
+    let user_id = create_test_user(&pool).await;
+    let session_id = create_test_session(&pool, user_id).await;
+    let github_repo_id = rand_i64();
+    let repo_id = create_test_repository(&pool, github_repo_id).await;
+    let bp_id = create_test_board_project(&pool, repo_id).await;
+    let br_id = create_test_board_run(&pool, bp_id, "completed").await;
+
+    let app = create_test_app(pool);
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(&format!("/api/v1/board-runs/br_{br_id}/checks/invalid/findings"))
+                .header("cookie", session_cookie(session_id))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let body_bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+    assert_eq!(json["error"]["code"], "validation_failed");
+}
+
+/// バリデーション: 不正なboard_run_idフォーマットで400
+#[tokio::test]
+async fn test_list_findings_invalid_board_run_id() {
+    let Some(pool) = setup_pool().await else { return };
+
+    let user_id = create_test_user(&pool).await;
+    let session_id = create_test_session(&pool, user_id).await;
+
+    let app = create_test_app(pool);
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/api/v1/board-runs/invalid-id/checks/erc/findings")
+                .header("cookie", session_cookie(session_id))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let body_bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+    assert_eq!(json["error"]["code"], "validation_failed");
+}
+
+/// バリデーション: 不正なseverityフィルタで400
+#[tokio::test]
+async fn test_list_findings_invalid_severity() {
+    let Some(pool) = setup_pool().await else { return };
+
+    let user_id = create_test_user(&pool).await;
+    let session_id = create_test_session(&pool, user_id).await;
+    let github_repo_id = rand_i64();
+    let repo_id = create_test_repository(&pool, github_repo_id).await;
+    let bp_id = create_test_board_project(&pool, repo_id).await;
+    let br_id = create_test_board_run(&pool, bp_id, "completed").await;
+
+    let app = create_test_app(pool);
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(&format!("/api/v1/board-runs/br_{br_id}/checks/erc/findings?severity=critical"))
+                .header("cookie", session_cookie(session_id))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let body_bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+    assert_eq!(json["error"]["code"], "validation_failed");
+}
+
+/// 認証系: 未認証で401
+#[tokio::test]
+async fn test_list_findings_unauthenticated() {
+    let Some(pool) = setup_pool().await else { return };
+
+    let user_id = create_test_user(&pool).await;
+    let _session_id = create_test_session(&pool, user_id).await;
+    let github_repo_id = rand_i64();
+    let repo_id = create_test_repository(&pool, github_repo_id).await;
+    let bp_id = create_test_board_project(&pool, repo_id).await;
+    let br_id = create_test_board_run(&pool, bp_id, "completed").await;
+
+    let app = create_test_app(pool);
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(&format!("/api/v1/board-runs/br_{br_id}/checks/erc/findings"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+}
+
+/// 認可系: アクセス拒否で404
+#[tokio::test]
+async fn test_list_findings_access_denied() {
+    let Some(pool) = setup_pool().await else { return };
+
+    let user_id = create_test_user(&pool).await;
+    let session_id = create_test_session(&pool, user_id).await;
+    let github_repo_id = rand_i64();
+    let repo_id = create_test_repository(&pool, github_repo_id).await;
+    let bp_id = create_test_board_project(&pool, repo_id).await;
+    let br_id = create_test_board_run(&pool, bp_id, "completed").await;
+
+    let app = create_deny_app(pool);
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(&format!("/api/v1/board-runs/br_{br_id}/checks/erc/findings"))
+                .header("cookie", session_cookie(session_id))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+}
+
+/// エラー系: 存在しないboard_runで404
+#[tokio::test]
+async fn test_list_findings_board_run_not_found() {
+    let Some(pool) = setup_pool().await else { return };
+
+    let user_id = create_test_user(&pool).await;
+    let session_id = create_test_session(&pool, user_id).await;
+    let fake_id = Uuid::now_v7();
+
+    let app = create_test_app(pool);
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(&format!("/api/v1/board-runs/br_{fake_id}/checks/erc/findings"))
+                .header("cookie", session_cookie(session_id))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+}

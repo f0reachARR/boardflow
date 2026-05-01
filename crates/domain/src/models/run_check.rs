@@ -69,3 +69,22 @@ pub struct RunCheckFinding {
     pub sort_index: i32,
     pub created_at: DateTime<Utc>,
 }
+
+/// List row for findings API — excludes bbox_json and raw_payload_json for bandwidth savings.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct RunCheckFindingListRow {
+    pub id: Uuid,
+    pub run_check_id: Uuid,
+    pub severity: FindingSeverity,
+    pub rule_code: Option<String>,
+    pub title: Option<String>,
+    pub message: Option<String>,
+    pub subject_kind: Option<SubjectKind>,
+    pub subject_ref: Option<String>,
+    pub sheet_path: Option<String>,
+    pub pcb_layer: Option<String>,
+    pub x_um: Option<i32>,
+    pub y_um: Option<i32>,
+    pub sort_index: i32,
+    pub created_at: DateTime<Utc>,
+}
