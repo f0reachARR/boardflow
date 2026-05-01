@@ -313,6 +313,35 @@ pub struct ViewerSourcesResponse {
     pub viewers: ViewerMap,
 }
 
+// Diff responses
+#[derive(Debug, Serialize, ToSchema)]
+pub struct BoardRunDiffResponse {
+    pub board_run_id: String,
+    pub base_board_run_id: Option<String>,
+    pub status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub summary: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<DiffMetadataResponse>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error_message: Option<String>,
+    pub created_at: String,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct DiffMetadataResponse {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub file_hashes: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bom_summary: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub checks_summary: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub artifacts_summary: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub previews: Option<serde_json::Value>,
+}
+
 #[derive(Debug, Serialize, ToSchema)]
 pub struct ViewerMap {
     pub kicanvas: ViewerStatus,
@@ -1304,4 +1333,88 @@ fn viewer_status(
             "missing".to_string()
         }
     }
+}
+
+// ─── GET /api/v1/board-runs/{board_run_id}/diff ──────────────────────────────
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/board-runs/{board_run_id}/diff",
+    params(
+        ("board_run_id" = String, Path, description = "Board run ID (br_<uuid>)")
+    ),
+    responses(
+        (status = 200, description = "Diff details", body = BoardRunDiffResponse),
+        (status = 400, description = "Validation error", body = crate::error::ErrorResponse),
+        (status = 401, description = "Unauthorized", body = crate::error::ErrorResponse),
+        (status = 404, description = "Not found", body = crate::error::ErrorResponse),
+    )
+)]
+pub async fn get_board_run_diff(
+    session: AuthenticatedSession,
+    Extension(RequestId(request_id)): Extension<RequestId>,
+    Extension(access_checker): Extension<DynGithubAccessChecker>,
+    State(pool): State<PgPool>,
+    Path(board_run_id): Path<String>,
+) -> Result<Json<BoardRunDiffResponse>, AppError> {
+    let id = parse_board_run_id(&board_run_id)
+        .ok_or_else(|| AppError::validation_failed("invalid board_run_id format", &request_id))?;
+
+    // Check repository access via board_run → board_project → repository
+    let repo = boardflow_db::queries::board_run::find_repository_by_board_run_id(&pool, id)
+        .await
+        .map_err(|e| {
+            tracing::error!("get_board_run_diff repo lookup failed: {e}");
+            AppError::internal_error("database error", &request_id)
+        })?
+        .ok_or_else(|| AppError::not_found("board run not found", &request_id))?;
+
+    let result = access_checker
+        .check_access(&session.user.github_access_token, &repo.owner, &repo.name)
+        .await;
+    if let Some(err) = access_result_to_error(&result, "board run not found", &request_id) {
+        return Err(err);
+    }
+
+    // Get diff
+    let diff = boardflow_db::queries::diff::find_diff_by_board_run_id(&pool, id)
+        .await
+        .map_err(|e| {
+            tracing::error!("find_diff_by_board_run_id failed: {e}");
+            AppError::internal_error("database error", &request_id)
+        })?
+        .ok_or_else(|| AppError::not_found("diff not found for this board run", &request_id))?;
+
+    // Get metadata (optional)
+    let metadata = boardflow_db::queries::diff::find_diff_metadata_by_board_run_id(&pool, id)
+        .await
+        .map_err(|e| {
+            tracing::error!("find_diff_metadata_by_board_run_id failed: {e}");
+            AppError::internal_error("database error", &request_id)
+        })?;
+
+    let metadata_response = metadata.map(|m| DiffMetadataResponse {
+        file_hashes: m.file_hashes_json,
+        bom_summary: m.bom_summary_json,
+        checks_summary: m.checks_summary_json,
+        artifacts_summary: m.artifacts_summary_json,
+        previews: m.previews_json,
+    });
+
+    let status_str = match diff.status {
+        boardflow_domain::models::snapshot::BoardRunDiffStatus::Ready => "ready",
+        boardflow_domain::models::snapshot::BoardRunDiffStatus::NoBaseline => "no_baseline",
+        boardflow_domain::models::snapshot::BoardRunDiffStatus::Unavailable => "unavailable",
+        boardflow_domain::models::snapshot::BoardRunDiffStatus::Failed => "failed",
+    };
+
+    Ok(Json(BoardRunDiffResponse {
+        board_run_id: format_board_run_id(id),
+        base_board_run_id: diff.base_board_run_id.map(format_board_run_id),
+        status: status_str.to_string(),
+        summary: diff.summary_json,
+        metadata: metadata_response,
+        error_message: diff.error_message,
+        created_at: diff.created_at.to_rfc3339(),
+    }))
 }
