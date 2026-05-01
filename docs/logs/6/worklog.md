@@ -713,3 +713,51 @@ limit+1行取得し、N+1行目が存在すれば `has_more=true`、N行目で n
 - `list_accessible_repo_ids` は GitHub の `/user/repos` を全ページ取得するため、リポジトリ数が非常に多いユーザーではレイテンシ増加の可能性あり (将来的にキャッシュ検討)
 - `list_board_runs` / `get_viewer_sources` の deny テストは既存の deny テストでカバーされているが、明示的なテストケースとしては未追加
 - GitHub API error / rate limit 時の振る舞いは型レベルで対応済みだが、integration test は mock レベル（実際のGitHub APIを叩くテストは無し）
+
+---
+
+## Phase 6: 最終レビュー (Review)
+- 開始: 2026-05-01
+- 状態: 完了
+
+### 調査結果
+- `docs/backend/api.md` を確認し、Read API は GitHub OAuth session 前提、閲覧不可は `404 not_found`、artifact proxy token は `artifact` + `user/session` + `expiry` に紐づく契約であることを再確認
+- `crates/api/src/routes/read.rs` と `crates/db/src/queries/repository.rs` を確認し、Repository 一覧 pagination は `list_accessible_repo_ids` による pre-filter 後の DB keyset pagination に置き換わっていることを確認
+- `crates/api/src/github_access.rs` を確認し、`AccessResult` / `AccessError` の導入と `reqwest::Client` 共有化を確認
+- `crates/api/tests/read_api_test.rs` を確認し、deny-all / allow-all の pagination テスト、404 秘匿テストは追加済みであることを確認
+- `cargo test -p boardflow-api` を実行し、Read API を含む `boardflow-api` 全85件が成功することを確認
+- 外部調査で GitHub Docs の REST API troubleshooting を確認し、rate limit は `403` または `429` で返り得ること、private resource の非認可は existence hiding のため `404` を返すことを確認
+
+### レビュー結果
+- 前回指摘1「Repository一覧の pagination が認可フィルタで壊れる」: 解消済み
+  - `list_repositories` は GitHub で取得した accessible repo id 集合を DB の `WHERE github_repository_id = ANY(...)` に渡しており、pagination の基準が認可後の可視 row に揃っている
+- 前回指摘2「GitHub API 障害と権限 deny 区別不能」: 未解消
+  - `check_access` 実装では `StatusCode::FORBIDDEN` を `AccessResult::Denied` に分類している
+  - GitHub Docs では primary / secondary rate limit は `403` または `429` を返し得る一方、private repository の非認可は existence hiding のため `404` を返す
+  - そのため、GitHub rate limit や一部 upstream 異常が `404 not_found` に誤変換され、Issue #6 で要求している `RateLimited -> 429` / `Upstream -> 500` の契約を満たせていない
+
+### 必須修正
+1. `RealGithubAccessChecker::check_access` の `403` を無条件に `Denied` としないこと
+2. `check_access` / `list_accessible_repo_ids` の双方で、GitHub の `403` を rate limit headers や応答メッセージに基づいて `RateLimited` と判定し、それ以外の `403` は少なくとも `Upstream` として扱うこと
+3. `RateLimited -> 429` と `Upstream -> 500` を確認する integration test を追加すること
+
+### 任意改善
+1. mixed allow/deny の repo 集合を返せる test double を追加し、今回の pagination 回帰を直接再現する回帰テストを置くこと
+2. `list_accessible_repo_ids` の結果に短寿命キャッシュを導入し、repository 一覧の GitHub API 負荷を抑えること
+
+### テスト不足
+- GitHub API の `403 rate limit` を `429` へ変換するテストがない
+- GitHub API の `403` / network error を `500` へ変換するテストがない
+- mixed allow/deny 条件で repository 一覧 pagination が崩れないことを直接検証するテストがない
+
+### ドキュメント確認
+- `docs/backend/api.md` の Read API 契約と pagination 方針はおおむね整合
+- ただしレビュー時点の実装は、GitHub 403 系レスポンスの扱いだけが契約と不整合
+
+### PR/完了結果
+- Issue ID: #6
+- `pr_ready: false`
+
+### 残リスク
+- GitHub API の rate limit を `404` に誤変換すると、フロントエンドは再ログインや再試行方針を誤りやすい
+- 実運用で rate limit が出た際に障害として可観測にならず、原因切り分けが難しくなる

@@ -69,12 +69,33 @@ impl GithubAccessChecker for RealGithubAccessChecker {
             .await;
 
         match result {
-            Ok(resp) => match resp.status() {
-                StatusCode::OK => AccessResult::Allowed,
-                StatusCode::UNAUTHORIZED => AccessResult::Error(AccessError::TokenExpired),
-                StatusCode::TOO_MANY_REQUESTS => AccessResult::Error(AccessError::RateLimited),
-                StatusCode::NOT_FOUND | StatusCode::FORBIDDEN => AccessResult::Denied,
-                status => AccessResult::Error(AccessError::Upstream(format!("unexpected status: {status}"))),
+            Ok(resp) => {
+                let status = resp.status();
+                match status {
+                    StatusCode::OK => AccessResult::Allowed,
+                    StatusCode::UNAUTHORIZED => AccessResult::Error(AccessError::TokenExpired),
+                    StatusCode::TOO_MANY_REQUESTS => AccessResult::Error(AccessError::RateLimited),
+                    StatusCode::NOT_FOUND => AccessResult::Denied,
+                    StatusCode::FORBIDDEN => {
+                        // GitHub uses 403 for rate limiting (primary/secondary) and org restrictions.
+                        // Check rate limit headers to distinguish.
+                        let is_rate_limited = resp
+                            .headers()
+                            .get("x-ratelimit-remaining")
+                            .and_then(|v| v.to_str().ok())
+                            .and_then(|v| v.parse::<u32>().ok())
+                            .is_some_and(|remaining| remaining == 0)
+                            || resp.headers().contains_key("retry-after");
+                        if is_rate_limited {
+                            AccessResult::Error(AccessError::RateLimited)
+                        } else {
+                            AccessResult::Error(AccessError::Upstream(
+                                "forbidden: possible org restriction or API abuse".to_string(),
+                            ))
+                        }
+                    }
+                    _ => AccessResult::Error(AccessError::Upstream(format!("unexpected status: {status}"))),
+                }
             },
             Err(e) => AccessResult::Error(AccessError::Upstream(e.to_string())),
         }
@@ -103,6 +124,20 @@ impl GithubAccessChecker for RealGithubAccessChecker {
             match resp.status() {
                 StatusCode::UNAUTHORIZED => return Err(AccessError::TokenExpired),
                 StatusCode::TOO_MANY_REQUESTS => return Err(AccessError::RateLimited),
+                StatusCode::FORBIDDEN => {
+                    let is_rate_limited = resp
+                        .headers()
+                        .get("x-ratelimit-remaining")
+                        .and_then(|v| v.to_str().ok())
+                        .and_then(|v| v.parse::<u32>().ok())
+                        .is_some_and(|remaining| remaining == 0)
+                        || resp.headers().contains_key("retry-after");
+                    if is_rate_limited {
+                        return Err(AccessError::RateLimited);
+                    } else {
+                        return Err(AccessError::Upstream("forbidden".to_string()));
+                    }
+                }
                 StatusCode::OK => {}
                 status => {
                     return Err(AccessError::Upstream(format!("unexpected status: {status}")));
