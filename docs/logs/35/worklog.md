@@ -156,3 +156,98 @@ test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 42 filtered out
 ### 残リスク
 
 - frontend が `null` と項目欠落を区別する実装になった場合、契約解釈差で表示崩れやデシリアライズ失敗が起こりうる。
+
+## レビュー結果（最終レビュー）
+
+### 最終レビュー日時
+
+- 2026-05-01
+
+### 最終総評
+
+- 前回指摘の核心だった top-level の `summary` / `metadata` / `error_message` の field omission は解消済み。実装の [crates/api/src/routes/read.rs](crates/api/src/routes/read.rs#L318) から [crates/api/src/routes/read.rs](crates/api/src/routes/read.rs#L324) では `skip_serializing_if` が外れており、`Option::None` は `null` として返る。
+- 契約面でも [docs/backend/api.md](docs/backend/api.md#L764) から [docs/backend/api.md](docs/backend/api.md#L809) の Diff 詳細セクションと整合しており、Issue #35 の要求範囲では code / docs の不一致は解消されている。
+- テスト面では [crates/api/tests/read_api_test.rs](crates/api/tests/read_api_test.rs#L1842) から [crates/api/tests/read_api_test.rs](crates/api/tests/read_api_test.rs#L1879) で `metadata` と `error_message` の field presence を明示的に検証しており、今回の修正意図は回帰検知できる状態になった。したがって PR ready と判定する。
+
+### 最終指摘事項
+
+- blocking なし。
+- optional: [crates/api/tests/read_api_test.rs](crates/api/tests/read_api_test.rs#L1875) の `summary` は `is_null()` のみで、field presence 自体は明示していない。今回の修正範囲では十分だが、将来の回帰検知をさらに強めるなら `json.get("summary").is_some()` も加えるとよい。
+
+### 最終テスト結果
+
+- `mise exec -- cargo test -p boardflow-api --test read_api_test test_get_board_run_diff -- --nocapture`
+- 実行結果: 7 passed, 0 failed, 42 filtered out
+- 補足: この環境では `DATABASE_URL not set` により各テストは setup で早期 return 可能な構成のため、HTTP レスポンスの実 DB 経由実行までは再現していない。ただし少なくともテスト定義と現在のシリアライズ契約に矛盾はない。
+
+### 最終PR / 完了結果
+
+- pr_ready: true
+
+### 最終必須修正
+
+- なし。
+
+### 最終任意改善
+
+1. `summary` についても `json.get("summary").is_some()` を追加し、null と field omission の差をテストで完全に固定する。
+
+### 最終ドキュメント確認
+
+- [docs/backend/api.md](docs/backend/api.md#L764) から [docs/backend/api.md](docs/backend/api.md#L809) の Diff 詳細契約を確認済み。
+- [docs/spec.md](docs/spec.md#L561) 周辺の diff status 定義と矛盾なし。
+
+### 最終残リスク
+
+- 実 DB を使った再実行はこの環境では未確認。
+- nested metadata 内部の optional field は引き続き省略される設計だが、現行ドキュメントは top-level `metadata` の有無しか契約化しておらず、Issue #35 の対象外として妥当。
+
+## ドキュメント確認
+
+### 確認日時
+
+- 2026-05-01
+
+### 対象Issue
+
+- #35 Diff詳細Read API実装
+
+### 確認結果
+
+- [docs/backend/api.md](docs/backend/api.md#L761) の「3.9 Diff 詳細」は、[docs/spec.md](docs/spec.md#L561) の diff status 定義および [docs/spec.md](docs/spec.md#L1514) の `board_run_diffs` / `board_run_diff_metadata` モデルと整合している。
+- 実装の [crates/api/src/routes/read.rs](crates/api/src/routes/read.rs#L318) の `BoardRunDiffResponse` と [crates/api/src/routes/read.rs](crates/api/src/routes/read.rs#L1337) の OpenAPI path annotation は、[docs/backend/api.md](docs/backend/api.md#L764) の `GET /api/v1/board-runs/{board_run_id}/diff` 記載と一致している。
+- `summary`、`metadata`、`error_message` の top-level 応答契約は、[crates/api/tests/read_api_test.rs](crates/api/tests/read_api_test.rs#L1871) と [crates/api/tests/read_api_test.rs](crates/api/tests/read_api_test.rs#L2048) の検証内容とも矛盾しない。
+- [docs/backend/summary.md](docs/backend/summary.md#L41) は endpoint の完全一覧ではなく backend 方針サマリであり、既に「差分判定 API の提供」と「Web UI 向け read API」を包含しているため、Issue #35 の範囲では更新必須ではない。
+- 今回の変更に直接対応する外部調査メモはなく、`docs/external/` の追加確認は不要と判断した。
+
+### 判定
+
+- docs_ready: true
+
+### 必須修正
+
+- なし
+
+### 任意改善
+
+- なし
+
+### 不整合のあるドキュメント
+
+- なし
+
+### 不足しているドキュメント
+
+- なし
+
+### 外部調査メモに関する指摘
+
+- なし
+
+### PR / 完了結果
+
+- docs review としては PR 作成可
+
+### 残リスク
+
+- OpenAPI JSON の実生成物そのものはこのレビューでは再出力していないため、最終的な公開成果物確認は PR 前の通常 CI に委ねる。
