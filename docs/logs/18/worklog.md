@@ -1062,3 +1062,49 @@ docsレビューで指摘された3点のドキュメント不整合を修正。
 ### 更新した作業ログパス
 
 `docs/logs/18/worklog.md`
+
+---
+
+## 絶対URL生成対応（2026-05-01）
+
+### 背景
+
+Cross-origin 前提では、viewer-sources API が返す proxy URL は絶対 URL でなければブラウザが正しいドメインにリクエストできない。従来の相対パス `/proxy/artifacts/art_{uuid}?token=...` を絶対 URL に修正。
+
+### 変更内容
+
+1. **`crates/api/src/lib.rs`**:
+   - `ArtifactBaseUrl(String)` newtype 追加
+   - `create_app_with_config` に `artifact_base_url: Option<String>` パラメータ追加
+   - Extension として `ArtifactBaseUrl` を注入
+   - 環境変数 `BOARDFLOW_ARTIFACT_BASE_URL` から取得（デフォルト: `"http://localhost:8080"`）
+
+2. **`crates/api/src/config.rs`**:
+   - `AppConfig` に `artifact_base_url: String` フィールド追加
+   - `from_env()` で `BOARDFLOW_ARTIFACT_BASE_URL` 読み込み
+
+3. **`crates/api/src/routes/read.rs`**:
+   - `get_viewer_sources` ハンドラーに `Extension(artifact_base_url): Extension<ArtifactBaseUrl>` 追加
+   - `proxy_url` クロージャが `format!("{}/proxy/artifacts/{}?token={}", ...)` で絶対URL生成
+
+4. **テスト更新**:
+   - `crates/api/tests/read_api_test.rs`: 全 `create_app_with_config` 呼び出しに `None` パラメータ追加
+   - `crates/api/tests/proxy_test.rs`: 同上
+   - 新規テスト `test_get_viewer_sources_returns_absolute_url_with_custom_base` 追加
+
+### テスト結果
+
+- 全115テスト合格、0失敗
+- 新テストがカスタム base URL `https://artifacts.boardflow.example.com` で絶対URL生成を検証
+
+### コミット
+
+`e4b958b` — `feat(api): generate absolute proxy URLs in viewer-sources API`
+
+### 残リスク
+
+- なし（後方互換性の問題なし。デフォルト値で開発環境は動作する）
+
+### 更新した作業ログパス
+
+`docs/logs/18/worklog.md`
