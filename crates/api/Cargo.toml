@@ -27,6 +27,7 @@ reqwest = { workspace = true }
 urlencoding = { workspace = true }
 async-trait = { workspace = true }
 futures = { workspace = true }
+rand = { workspace = true }
 
 [dev-dependencies]
 http-body-util = "0.1"

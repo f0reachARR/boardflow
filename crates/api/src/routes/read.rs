@@ -90,7 +90,7 @@ fn decode_repository_cursor(cursor: &str) -> Option<(DateTime<Utc>, i64)> {
 // ─── Query parameters ────────────────────────────────────────────────────────
 
 // Helper: convert AccessResult::Denied/Error to AppError
-fn access_result_to_error(result: &AccessResult, not_found_msg: &str, request_id: &str) -> Option<AppError> {
+pub fn access_result_to_error(result: &AccessResult, not_found_msg: &str, request_id: &str) -> Option<AppError> {
     match result {
         AccessResult::Allowed => None,
         AccessResult::Denied => Some(AppError::not_found(not_found_msg, request_id)),

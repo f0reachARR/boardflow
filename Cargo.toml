@@ -33,6 +33,7 @@ aws-config = { version = "1", features = ["behavior-version-latest"] }
 aws-sdk-s3 = { version = "1", features = ["behavior-version-latest"] }
 base64 = "0.22"
 zip = "2"
+rand = "0.8"
 reqwest = { version = "0.12", features = ["json"] }
 urlencoding = "2"
 async-trait = "0.1"
