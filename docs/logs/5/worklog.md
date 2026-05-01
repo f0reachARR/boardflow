@@ -53,47 +53,6 @@ CREATE UNIQUE INDEX idx_github_jobs_board_run_id_type
 ON github_jobs (board_run_id, type)
 WHERE board_run_id IS NOT NULL;
 ```
-
-### 結論ステータス
-`implementation_required`
-
-### 残リスク
-- 本番S3互換サービスの選定 (MVP ではMinIOで進行)
-- presigned URLの有効期限のデフォルト値 (1時間を提案)
-- `github_jobs` の max_attempts / backoff ポリシー (worker 実装時に決定)
-- docker-compose への MinIO サービス追加が必要
-
----
-
-## 計画フェーズ (2026-05-01)
-
-### 目的
-GitHub Actions ライフサイクルの中核3エンドポイントを実装し、Action が BoardRun 作成→成果物 upload→import 完了まで一連のフローを実行可能にする。
-
-### 非目的
-- Worker による zip 展開・manifest 検証 (Issue #7 以降)
-- Web UI 向け Read API (Issue #6 以降)
-- 本番 S3 / CloudFront 設定
-- DRC/ERC 結果の保存ロジック (Import worker 側)
-- docker-compose へのMinIO追加 (別タスク or 同PR内で最小限)
-
-### 受け入れ条件
-1. `POST /api/v1/board-runs` が冪等にBoardRunを作成し、presigned PUT URLを返す
-2. `POST /api/v1/board-runs/{board_run_id}/fail` がBoardRunをfailedに遷移する (冪等)
-3. `POST /api/v1/board-runs/{board_run_id}/artifact-bundles/import` がArtifactBundleを作成し、import jobをenqueueする
-4. 全エンドポイントでBearer認証・repository権限チェックが動作する
-5. 冪等性・状態遷移ルールが仕様通りに動作する
-6. 統合テストが各正常系・異常系をカバーする
-7. OpenAPI スキーマに3エンドポイントが記載される
-
-### 詳細要件
-
-#### 2.2 BoardRun 作成 API (`POST /api/v1/board-runs`)
-- Request: `board_project_id`, `project_path`, `tree_hash`, `commit_sha`, `branch`, `ref`, `github_run_id`, `github_run_attempt`
-- 認証: Bearer token → token の repository_id から board_project が同リポジトリに属するか検証
-- 冪等キー: `board_project_id + github_run_id + github_run_attempt` (DBのUNIQUE制約)
-- 新規作成時: BoardRun (status=created) + ArtifactBundle (status=pending) + presigned PUT URL
-- 既存 created/uploading: 既存run + 新 presigned URL を返す
 - 既存 importing: run返却、artifact_bundle は null
 - 既存 completed/failed/timed_out: terminal状態を返す (追加actionなし)
 - Presigned URL: aws-sdk-s3 で MinIO互換の PUT presigned URL (1時間有効)
@@ -402,6 +361,60 @@ running 2 tests (integration_test.rs) — 全pass
 
 ---
 
+## Docs 最終確認追記 (2026-05-01)
+
+### 判定
+- `docs_ready: true`
+
+### 確認結果
+- `docs/logs/5/worklog.md` は最終 review 確定結果 `pr_ready: true`、テスト総数 `46 passed`、docs 観点の確認結果を含み、Issue #5 の経緯を追える状態になっている。
+- Import API の status 返却は `crates/api/src/routes/board_run.rs` の `bundle_status_str()` と `docs/backend/api.md` の `queued` / `running` / `completed` / `failed` 仕様で整合している。
+- `docs/backend/summary.md` と `README.md` も確認し、今回の修正に対する追加の更新漏れはない。
+
+### 更新した作業ログパス
+- `docs/logs/5/worklog.md`
+
+---
+
+## Docs 再確認フェーズ (2026-05-01)
+
+### 対象Issue
+- Issue #5: POST /api/v1/board-runs, POST .../fail, POST .../artifact-bundles/import の3エンドポイント実装
+
+### docs レビュー結果
+- `docs_ready: true`
+
+### 総評
+- `docs/logs/5/worklog.md` は、Issue の経緯、要望、調査、計画、実装、テスト、レビュー、最終確定結果まで一貫して記録されており、今回の再確認依頼事項を満たしている。
+- Import API の status 返却は `bundle_status_str()` により `docs/backend/api.md` の `queued` / `running` / `completed` / `failed` 仕様と整合している。
+- README と `docs/backend/summary.md` の更新要否も確認し、今回の修正範囲に対する追加のドキュメント更新漏れは見当たらない。
+
+### 確認内容
+1. `docs/logs/5/worklog.md` に最終 review 確定結果 `pr_ready: true` が記録されていることを確認。
+2. テスト総数は `auth_test: 8`、`board_run_test: 19`、`config_test: 1`、`integration_test: 2`、`plan_test: 16` の合計 `46 passed` と整合していることを確認。
+3. `crates/api/src/routes/board_run.rs` の `bundle_status_str()` が `ArtifactBundleStatus::Pending -> "queued"`、`Validating` / `Importing -> "running"`、`Completed -> "completed"`、`Failed -> "failed"` を返し、idempotent replay と completed run の既存 bundle 返却の両方で使用されていることを確認。
+4. `docs/backend/api.md` の Import API 仕様と照合し、status 返却の契約差分が解消済みであることを確認。
+5. `docs/backend/summary.md` と `README.md` を確認し、今回の修正に伴う追加更新は不要と判断。
+
+### 不整合のあるドキュメント
+- なし
+
+### 不足しているドキュメント
+- なし
+
+### 外部調査メモに関する指摘
+- なし
+
+### PR/完了結果
+- `pr_ready: true`
+- `docs_ready: true`
+
+### 残リスク
+- 実 MinIO を使った presigned URL の E2E 検証は継続タスクとして残るが、今回の docs_ready 判定を妨げるものではない。
+
+### 更新した作業ログパス
+- `docs/logs/5/worklog.md`
+
 ## 再レビューフェーズ (2026-05-01)
 
 ### 対象Issue
@@ -455,8 +468,6 @@ running 2 tests (integration_test.rs) — 全pass
 
 ### 更新した作業ログパス
 - `docs/logs/5/worklog.md`
-
----
 
 ## レビュー指摘修正フェーズ (2026-05-01)
 
@@ -572,6 +583,47 @@ total: 38 passed; 0 failed
 
 ---
 
+## Docs 再確認フェーズ (2026-05-01)
+
+### 対象Issue
+- Issue #5: POST /api/v1/board-runs, POST .../fail, POST .../artifact-bundles/import の3エンドポイント実装
+
+### docs レビュー結果
+- `docs_ready: true`
+
+### 総評
+- `docs/logs/5/worklog.md` は、Issue の経緯、要望、調査、計画、実装、テスト、レビュー、最終確定結果まで一貫して記録されており、今回の再確認依頼事項を満たしている。
+- Import API の status 返却は `bundle_status_str()` により `docs/backend/api.md` の `queued` / `running` / `completed` / `failed` 仕様と整合している。
+- README と `docs/backend/summary.md` の更新要否も確認し、今回の修正範囲に対する追加のドキュメント更新漏れは見当たらない。
+
+### 確認内容
+1. `docs/logs/5/worklog.md` に最終 review 確定結果 `pr_ready: true` が記録されていることを確認。
+2. テスト総数は `auth_test: 8`、`board_run_test: 19`、`config_test: 1`、`integration_test: 2`、`plan_test: 16` の合計 `46 passed` と整合していることを確認。
+3. `crates/api/src/routes/board_run.rs` の `bundle_status_str()` が `ArtifactBundleStatus::Pending -> "queued"`、`Validating` / `Importing -> "running"`、`Completed -> "completed"`、`Failed -> "failed"` を返し、idempotent replay と completed run の既存 bundle 返却の両方で使用されていることを確認。
+4. `docs/backend/api.md` の Import API 仕様と照合し、status 返却の契約差分が解消済みであることを確認。
+5. `docs/backend/summary.md` と `README.md` を確認し、今回の修正に伴う追加更新は不要と判断。
+
+### 不整合のあるドキュメント
+- なし
+
+### 不足しているドキュメント
+- なし
+
+### 外部調査メモに関する指摘
+- なし
+
+### PR/完了結果
+- `pr_ready: true`
+- `docs_ready: true`
+
+### 残リスク
+- 実 MinIO を使った presigned URL の E2E 検証は継続タスクとして残るが、今回の docs_ready 判定を妨げるものではない。
+
+### 更新した作業ログパス
+- `docs/logs/5/worklog.md`
+
+---
+
 ## 最終レビュー確定 (2026-05-01)
 
 ### Review 結果
@@ -608,4 +660,23 @@ total: 46 passed; 0 failed
 
 ### 更新した作業ログパス
 - `docs/logs/5/worklog.md`
+
+---
+
+## PR作成フェーズ (2026-05-01)
+
+### PR作成前確認
+- `pr_ready: true` (第3回レビューで確定)
+- `docs_ready: true`
+- 未コミットの変更: `docs/logs/5/worklog.md` のみ → 本セクション追記後コミット
+- ブランチ: `feat/5-action-api` → `main`
+
+### テスト最終結果
+- 46 tests passed (board_run_test: 19, plan_test: 16, auth_test: 8, config_test: 1, integration_test: 2)
+- リグレッションなし
+
+### 残リスク
+- presigned URL生成は実 MinIO での E2E テスト未実施
+- 真の並行テスト (tokio::spawn 同時リクエスト) は未実施
+- Import worker 本体は Issue #7 以降
 
