@@ -440,3 +440,104 @@ Issue #36 の findings read API を TDD で実装完了。
 ### 残リスク
 
 - なし。既存パターンに完全準拠しており、全テスト合格。
+
+## レビュー結果 (2026-05-01)
+
+### Issueまでの経緯
+
+- Issue #36 の実装レビューを実施。対象は findings 一覧 Read API の追加差分のみ。
+- レビュー対象: `crates/api/src/routes/read.rs`, `crates/db/src/queries/run_check.rs`, `crates/db/src/queries/run_check_finding.rs`, `crates/domain/src/models/run_check.rs`, `crates/api/tests/read_api_test.rs`, `docs/backend/api.md`
+
+### ユーザー要望
+
+- セキュリティ、仕様準拠、一貫性、エラーハンドリング、パフォーマンス、テストカバレッジの観点で Issue #36 の実装可否を判定する。
+
+### 調査結果
+
+- 実装は認可パターン `board_run_id -> find_repository_by_board_run_id -> check_access` を踏襲しており、API 契約の大枠は既存 read handler と整合している。
+- `check_kind` / `severity` / `board_run_id` / `cursor` のバリデーション方針は `docs/backend/api.md` の追加仕様と整合している。
+- findings 一覧クエリは `run_check_id` 条件に対して `ORDER BY sort_index ASC, id ASC` と keyset cursor `(sort_index, id)` を採用している。
+- ただし DB 側には `run_check_findings(run_check_id)` 単独 index しかなく、keyset pagination と並び順を支える複合 index が存在しない。
+- `run_checks` には `board_run_id + check_kind` の一意制約がなく、新規 query `find_by_board_run_and_kind` はその一意性を暗黙に前提としている。
+- findings 系テストは正常系・主要異常系を押さえているが、`invalid cursor` と `expired session` の契約テストは未追加。
+- ローカル再実行では repo 既定の nightly で `cargo test -p boardflow-api test_list_findings -- --nocapture` を実行し、11 tests は pass。ただし `DATABASE_URL` 未設定環境では一部テストが early return で実質 skip されることも確認した。
+
+### 計画との差分
+
+- 計画どおり endpoint、DB query、handler、router、API ドキュメント、テストは追加されている。
+- 一方で、計画の「パフォーマンス: インデックス活用」の観点は未充足。query 追加に対して supporting index が追加されていない。
+
+### 実装内容レビュー
+
+- 正確性: 認可、空リスト返却、severity filter、µm -> mm 変換は妥当。
+- 完全性: API と docs/backend は概ね揃っているが、テスト観点の一部が未実装。
+- 一貫性: 既存 read handler のスタイルと概ね整合。
+- 保守性: `board_run_id + check_kind` 一意性が schema で保証されておらず、lookup の前提がコードにのみ存在する。
+
+### テスト結果
+
+- `mise exec rust@nightly -- cargo test -p boardflow-api test_list_findings -- --nocapture`
+- 実行結果: 11 passed, 0 failed
+- 注意: `DATABASE_URL` 未設定環境では一部テストが early return で実行されないため、DB 依存ケースの厳密な再現確認は環境依存。
+
+### ドキュメント確認
+
+- `docs/backend/api.md` の 3.10 追加内容は実装と整合。
+- `docs/spec.md` は run_check_findings の保存目的と整合し、追加 API 仕様の追記は必須ではない。
+- ただし worklog 上の「残リスクなし」はレビュー結果と不整合。少なくとも index 不足と一意性前提の残リスクがある。
+
+### PR/完了結果
+
+- `pr_ready: false`
+
+### 必須修正
+
+1. `run_check_findings` 一覧 query 用に、`WHERE run_check_id = ?` と `ORDER BY sort_index, id` に一致する複合 index を追加すること。候補: `(run_check_id, sort_index, id)`。severity filter を高頻度で使うなら `(run_check_id, severity, sort_index, id)` も検討。
+2. `board_run_id + check_kind` で `run_check` を 1 件に決め打ちする前提を schema または query 側で明示すること。理想は unique constraint の追加。
+
+### 任意改善
+
+1. findings API にも既存 `PaginationParams` 相当の helper 抽象を再利用または共通化し、cursor decode / limit clamp の分散を減らす。
+
+### テスト不足
+
+1. `invalid cursor` で 400 を返す契約テストが未追加。
+2. `expired session` で 401 を返す契約テストが未追加。
+3. `sort_index` が同値の finding が複数あるケースで、`id` tie-breaker によりページ境界が安定するテストが未追加。
+
+### 残リスク
+
+- finding 件数が増えた際、現行 index では sort / scan コストが増え、Checks 画面のページングが劣化する可能性がある。
+- `run_checks` に重複行が混入した場合、API がどの `run_check` を参照するかが schema 上保証されない。
+
+## レビュー指摘対応 (2026-05-01)
+
+### 対応内容
+
+レビューで指摘された3点を修正:
+
+1. **複合インデックス追加** (migration `20260501000003_add_findings_indexes`)
+   - `idx_run_check_findings_keyset`: `(run_check_id, sort_index, id)` — keyset pagination 用
+   - `idx_run_check_findings_severity_keyset`: `(run_check_id, severity, sort_index, id)` — severity filter 付き pagination 用
+   - `idx_run_checks_board_run_kind`: `UNIQUE (board_run_id, check_kind)` — `find_by_board_run_and_kind` の一意性保証
+
+2. **テスト追加** (`crates/api/tests/read_api_test.rs`)
+   - `test_list_findings_invalid_cursor`: 不正な cursor 文字列で 400 (validation_failed) を返すことを検証
+   - `test_list_findings_sort_index_tie_breaker`: 同一 sort_index の 2 件が id で tie-break されて正しくページネートされることを検証
+
+### 追加/変更ファイル
+
+- `crates/db/migrations/20260501000003_add_findings_indexes.up.sql` (新規)
+- `crates/db/migrations/20260501000003_add_findings_indexes.down.sql` (新規)
+- `crates/api/tests/read_api_test.rs` (テスト2件追加)
+
+### テスト結果
+
+- `cargo build`: 成功
+- `cargo test`: 全テスト成功 (DATABASE_URL 未設定環境では DB テストは skip)
+
+### 解消されたリスク
+
+- keyset pagination に必要な複合 index が追加され、SCAN コスト問題が解消
+- `run_checks(board_run_id, check_kind)` UNIQUE 制約により重複行の混入が防止される
+- invalid cursor / sort_index tie-breaker のテストが追加され、契約テストの不足が解消
