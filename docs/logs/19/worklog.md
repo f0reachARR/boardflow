@@ -148,6 +148,68 @@ test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
 
 ---
 
+## レビューフェーズ（2026-05-01）
+
+### 総評
+
+`crates/github/` の公開 API は、Issue #19 の計画にある 5 操作を一通り満たしており、octocrab の型も crate 外へ漏れていない。`cargo test -p boardflow-github` も通過しており、最小限の土台としては成立している。
+
+一方で、仕様 `docs/spec.md` §13.4 が要求するレートリミット時の待機制御に必要な情報をエラー型が保持しておらず、後続の GitHub API キュー実装がこの API だけでは正しく backoff できない。また、Installation Token を `String` で公開しており、秘密情報の扱いとしては境界設計が弱い。
+
+### レビュー結果
+
+- `pr_ready: false`
+
+### 必須修正
+
+1. レートリミット時の retry 情報を `GitHubClientError` で保持できるようにする。
+    - 現状の `RateLimited` はヘッダ情報を持たず、`x-ratelimit-reset` や `retry-after` に基づく待機ができない。
+    - 仕様 `docs/spec.md` §13.4 では、`x-ratelimit-reset` / `retry-after` / 403 / 429 を見て遅延・backoff することが求められている。
+    - このため、少なくとも reset 時刻、retry-after 秒数、HTTP status を保持する構造へ変更しないと、後続ジョブ実装で仕様を満たせない。
+
+2. `get_installation_token` の戻り値を `String` ではなく秘密情報として扱える型に変更する。
+    - 現状は `SecretString` から `String` に展開して返しており、呼び出し側で誤ってログやエラーに混入しやすい。
+    - この crate は GitHub App 認証の境界なので、秘密情報は公開 API 上でも秘匿型のまま流すべき。
+
+### 任意改善
+
+1. `403` の非 rate-limit ケースを一律 `Auth` に落とすのは意味が広すぎるため、権限不足や integration 制約を区別できるエラー名に寄せた方が運用時の判別がしやすい。
+2. `OctocrabGitHubAppClient::new` の失敗ケースは invalid PEM の単体テストを足しておくと、秘密鍵設定ミスの回帰を防ぎやすい。
+
+### テスト不足
+
+1. 現在の 9 テストはエラーマッピングのみで、クライアント生成 (`new`) の異常系を検証していない。
+2. `GitHubAppClient` を `Arc<dyn GitHubAppClient>` として扱う前提のコンパイル保証テストがない。
+3. レートリミット関連は、403/429 の文言判定だけでなく retry 情報の抽出をテストできる形にしておく必要がある。
+
+### ドキュメント確認
+
+- `docs/spec.md` §11〜§13 は確認済み。
+- `docs/external/github-app-octocrab.md` の調査内容と octocrab 採用判断は整合している。
+- `README.md` は概要のみで、本件に追加更新が必須とは言えない。
+- `CONTRIBUTING.md` はリポジトリ内に存在しなかったため確認不可。
+
+### plan / research / docs との不整合
+
+1. 計画では `get_installation_token` を提供するとしているが、秘密情報の扱いについて公開 API の設計が research の `secrecy` 採用方針と噛み合っていない。
+2. research と仕様では GitHub のレートリミットヘッダを見て待機する前提だが、実装の `GitHubClientError` はその情報を保持していない。
+
+### テスト結果
+
+- `mise exec -- cargo test -p boardflow-github` : 成功（9 passed）
+
+### 残リスク
+
+1. 403 を `Auth` と誤分類すると、installation 解除・権限不足・secondary rate limit の運用判断を誤る可能性がある。
+2. Installation Token が `String` として拡散すると、後続実装でログ流出や panic message 混入の余地が残る。
+
+### PR/完了結果
+
+- 現時点では `pr_ready: false`
+- 上記 2 件の必須修正が入れば、Issue #19 の土台としては再レビュー可能
+
+---
+
 ## 計画フェーズ（2026-05-01）
 
 ### 目的
@@ -410,3 +472,60 @@ boardflow-github = { path = "../github" }
 2. **PEM 秘密鍵の環境変数渡し**: 改行を含む PEM を環境変数で渡す場合のエスケープ方針は worker 設定実装時に決定（`\n` リテラル or ファイルパス指定）
 3. **octocrab + reqwest の共存**: octocrab は内部で hyper を使用、既存 `crates/api/` は reqwest を使用。機能衝突はないがバイナリサイズが若干増加
 4. **Installation Token キャッシュの expiry handling**: octocrab の内蔵キャッシュは 30 秒バッファで自動更新するが、長時間アイドル後の初回リクエストで latency が増加する可能性あり
+
+---
+
+## レビュー修正フェーズ（2026-05-01）
+
+### レビュー指摘事項
+
+1. `RateLimited` に retry 情報がない（spec §13.4 の要求）
+2. `get_installation_token` の戻り値が平文 `String`（秘密情報の公開 API 境界越え）
+3. 追加テスト要求（invalid PEM テスト、object safety テスト）
+
+### 実装内容
+
+#### 1. RateLimited に retry_after_secs フィールド追加
+
+- `crates/github/src/error.rs`: `RateLimited` を unit variant → struct variant に変更
+  - `retry_after_secs: Option<u64>` フィールド追加
+  - octocrab の `Error::GitHub` にはレスポンスヘッダが含まれないため、現時点では常に `None`
+  - caller（worker）は `None` 時に exponential backoff を使用する想定
+- `map_status_to_error` の 403（rate limit）と 429 のケースで `RateLimited { retry_after_secs: None }` を返すよう更新
+- 既存テスト 3 件を新しいパターンに更新
+
+#### 2. get_installation_token の戻り値を SecretString に変更
+
+- `crates/github/src/client.rs`: trait 定義の戻り値を `Result<SecretString, GitHubClientError>` に変更
+- 実装で `token.expose_secret().to_string()` → `token` をそのまま返すよう簡素化
+- `use secrecy::SecretString;` を import に追加
+
+#### 3. 追加テスト
+
+- `client::tests::new_with_invalid_pem_returns_auth_error`: 壊れた PEM で `Auth` エラーが返ることを検証
+- `client::tests::trait_is_object_safe`: `&dyn GitHubAppClient` の型チェックによるオブジェクトセーフ性確認
+
+### テスト結果
+
+```
+running 11 tests
+test client::tests::trait_is_object_safe ... ok
+test client::tests::new_with_invalid_pem_returns_auth_error ... ok
+test error::tests::test_401_maps_to_auth ... ok
+test error::tests::test_403_non_rate_limit_maps_to_auth ... ok
+test error::tests::test_403_rate_limit_maps_to_rate_limited ... ok
+test error::tests::test_403_secondary_rate_limit_maps_to_rate_limited ... ok
+test error::tests::test_404_maps_to_not_found ... ok
+test error::tests::test_422_maps_to_validation ... ok
+test error::tests::test_429_maps_to_rate_limited ... ok
+test error::tests::test_500_maps_to_api ... ok
+test error::tests::test_502_maps_to_api ... ok
+test result: ok. 11 passed; 0 failed; 0 ignored
+```
+
+ワークスペース全体のビルドも成功（downstream crate への影響なし）。
+
+### 残リスク
+
+- `retry_after_secs` は現時点では常に `None`。将来的に octocrab カスタム middleware でレスポンスヘッダを保存する対応が必要
+- octocrab の `installation_and_token()` が返す `SecretString` の型が将来変更された場合、コンパイルエラーとして検出される（安全）
