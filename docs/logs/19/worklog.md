@@ -41,7 +41,6 @@ docs 以下の仕様に基づいてアプリケーションを一通り実装す
 ワークスペースに追加すべき crate:
 - `octocrab = "0.49"` — GitHub API クライアント
 - `jsonwebtoken = { version = "10", default-features = false, features = ["use_pem"] }` — EncodingKey 直接利用用
-- `secrecy = "0.10"` — 秘密情報管理
 
 ### 結論ステータス
 
@@ -65,14 +64,11 @@ docs 以下の仕様に基づいてアプリケーションを一通り実装す
 | ファイル | 説明 |
 |---|---|
 | `crates/github/src/error.rs` | `GitHubClientError` enum + octocrab Error からのステータスコードベース変換 |
-| `crates/github/src/types.rs` | `CreatedIssue`, `IssueInfo`, `IssueState`, `CreatedComment` 戻り値型 |
 | `crates/github/src/config.rs` | `GitHubAppConfig` (app_id + private_key_pem) |
 | `crates/github/src/client.rs` | `GitHubAppClient` トレイト + `OctocrabGitHubAppClient` 実装 |
 
 #### 変更ファイル
 
-| ファイル | 変更内容 |
-|---|---|
 | `Cargo.toml` (workspace) | `octocrab = "0.49"`, `secrecy = "0.10"`, `jsonwebtoken` 追加 |
 | `crates/github/Cargo.toml` | 依存定義追加 |
 | `crates/github/src/lib.rs` | モジュール宣言 + re-export |
@@ -97,11 +93,9 @@ test error::tests::test_403_secondary_rate_limit_maps_to_rate_limited ... ok
 test error::tests::test_404_maps_to_not_found ... ok
 test error::tests::test_422_maps_to_validation ... ok
 test error::tests::test_429_maps_to_rate_limited ... ok
-test error::tests::test_500_maps_to_api ... ok
 test error::tests::test_502_maps_to_api ... ok
 
 test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
-```
 
 ### テスト観点
 
@@ -110,13 +104,9 @@ test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
 | `test_401_maps_to_auth` | 認証エラーが Auth にマッピングされること |
 | `test_403_rate_limit_maps_to_rate_limited` | 403 + "rate limit" メッセージが RateLimited にマッピングされること |
 | `test_403_secondary_rate_limit_maps_to_rate_limited` | secondary rate limit も RateLimited にマッピングされること |
-| `test_403_non_rate_limit_maps_to_auth` | 403 で rate limit でない場合は Auth にマッピングされること |
-| `test_404_maps_to_not_found` | 404 が NotFound にマッピングされること |
 | `test_422_maps_to_validation` | 422 が Validation にマッピングされること |
 | `test_429_maps_to_rate_limited` | 429 が RateLimited にマッピングされること |
 | `test_500_maps_to_api` | 5xx が Api にマッピングされること |
-| `test_502_maps_to_api` | 別の 5xx も Api にマッピングされること |
-
 ### 設計判断
 
 1. **octocrab の型を外部に漏らさない**: `GitHubAppClient` トレイトの戻り値は自前定義型のみ
@@ -125,19 +115,64 @@ test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
 4. **`node_id` / `html_url`**: octocrab v0.49 では `String` / `Url` 型で直接利用可能（Option ではない）
 5. **統合テストは書かない**: GitHub API への実呼び出しが必要なため、CI では実行不可
 
-### 残リスク
-
-- octocrab のメジャーバージョンアップ時に `IssueState` enum のバリアント追加等で break する可能性あり
 - `get_installation_token` は octocrab の内部キャッシュに依存しているため、大量並行呼び出し時の挙動は未検証
-- GitHub の secondary rate limit (403) のメッセージ文言が GitHub 側で変更された場合、RateLimited 判定が漏れる可能性あり
 
 ### 残リスク
 
 - octocrab の `AppId(u64)` と GitHub 推奨の Client ID（文字列）の差異（MVP では App ID 数値で問題なし）
 - Installation Token キャッシュ戦略（worker 設計時に決定）
-- octocrab エラー型（snafu）と BoardFlow エラー型（thiserror）のマッピング
-- octocrab の hyper 依存と既存の reqwest 依存の共存（バイナリサイズ増加の懸念のみ、機能的な衝突なし）
 
+---
+
+## 再レビューフェーズ（2026-05-01）
+
+### 対象
+
+- Issue ID: `#19`
+- 再レビュー観点:
+    - `RateLimited` に retry 情報フィールドがあるか
+    - `get_installation_token` が `SecretString` を返すか
+    - テストが 11 件に増えて通過しているか
+    - 新しいバグや設計問題が入っていないか
+    - octocrab 型が公開 API に漏れていないか
+
+### 調査結果
+
+     - 現在の実装では octocrab がレスポンスヘッダを公開しないため `None` 固定だが、前回指摘の「retry 情報を保持できない」状態は解消している。
+2. `GitHubAppClient::get_installation_token` は trait / 実装ともに `Result<SecretString, GitHubClientError>` を返しており、平文 `String` は外部公開されていない。
+3. `mise exec -- cargo test -p boardflow-github` を再実行し、11 件すべて成功を確認。
+4. `mise exec -- cargo build -p boardflow-github` も成功。
+5. 公開 API は `GitHubAppClient`、`OctocrabGitHubAppClient`、`GitHubAppConfig`、`GitHubClientError`、自前 DTO 群で構成されており、シグネチャ上に octocrab の型は露出していない。
+
+### レビュー結果
+
+- `pr_ready: true`
+### 総評
+
+前回の 2 件の必須修正は、今回の差分でいずれも適切に反映されている。特に Installation Token を `SecretString` のまま返すようにした点は公開 API 境界の改善として妥当で、追加された invalid PEM テストと object safety テストも回帰防止として有効。
+
+`retry_after_secs` は現時点では常に `None` であり、仕様 `docs/spec.md` §13.4 のヘッダ駆動の待機制御までをこの crate 単体で満たしているわけではない。ただし、Issue #19 のスコープは GitHub App 認証クライアントの土台実装であり、現在の変更により少なくとも error surface に拡張余地が確保された。worker 側が `None` の場合に exponential backoff を行う前提なら、この PR を止めるほどの欠陥ではない。
+
+### 必須修正
+
+### 任意改善
+
+1. 将来 `docs/spec.md` §13.4 を厳密に満たす段階では、レスポンスヘッダ由来の `retry-after` / `x-ratelimit-reset` を取り出せる transport 拡張または middleware を検討する。
+
+- 今回の再レビュー観点に関しては、新たな必須テスト不足は見当たらない。
+- 実 GitHub API との疎通や rate limit ヘッダ抽出は統合テスト領域として引き続き未検証。
+
+- `docs/spec.md` の GitHub App 連携仕様とレートリミット節を再確認。
+- `docs/external/github-app-octocrab.md` の調査内容と実装方針は整合している。
+### plan / research / docs との不整合
+
+- blocker となる不整合はなし。
+- 残差として、rate limit ヘッダの具体値は research / spec 側の理想状態までまだ到達していないが、今回の Issue スコープ外として許容可能。
+
+### PR/完了結果
+
+- Issue #19 は再レビュー観点を満たしており、PR 作成可。
+2. GitHub 側の secondary rate limit 文言に依存する判定は、将来の API 変更で再調整が必要になる可能性がある。
 ### 後続エージェントへの注意点
 
 - `crates/github/` は現在空（`lib.rs` のみ、内容なし）。`Cargo.toml` の `[dependencies]` も空
@@ -149,7 +184,6 @@ test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
 ---
 
 ## レビューフェーズ（2026-05-01）
-
 ### 総評
 
 `crates/github/` の公開 API は、Issue #19 の計画にある 5 操作を一通り満たしており、octocrab の型も crate 外へ漏れていない。`cargo test -p boardflow-github` も通過しており、最小限の土台としては成立している。
@@ -175,10 +209,6 @@ test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
 
 1. `403` の非 rate-limit ケースを一律 `Auth` に落とすのは意味が広すぎるため、権限不足や integration 制約を区別できるエラー名に寄せた方が運用時の判別がしやすい。
 2. `OctocrabGitHubAppClient::new` の失敗ケースは invalid PEM の単体テストを足しておくと、秘密鍵設定ミスの回帰を防ぎやすい。
-
-### テスト不足
-
-1. 現在の 9 テストはエラーマッピングのみで、クライアント生成 (`new`) の異常系を検証していない。
 2. `GitHubAppClient` を `Arc<dyn GitHubAppClient>` として扱う前提のコンパイル保証テストがない。
 3. レートリミット関連は、403/429 の文言判定だけでなく retry 情報の抽出をテストできる形にしておく必要がある。
 
@@ -187,7 +217,6 @@ test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
 - `docs/spec.md` §11〜§13 は確認済み。
 - `docs/external/github-app-octocrab.md` の調査内容と octocrab 採用判断は整合している。
 - `README.md` は概要のみで、本件に追加更新が必須とは言えない。
-- `CONTRIBUTING.md` はリポジトリ内に存在しなかったため確認不可。
 
 ### plan / research / docs との不整合
 
@@ -195,8 +224,6 @@ test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
 2. research と仕様では GitHub のレートリミットヘッダを見て待機する前提だが、実装の `GitHubClientError` はその情報を保持していない。
 
 ### テスト結果
-
-- `mise exec -- cargo test -p boardflow-github` : 成功（9 passed）
 
 ### 残リスク
 
@@ -529,3 +556,82 @@ test result: ok. 11 passed; 0 failed; 0 ignored
 
 - `retry_after_secs` は現時点では常に `None`。将来的に octocrab カスタム middleware でレスポンスヘッダを保存する対応が必要
 - octocrab の `installation_and_token()` が返す `SecretString` の型が将来変更された場合、コンパイルエラーとして検出される（安全）
+
+---
+
+## ドキュメント確認フェーズ（2026-05-01 最終）
+
+### 対象
+
+- Issue ID: `#19`
+- 確認対象:
+  - `docs/backend/summary.md`
+  - `docs/external/github-app-octocrab.md`
+  - `docs/logs/19/worklog.md`
+  - `README.md`
+  - `docs/spec.md` の GitHub App / rate limit 関連節
+
+### 確認結果
+
+1. `docs/backend/summary.md` は、backend が GitHub Issue 作成やコメント更新などの非同期処理を担い、`crates/github` を GitHub API 境界として切る構成と読めるため、今回の `crates/github/` 実装と整合している。
+2. `docs/external/github-app-octocrab.md` の主要記述は実装と一致している。
+    - `OctocrabBuilder::app(...)` による App 認証
+    - `installation(...)` / `installation_and_token(...)` による installation スコープ化と token 取得
+    - GitHub App JWT の `iss` / `iat` / `exp` 要件
+    - installation token の 1 時間有効期限
+3. `docs/logs/19/worklog.md` には、Issue 概要、ユーザー要望、調査、計画、実装、テスト、レビュー、PR 判定、残リスクが時系列で揃っている。途中の `pr_ready: false` は履歴として残っており、後続の再レビュー結果で解消済みと読める。
+4. 他ドキュメントの必須更新は見当たらない。
+    - `docs/backend/api.md` は HTTP API 契約書のため今回の crate 実装とは直接対応しない。
+    - `README.md` も現段階では概要のままで問題ない。
+
+### ドキュメント観点の判定
+
+- `docs_ready: true`
+
+### 必須修正
+
+- なし
+
+### 任意改善
+
+1. `docs/external/github-app-octocrab.md` の「octocrab 自体はレートリミット管理を提供しない」は、BoardFlow が必要とする installation 単位のキュー制御は自前実装という意味では妥当だが、octocrab 自体に retry 機能と rate limit API 参照手段はあるため、表現を少し狭めると誤読を避けやすい。
+2. `docs/logs/19/worklog.md` は履歴情報が十分な一方で長いので、将来必要なら末尾に最新ステータス要約を 2-3 行で追加すると参照しやすい。
+
+### 外部調査メモに関する補足
+
+- Context7 MCP は認証エラーで利用できなかったため、今回の裏取りは docs.rs と GitHub 公式ドキュメントで実施した。
+- 根拠 URL と採用判断の対応は十分で、実装との差異は見当たらない。
+
+### PR/完了結果
+
+- Issue #19 はドキュメント観点でも PR 作成可。
+- 判定: `docs_ready: true`
+
+### ドキュメント確認の残リスク
+
+1. `docs/external/github-app-octocrab.md` は「octocrab がサポートする機能」と「Issue #19 で実装した機能」がやや近接して記述されているため、将来の読者が未実装機能まで実装済みと誤読しないよう、必要に応じて区別を明示するとさらに良い。
+
+---
+
+## PR作成フェーズ（2026-05-01）
+
+### PR作成前チェック
+
+- `pr_ready: true`（再レビュー通過、2026-05-01）
+- `docs_ready: true`（ドキュメント確認通過、2026-05-01）
+- 未コミット変更: `docs/logs/19/worklog.md`（本フェーズ追記のみ）→ コミット後にプッシュ
+- テスト: `boardflow-github` 11/11 pass、ワークスペース全体ビルド成功
+- research 成果物と実装の矛盾: なし
+
+### PR/完了結果
+
+- ブランチ: `feat/19-github-app-client` → `main`
+- PRリンク: 作成後に記載
+- 判定: PR作成実施
+
+### 残リスク
+
+- `retry_after_secs` は現状常に `None`（octocrab がレスポンスヘッダを公開しないため）。将来 middleware 拡張で対応可能
+- 統合テスト（実 GitHub API 呼び出し）なし（CI に秘密鍵が必要なため意図的に省略）
+- octocrab バージョンアップ時の breaking changes
+- `docs/external/github-app-octocrab.md` にて実装済み機能と未実装機能の区別が将来的に不明確になる可能性
