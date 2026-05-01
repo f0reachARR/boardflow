@@ -47,6 +47,7 @@ pub fn create_app_with_config(
         .routes(routes!(routes::read::list_artifacts))
         .routes(routes!(routes::read::get_viewer_sources))
         .routes(routes!(routes::read::get_board_run_diff))
+        .routes(routes!(routes::read::list_findings))
         .routes(routes!(routes::auth::login))
         .routes(routes!(routes::auth::callback))
         .routes(routes!(routes::auth::logout))

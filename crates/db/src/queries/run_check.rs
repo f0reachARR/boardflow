@@ -13,6 +13,20 @@ pub async fn list_by_board_run(
     .await
 }
 
+pub async fn find_by_board_run_and_kind(
+    executor: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
+    board_run_id: Uuid,
+    check_kind: &str,
+) -> Result<Option<RunCheck>, sqlx::Error> {
+    sqlx::query_as::<_, RunCheck>(
+        "SELECT * FROM run_checks WHERE board_run_id = $1 AND check_kind = $2",
+    )
+    .bind(board_run_id)
+    .bind(check_kind)
+    .fetch_optional(executor)
+    .await
+}
+
 pub async fn insert(
     executor: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
     id: Uuid,
