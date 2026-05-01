@@ -838,3 +838,62 @@ pub async fn handle_create_issue(
 
 - README 未更新のままマージすると、別環境で worker を起動した際に GitHub API job が「設定不足で延期され続ける」状態を招きやすい。
 - Job Type 設計メモが古いままだと、後続 Issue で queue 周辺を触る際に `create_dashboard_comment` を見落とすリスクがある。
+
+---
+
+## 再レビューフェーズ3 (2026-05-02 01:04:06 JST)
+
+### 対象Issue
+
+- Issue ID: #26
+- タイトル: Worker: GitHub APIジョブ汎用ディスパッチャ実装
+
+### レビュー結果
+
+- 判定: `pr_ready: false`
+- 前回指摘だった `create_dashboard_comment` の初回作成経路での `latest_completed_run_id` 利用は **修正済み**。
+    - `crates/worker/src/handlers/create_dashboard_comment.rs` で `bp.latest_completed_run_id.unwrap_or(board_run_id)` を使っており、コメント本文生成は create / update の両経路で最新 completed run に収束することを確認。
+
+### 重大度順の指摘
+
+1. **closed Issue 再作成の tree_hash 判定が stale job の `board_run_id` 基準のままで、最新 completed run を見ていない**
+     - `create_dashboard_comment`, `update_dashboard_comment`, `create_run_result_comment` は、コメント本文生成では `latest_completed_run_id` を参照する一方、closed Issue の再作成判定では依然として `tree_hash_changed(pool, board_project_id, board_run_id)` を呼んでいる。
+     - そのため、古い job が遅れて実行されたケースで、最新 run では tree_hash が変わっているのに「未変化」と誤判定して再作成を抑止する、または逆に最新状態と無関係な比較で再作成する可能性がある。
+     - spec 11.7 / 13.1 が要求しているのは「現在の active Issue 更新対象」に対する判定であり、stale job の run ではなく実効的な最新 completed run 基準に揃える必要がある。
+
+### 必須修正
+
+1. closed Issue 分岐の `tree_hash_changed()` 呼び出しで `job.board_run_id` を使うのをやめ、コメント本文生成と同じ実効 run（`bp.latest_completed_run_id.unwrap_or(board_run_id)`）に揃える。
+2. 上記を `create_dashboard_comment`, `update_dashboard_comment`, `create_run_result_comment` の3ハンドラで統一し、stale job 実行時でも closed Issue 再作成判定が最新状態に対して行われるようにする。
+3. 少なくとも「古い job が後から実行されても closed Issue の再作成判定が最新 run 基準になる」ケースをテストで固定する。
+
+### 任意改善
+
+1. `effective_run_id` 決定を各ハンドラで重複させず、共通ヘルパーに寄せると再発防止になる。
+2. `tree_hash_changed()` 自体を `current_run_id` ではなく `effective_run_id` を受ける前提に命名・責務整理すると読み違いが減る。
+
+### テスト確認
+
+- `mise exec -- cargo check -p boardflow-worker`: 成功
+- `mise exec -- cargo test -p boardflow-worker`: 成功（12 passed）
+- ただし現在のテストは `comment_body` 中心で、stale job + closed Issue 再作成判定の回帰を捕捉できない。
+
+### ドキュメント確認
+
+- `README.md` の worker 環境変数追記は確認済み。
+- `docs/external/postgresql-job-queue-enqueue.md` の job type 一覧修正も確認済み。
+- 今回の PR 可否判断を左右するドキュメント更新漏れは見当たらない。
+
+### PR/完了結果
+
+- `pr_ready: false`
+- 前回指摘の create_dashboard_comment 修正自体は完了しているが、closed Issue 再作成判定に stale run 基準が残っており、仕様整合の観点でまだマージ不可。
+
+### 残リスク
+
+- closed Issue のまま複数 run が進んだ後、古い job が先に処理されると、最新 run では再作成すべき条件を満たしていても Issue 再作成が起きない可能性がある。
+- 逆に、古い run 基準で不要な再作成が走ると、Issue 履歴が不要に分岐する可能性がある。
+
+### 更新した作業ログパス
+
+- `docs/logs/26/worklog.md`

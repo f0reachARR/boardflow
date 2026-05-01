@@ -74,7 +74,9 @@ pub async fn handle(
                     return HandlerResult::Completed;
                 }
                 // Only recreate if tree_hash has changed since the previous completed run
-                match tree_hash_changed(pool, board_project_id, board_run_id).await {
+                // Use latest_completed_run_id to avoid stale job issues
+                let effective_run_id = bp.latest_completed_run_id.unwrap_or(board_run_id);
+                match tree_hash_changed(pool, board_project_id, effective_run_id).await {
                     Ok(false) => {
                         tracing::info!(job_id = %job.id, "Issue is closed but tree_hash unchanged, skipping recreation");
                         return HandlerResult::Completed;
