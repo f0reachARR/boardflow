@@ -307,6 +307,57 @@ S3 依存テストは `MINIO_ENDPOINT` 未設定時はスキップ。
 
 ---
 
+## ドキュメントレビュー結果（2026-05-01, absolute proxy URL 再確認後）
+
+### 今回のレビュー対象
+
+Issue #18 「Artifact Proxy API実装」について、absolute proxy URL 対応後の実装・テスト・関連ドキュメントの整合性を再確認。
+
+### 今回確認した範囲
+
+- `crates/api/src/routes/read.rs`
+- `crates/api/src/routes/proxy.rs`
+- `crates/api/src/config.rs`
+- `crates/api/src/lib.rs`
+- `crates/api/tests/read_api_test.rs`
+- `docs/spec.md`
+- `docs/backend/api.md`
+- `docs/external/kicanvas.md`
+- `docs/external/axum-s3-streaming-proxy.md`
+- `README.md`
+
+### URL整合性の確認結果
+
+1. `viewer-sources` の実装は `artifact_base_url` を使って `{artifact_base_url}/proxy/artifacts/art_{uuid}?token=...` を生成しており、absolute URL を返す現在の仕様と一致している。
+2. proxy 実装は `art_` prefix 付き `artifact_id` を parse するため、`viewer-sources` が返す公開 URL 形式と整合している。
+3. `docs/spec.md` と `docs/backend/api.md` のレスポンス例は、いずれも `https://artifacts.boardflow.example.com/proxy/artifacts/art_xxx?token=...` 形式で実装と一致している。
+4. `docs/external/kicanvas.md` の viewer-sources 例も同じ absolute proxy URL に揃っており、前回指摘した signed URL / relative URL の不整合は解消している。
+5. `docs/external/axum-s3-streaming-proxy.md` の proxy 方針、token 検証、CSP / CORS 方針も現行実装と大きな矛盾は見当たらない。
+
+### 今回の必須修正
+
+1. **`BOARDFLOW_ARTIFACT_BASE_URL` の運用ドキュメントが不足**。実装はこの環境変数未設定時に `http://localhost:8080` を使うため、非ローカル環境で未設定のままデプロイすると `viewer-sources` が誤った absolute URL を返す。`README.md` もしくは運用/config ドキュメントに、artifact 用ベース URL を設定必須であることを追記する必要がある。
+
+### 今回の任意改善
+
+1. `docs/backend/api.md` か設定ドキュメントに、`viewer-sources` の absolute URL は `BOARDFLOW_ARTIFACT_BASE_URL` から決まることを一文追加すると、例示 URL と実運用設定の関係が明確になる。
+
+### 今回のドキュメント判定
+
+- URL 形式そのものの不整合は解消済み。
+- ただし設定手順の不足により、ドキュメント単体では本番向けの正しい absolute URL 設定条件が十分に伝わらない。
+- 判定: `docs_ready: false`
+
+### 今回の残リスク
+
+1. ドキュメント未更新のまま PR を進めると、環境構築時に `BOARDFLOW_ARTIFACT_BASE_URL` が見落とされ、artifact proxy へのリンク先が `localhost` のままになるリスクが残る。
+
+### 今回更新した作業ログパス
+
+`docs/logs/18/worklog.md`
+
+---
+
 ## ドキュメント確認フェーズ（2026-05-01）
 
 ### 対象
@@ -1104,6 +1155,36 @@ Cross-origin 前提では、viewer-sources API が返す proxy URL は絶対 URL
 ### 残リスク
 
 - なし（後方互換性の問題なし。デフォルト値で開発環境は動作する）
+
+### 更新した作業ログパス
+
+`docs/logs/18/worklog.md`
+
+---
+
+## ドキュメント確定フェーズ（2026-05-01）
+
+### 対応内容
+
+直前のドキュメントレビューで指摘された必須修正（`BOARDFLOW_ARTIFACT_BASE_URL` の運用ドキュメント不足）を解消。
+
+#### `docs/backend/api.md` 追加内容
+
+§4 Artifact Proxy API に以下を追加:
+
+- `BOARDFLOW_ARTIFACT_BASE_URL`: viewer-sources が返す artifact proxy URL のベース URL。本番例: `https://artifacts.boardflow.example.com`。未設定時のデフォルト: `http://localhost:8080`。
+- `BOARDFLOW_APP_DOMAIN`: CORS と frame-ancestors で許可する app ドメイン。本番例: `https://app.boardflow.example.com`。未設定時のデフォルト: `http://localhost:3000`。
+- `BOARDFLOW_ARTIFACT_SECRET`: HMAC 署名に使用するシークレット。必須。
+
+### 最終テスト結果
+
+- `mise exec -- cargo test --package boardflow-api`: **42 passed; 0 failed**
+- リグレッションなし
+
+### 最終判定
+
+- `pr_ready: true`（4回目レビューで確認済み）
+- `docs_ready: true`（環境変数ドキュメント追加により解消）
 
 ### 更新した作業ログパス
 
