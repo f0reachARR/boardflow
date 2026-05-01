@@ -1094,9 +1094,9 @@ KiCanvas専用の `kicanvas-sources` APIは作らず、KiCanvasはこのAPIが�
 GET /api/v1/board-runs/{board_run_id}/viewer-sources
 ```
 
-このAPIは認可済みユーザーに対して、短命URLまたはartifact proxy URLをviewer用途ごとに返す。
+このAPIは認可済みユーザーに対して、artifact proxy URLをviewer用途ごとに返す。
 MVPではKiCanvasだけでなく、schematic PDF、PCB SVG/PDF、iBOM、BOM、fabrication downloadも同じレスポンスに含める。
-URLは短命であり、frontendは必要に応じて再取得する。
+URLは短命トークン付きであり、frontendは必要に応じて再取得する。
 
 レスポンス例:
 
@@ -1113,21 +1113,21 @@ URLは短命であり、frontendは必要に応じて再取得する。
           "kind": "project",
           "name": "motor_driver.kicad_pro",
           "source_path": "hardware/motor_driver/motor_driver.kicad_pro",
-          "url": "https://artifacts.boardflow.example.com/signed/..."
+          "url": "https://artifacts.boardflow.example.com/proxy/artifacts/art_project?token=eyJ..."
         },
         {
           "artifact_id": "art_schematic",
           "kind": "schematic",
           "name": "motor_driver.kicad_sch",
           "source_path": "hardware/motor_driver/motor_driver.kicad_sch",
-          "url": "https://artifacts.boardflow.example.com/signed/..."
+          "url": "https://artifacts.boardflow.example.com/proxy/artifacts/art_schematic?token=eyJ..."
         },
         {
           "artifact_id": "art_board",
           "kind": "board",
           "name": "motor_driver.kicad_pcb",
           "source_path": "hardware/motor_driver/motor_driver.kicad_pcb",
-          "url": "https://artifacts.boardflow.example.com/signed/..."
+          "url": "https://artifacts.boardflow.example.com/proxy/artifacts/art_board?token=eyJ..."
         }
       ]
     },
@@ -1136,7 +1136,7 @@ URLは短命であり、frontendは必要に応じて再取得する。
       "primary": {
         "artifact_id": "art_schematic_pdf",
         "artifact_type": "schematic_pdf",
-        "url": "https://artifacts.boardflow.example.com/signed/..."
+        "url": "https://artifacts.boardflow.example.com/proxy/artifacts/art_schematic_pdf?token=eyJ..."
       }
     },
     "pcb_preview": {
@@ -1145,23 +1145,23 @@ URLは短命であり、frontendは必要に応じて再取得する。
         {
           "artifact_id": "art_top",
           "artifact_type": "pcb_top_svg",
-          "url": "https://artifacts.boardflow.example.com/signed/..."
+          "url": "https://artifacts.boardflow.example.com/proxy/artifacts/art_top?token=eyJ..."
         },
         {
           "artifact_id": "art_bottom",
           "artifact_type": "pcb_bottom_svg",
-          "url": "https://artifacts.boardflow.example.com/signed/..."
+          "url": "https://artifacts.boardflow.example.com/proxy/artifacts/art_bottom?token=eyJ..."
         },
         {
           "artifact_id": "art_pcb_pdf",
           "artifact_type": "pcb_pdf",
-          "url": "https://artifacts.boardflow.example.com/signed/..."
+          "url": "https://artifacts.boardflow.example.com/proxy/artifacts/art_pcb_pdf?token=eyJ..."
         }
       ]
     },
     "ibom": {
       "status": "available",
-      "iframe_url": "https://artifacts.boardflow.example.com/signed/..."
+      "iframe_url": "https://artifacts.boardflow.example.com/proxy/artifacts/art_ibom?token=eyJ..."
     },
     "bom": {
       "status": "available",
@@ -1169,7 +1169,7 @@ URLは短命であり、frontendは必要に応じて再取得する。
         {
           "artifact_id": "art_bom",
           "artifact_type": "bom_csv",
-          "url": "https://artifacts.boardflow.example.com/signed/..."
+          "url": "https://artifacts.boardflow.example.com/proxy/artifacts/art_bom?token=eyJ..."
         }
       ]
     },
@@ -1180,7 +1180,7 @@ URLは短命であり、frontendは必要に応じて再取得する。
           "artifact_id": "art_gerber",
           "artifact_type": "gerber_zip",
           "status": "available",
-          "url": "https://artifacts.boardflow.example.com/signed/..."
+          "url": "https://artifacts.boardflow.example.com/proxy/artifacts/art_gerber?token=eyJ..."
         },
         {
           "artifact_type": "drill_zip",

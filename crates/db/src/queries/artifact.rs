@@ -1,6 +1,16 @@
 use boardflow_domain::models::artifact::Artifact;
 use uuid::Uuid;
 
+pub async fn find_by_id(
+    executor: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
+    id: Uuid,
+) -> Result<Option<Artifact>, sqlx::Error> {
+    sqlx::query_as::<_, Artifact>("SELECT * FROM artifacts WHERE id = $1")
+        .bind(id)
+        .fetch_optional(executor)
+        .await
+}
+
 pub async fn list_by_board_run(
     executor: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
     board_run_id: Uuid,

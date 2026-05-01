@@ -19,7 +19,7 @@ use github_access::{DynGithubAccessChecker, RealGithubAccessChecker};
 use routes::auth::OAuthConfig;
 
 pub fn create_app(pool: PgPool, s3_client: Option<aws_sdk_s3::Client>) -> Router {
-    create_app_with_config(pool, s3_client, None, None, None)
+    create_app_with_config(pool, s3_client, None, None, None, None, None, None)
 }
 
 pub fn create_app_with_config(
@@ -28,6 +28,9 @@ pub fn create_app_with_config(
     oauth_config: Option<OAuthConfig>,
     artifact_secret: Option<Vec<u8>>,
     access_checker: Option<DynGithubAccessChecker>,
+    final_bucket: Option<String>,
+    app_domain: Option<String>,
+    artifact_base_url: Option<String>,
 ) -> Router {
     let (router, api) = OpenApiRouter::with_openapi(ApiDoc::openapi())
         .routes(routes!(routes::health::healthz))
@@ -63,6 +66,19 @@ pub fn create_app_with_config(
     let checker: DynGithubAccessChecker =
         access_checker.unwrap_or_else(|| Arc::new(RealGithubAccessChecker::new()));
 
+    let bucket = FinalBucket(final_bucket.unwrap_or_else(|| {
+        std::env::var("MINIO_BUCKET_FINAL").unwrap_or_else(|_| "boardflow-final".to_string())
+    }));
+
+    let domain = AppDomain(app_domain.unwrap_or_else(|| {
+        std::env::var("BOARDFLOW_APP_DOMAIN").unwrap_or_else(|_| "http://localhost:3000".to_string())
+    }));
+
+    let base_url = ArtifactBaseUrl(artifact_base_url.unwrap_or_else(|| {
+        std::env::var("BOARDFLOW_ARTIFACT_BASE_URL")
+            .unwrap_or_else(|_| "http://localhost:8080".to_string())
+    }));
+
     router
         .route(
             "/api/v1/openapi.json",
@@ -71,9 +87,16 @@ pub fn create_app_with_config(
                 move || async move { Json(api) }
             }),
         )
+        .route(
+            "/proxy/artifacts/{artifact_id}",
+            axum::routing::get(routes::proxy::get_artifact),
+        )
         .layer(Extension(s3_client))
         .layer(Extension(oauth))
         .layer(Extension(ArtifactSecret(secret)))
+        .layer(Extension(bucket))
+        .layer(Extension(domain))
+        .layer(Extension(base_url))
         .layer(Extension(checker))
         .layer(axum::middleware::from_fn(
             middleware::request_id::request_id_middleware,
@@ -83,6 +106,15 @@ pub fn create_app_with_config(
 
 #[derive(Clone)]
 pub struct ArtifactSecret(pub Vec<u8>);
+
+#[derive(Clone)]
+pub struct FinalBucket(pub String);
+
+#[derive(Clone)]
+pub struct AppDomain(pub String);
+
+#[derive(Clone)]
+pub struct ArtifactBaseUrl(pub String);
 
 #[derive(OpenApi)]
 #[openapi(

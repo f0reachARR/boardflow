@@ -40,6 +40,8 @@ pub struct AppConfig {
     pub github_client_secret: Option<String>,
     pub session_secret: Option<String>,
     pub artifact_secret: Option<String>,
+    pub app_domain: String,
+    pub artifact_base_url: String,
 }
 
 impl AppConfig {
@@ -69,6 +71,8 @@ impl AppConfig {
             github_client_secret: std::env::var("GITHUB_CLIENT_SECRET").ok(),
             session_secret: std::env::var("BOARDFLOW_SESSION_SECRET").ok(),
             artifact_secret: std::env::var("BOARDFLOW_ARTIFACT_SECRET").ok(),
+            app_domain: std::env::var("BOARDFLOW_APP_DOMAIN").unwrap_or_else(|_| "http://localhost:3000".to_string()),
+            artifact_base_url: std::env::var("BOARDFLOW_ARTIFACT_BASE_URL").unwrap_or_else(|_| "http://localhost:8080".to_string()),
         })
     }
 }

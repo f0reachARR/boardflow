@@ -13,7 +13,7 @@ use boardflow_domain::models::artifact::ArtifactStatus;
 use crate::error::{AppError, RequestId};
 use crate::extractors::AuthenticatedSession;
 use crate::github_access::{AccessError, AccessResult, DynGithubAccessChecker};
-use crate::ArtifactSecret;
+use crate::{ArtifactBaseUrl, ArtifactSecret};
 
 // ─── ID prefix helpers ───────────────────────────────────────────────────────
 
@@ -945,6 +945,7 @@ pub async fn get_viewer_sources(
     Extension(RequestId(request_id)): Extension<RequestId>,
     Extension(access_checker): Extension<DynGithubAccessChecker>,
     Extension(artifact_secret): Extension<ArtifactSecret>,
+    Extension(artifact_base_url): Extension<ArtifactBaseUrl>,
     State(pool): State<PgPool>,
     Path(board_run_id): Path<String>,
 ) -> Result<Json<ViewerSourcesResponse>, AppError> {
@@ -995,7 +996,8 @@ pub async fn get_viewer_sources(
     let proxy_url = |a: &boardflow_domain::models::artifact::Artifact| -> String {
         let token = crate::artifact_token::generate_artifact_token(a.id, user_id, secret);
         format!(
-            "/proxy/artifacts/{}?token={}",
+            "{}/proxy/artifacts/{}?token={}",
+            artifact_base_url.0,
             format_artifact_id(a.id),
             token
         )

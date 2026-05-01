@@ -163,7 +163,7 @@ KiCanvas はブラウザ上で `src` URL からファイルを読み込む。pri
 - artifact proxy が認可後に `.kicad_sch` / `.kicad_pcb` / `.kicad_pro` を返す。
 - backend が短命 URL を発行し、KiCanvas の `src` / `kicanvas-source src` に渡す。
 
-複数ファイル表示では、viewer 表示直前に必要ファイル一式の短命 URL を取得する。
+複数ファイル表示では、viewer 表示直前に必要ファイル一式の artifact proxy URL を取得する。
 KiCanvas専用APIは作らず、MVPでは他のpreview/download用途も含む汎用APIに寄せる。
 
 例:
@@ -186,19 +186,19 @@ GET /api/v1/board-runs/{board_run_id}/viewer-sources
           "kind": "project",
           "name": "motor_driver.kicad_pro",
           "source_path": "hardware/motor_driver/motor_driver.kicad_pro",
-          "url": "https://artifacts.boardflow.example.com/signed/..."
+          "url": "https://artifacts.boardflow.example.com/proxy/artifacts/art_project?token=eyJ..."
         },
         {
           "kind": "schematic",
           "name": "motor_driver.kicad_sch",
           "source_path": "hardware/motor_driver/motor_driver.kicad_sch",
-          "url": "https://artifacts.boardflow.example.com/signed/..."
+          "url": "https://artifacts.boardflow.example.com/proxy/artifacts/art_schematic?token=eyJ..."
         },
         {
           "kind": "board",
           "name": "motor_driver.kicad_pcb",
           "source_path": "hardware/motor_driver/motor_driver.kicad_pcb",
-          "url": "https://artifacts.boardflow.example.com/signed/..."
+          "url": "https://artifacts.boardflow.example.com/proxy/artifacts/art_board?token=eyJ..."
         }
       ]
     }
