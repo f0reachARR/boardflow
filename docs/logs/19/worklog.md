@@ -626,8 +626,8 @@ test result: ok. 11 passed; 0 failed; 0 ignored
 ### PR/完了結果
 
 - ブランチ: `feat/19-github-app-client` → `main`
-- PRリンク: 作成後に記載
-- 判定: PR作成実施
+- PRリンク: https://github.com/f0reachARR/boardflow/pull/42
+- 判定: PR作成完了
 
 ### 残リスク
 
