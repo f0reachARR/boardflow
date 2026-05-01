@@ -570,3 +570,42 @@ total: 38 passed; 0 failed
 ### 更新した作業ログパス
 - `docs/logs/5/worklog.md`
 
+---
+
+## 最終レビュー確定 (2026-05-01)
+
+### Review 結果
+- 第3回レビューにて `pr_ready: true` 確定
+- Import API race condition 修正により仕様準拠を確認
+
+### テスト最終結果
+
+```
+DATABASE_URL=postgres://boardflow:boardflow@localhost:5432/boardflow
+cargo test -p boardflow-api
+
+auth_test: 8 passed; 0 failed
+board_run_test: 19 passed; 0 failed
+config_test: 1 passed; 0 failed
+integration_test: 2 passed; 0 failed
+plan_test: 16 passed; 0 failed
+total: 46 passed; 0 failed
+```
+
+### Docs レビュー指摘対応
+- worklog テスト数の矛盾を解消 (本セクションで実測値を正確に記載)
+- Import API idempotent replay の status 返却を仕様に合わせて修正
+  - `bundle_status_str()` ヘルパーを追加し、`ArtifactBundleStatus` を適切な文字列にマッピング
+  - Pending → "queued", Validating/Importing → "running", Completed → "completed", Failed → "failed"
+  - completed run からの既存 bundle 返却時も同一ヘルパーを使用
+
+### 変更ファイル
+- `crates/api/src/routes/board_run.rs` — `bundle_status_str()` 追加、idempotent replay / completed run の status を動的マッピングに変更
+
+### 残リスク
+- presigned URL 生成は S3 client = None 時のモック動作のみ検証 (実 MinIO E2E は別途)
+- 真の並行テスト (tokio::spawn で2リクエスト同時送信) は未実施
+
+### 更新した作業ログパス
+- `docs/logs/5/worklog.md`
+
