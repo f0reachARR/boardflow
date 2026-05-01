@@ -98,6 +98,84 @@ OctocrabBuilder::new()
 4. 各ジョブタイプのハンドラを実装
 5. ジョブ失敗時のreschedule/mark_failedロジックを汎用化
 
+## 実装フェーズ (2026-05-02)
+
+### 実装内容
+
+#### 新規ファイル
+
+1. **`crates/worker/src/comment_body.rs`** — Issue本文、Dashboardコメント、Run Resultコメントのテンプレート生成関数群
+   - `issue_body()`, `issue_title()`, `dashboard_comment()`, `run_result_comment()`
+   - `should_post_run_result()` — 追記条件判定ロジック（pass→fail、fail→pass、新規エラー増加）
+   - `check_result_text()` — チェック結果のテキスト表現
+
+2. **`crates/worker/src/dispatcher.rs`** — 優先度順ジョブディスパッチャ
+   - `poll_and_dispatch()` — 5つのジョブタイプを優先度順にdequeue、ハンドラ呼び出し、HandlerResultに基づく後処理
+   - import → create_issue → create_dashboard_comment → update_dashboard_comment → create_run_result_comment
+
+3. **`crates/worker/src/handlers/mod.rs`** — `HandlerResult` enum定義（Completed / Reschedule / Failed）
+
+4. **`crates/worker/src/handlers/import.rs`** — 既存`process_import_job`と`handle_job_failure`を移動（ロジック変更なし）
+
+5. **`crates/worker/src/handlers/create_issue.rs`** — Issue作成ハンドラ
+   - `find_by_id_with_repository` でプロジェクト情報取得
+   - GitHub API経由でIssue作成
+   - `update_issue_info` でDB更新
+   - 後続 `create_dashboard_comment` ジョブをenqueue
+
+6. **`crates/worker/src/handlers/create_dashboard_comment.rs`** — Dashboardコメント作成ハンドラ
+   - Issue未作成時はReschedule（依存関係を自然に解決）
+   - コメント作成後に `dashboard_comment_id` を更新
+
+7. **`crates/worker/src/handlers/update_dashboard_comment.rs`** — Dashboardコメント更新ハンドラ
+   - 既存コメントID使用して本文を最新に更新
+
+8. **`crates/worker/src/handlers/create_run_result_comment.rs`** — Run Resultコメント作成ハンドラ
+   - `find_previous_completed` で前回completedランを取得
+   - `should_post_run_result()` で追記条件判定
+   - 条件を満たす場合のみコメント投稿
+
+#### 変更ファイル
+
+9. **`crates/worker/src/config.rs`** — `github_app_id`, `github_private_key_pem`, `app_base_url` 追加
+
+10. **`crates/worker/src/main.rs`** — モジュール構造変更、`OctocrabGitHubAppClient`初期化、`dispatcher::poll_and_dispatch`呼び出し
+
+11. **`crates/worker/Cargo.toml`** — `secrecy`, `chrono` 依存追加
+
+12. **`crates/db/src/queries/board_project.rs`** — `update_issue_info`, `update_dashboard_comment_id`, `clear_dashboard_comment_id` 追加
+
+13. **`crates/db/src/queries/board_run.rs`** — `find_previous_completed` 追加
+
+### テスト結果
+
+11テスト全パス:
+- `test_issue_title` — タイトル生成
+- `test_issue_body_contains_markers` — Issue本文のHTML markers/URL確認
+- `test_dashboard_comment_contains_markers` — Dashboardコメントのmarkers/ステータス表示確認
+- `test_run_result_comment_contains_markers` — Run Resultコメントのmarkers確認
+- `test_should_post_run_result_first_run` — 初回runは必ず投稿
+- `test_should_post_run_result_pass_to_fail` — pass→failで投稿
+- `test_should_post_run_result_fail_to_pass` — fail→passで投稿
+- `test_should_post_run_result_new_errors` — エラー数増加で投稿
+- `test_should_not_post_run_result_no_change` — 変化なしは非投稿
+- `test_should_not_post_run_result_same_failure` — 同じ失敗は非投稿
+- `test_should_not_post_run_result_fewer_errors` — エラー減少は非投稿
+
+### 設計判断
+
+1. **dequeue戦略**: `dequeue_any`は新設せず、各ジョブタイプを優先度順に個別dequeue（計画通り）
+2. **import handler**: 自前でmark_completed/reschedule管理（トランザクション内完了のため）
+3. **GitHub client未設定時**: Reschedule(60s)で遅延（将来設定されることを想定）
+4. **Issue依存**: create_dashboard_comment/create_run_result_commentはissue未作成時にReschedule(5s)で自然に依存解決
+5. **Run Result投稿条件**: 仕様通り(pass→fail, fail→pass, エラー数増加)を実装
+
+### 残リスク
+
+- octocrab `HandleRateLimits` ミドルウェアは本実装では未有効化（OctocrabGitHubAppClient::new内で追加可能だが、#19のスコープ）
+- 統合テスト（実DB/mock GitHub）は未実装（別Issue推奨）
+- `app_base_url` のデフォルト値 `https://boardflow.example.com` はプロダクションデプロイ時に要変更
+
 ---
 
 ## 計画フェーズ (2026-05-02)
