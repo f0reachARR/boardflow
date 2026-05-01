@@ -468,3 +468,50 @@ Issue #27 の実装差分、`docs/spec.md`、`docs/backend/api.md`、既存 read
 
 - malformed JSON 時の error contract 逸脱が残る限り、クライアント側の request tracing が不安定
 - pagination の未検証分岐に将来の回帰余地がある
+
+---
+
+## 修正フェーズ（2026-05-01）
+
+### レビュー指摘への対応
+
+#### 1. create API の JsonRejection ハンドリング (Medium) → 修正済み
+
+`create_api_token` の引数を `Json<CreateApiTokenRequest>` から `Result<Json<CreateApiTokenRequest>, JsonRejection>` に変更。
+`plan_run` と同じパターンで handler 内で `request_id` 付きの `AppError::validation_failed` に変換するようにした。
+
+変更ファイル: `crates/api/src/routes/api_token.rs`
+
+#### 2. docs/backend/api.md にToken管理APIの契約追記 (Medium) → 修正済み
+
+`docs/backend/api.md` に「3.0.5 Token Management API」セクションを追加。
+3.0.4 Me と 3.1 Web UI Read API の間に配置。以下を記載:
+- POST /api/v1/repositories/{github_repository_id}/api-tokens (create)
+- GET /api/v1/repositories/{github_repository_id}/api-tokens (list)
+- POST /api/v1/repositories/{github_repository_id}/api-tokens/{token_id}/revoke (revoke)
+- 各エンドポイントの認証方式、Request/Response body、エラーケース
+
+#### 3. テスト追加 → 修正済み
+
+`crates/api/tests/api_token_test.rs` に以下4テストを追加（14テスト中4テストが新規）:
+
+| テスト | 観点 |
+|--------|------|
+| `test_list_api_tokens_cursor_pagination` | 3token作成 → limit=2 → has_more=true, next_cursor非空 → 2ページ目で残り1件, has_more=false |
+| `test_list_api_tokens_access_denied` | DenyAll checker使用 → list で 404 |
+| `test_revoke_api_token_access_denied` | DenyAll checker使用 → revoke で 404 |
+| `test_create_api_token_malformed_json` | 不正JSON送信 → 400 validation_failed + request_id非空 |
+
+### テスト結果
+
+14/14 パス（`--test-threads=1`）、全パッケージ 62/62 パス（回帰なし）
+
+### コミット
+
+- `2d854de` fix(#27): address review - JsonRejection handling, API docs, additional tests
+
+### 残リスク
+
+- `rand_i64()` の UUID v7 ベース生成がパラレルテスト実行で衝突する可能性あり（`--test-threads=1` で回避中、Issue #27 固有ではない）
+- token 数上限（per-repo）の制約なし（MVP スコープ外）
+- rate limit テスト未追加（他エンドポイントと同一パターンのため優先度低）
