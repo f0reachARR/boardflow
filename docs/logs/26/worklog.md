@@ -679,4 +679,54 @@ pub async fn handle_create_issue(
 - `handle_github_error()` が各ハンドラに重複して定義されている（共通ユーティリティに抽出可能だが、ハンドラ固有のNotFound処理があるため現状維持）
 - octocrab `HandleRateLimits` ミドルウェアの有効化は未実施（#19スコープ）
 - handler単体テスト（mock GitHubAppClient）は未実装（統合テスト別Issue推奨）
-- `recreate_issue_on_update` で tree_hash 変更チェックは未実装（spec 11.7の完全実装は別Issue）
+
+---
+
+## 修正フェーズ2 (2026-05-02)
+
+### 対応した指摘事項
+
+#### 修正A: closed Issue 再作成前に tree_hash 変化を判定
+
+- `crates/worker/src/handlers/mod.rs` に `tree_hash_changed()` ヘルパー関数を追加
+  - `board_run::find_by_id()` で現在runの tree_hash を取得
+  - `board_run::find_previous_completed()` で前回completed runの tree_hash を取得
+  - 両者を比較し、変化がない場合は `false` を返す（初回runは `true`）
+- `create_dashboard_comment.rs`, `update_dashboard_comment.rs`, `create_run_result_comment.rs` の closed Issue 分岐で:
+  - `recreate_issue_on_update == true` かつ `tree_hash_changed() == true` の場合のみ再作成
+  - `tree_hash_changed() == false` の場合は `HandlerResult::Completed` で停止
+
+#### 修正B: Dashboard update job を board_project 単位で最新 run に集約
+
+- `update_dashboard_comment.rs` で `job.board_run_id` ではなく `bp.latest_completed_run_id` を使用
+- `let effective_run_id = bp.latest_completed_run_id.unwrap_or(board_run_id)` により、どの update job が実行されても常に最新 completed run の情報でコメントを生成
+- これにより順序逆転しても最新状態に収束する
+
+#### 修正C: GitHubClientError::RateLimited に retry-after を載せる
+
+- `crates/github/src/error.rs` の `map_status_to_error()` で 403 rate limit / 429 を `retry_after_secs: Some(60)` に変更
+- octocrab のレスポンスから直接 `retry-after` ヘッダを取得するのは困難なため、pragmatic にデフォルト60秒を設定
+- 将来 octocrab の `HandleRateLimits` 有効化で HTTP レベルの自動リトライに委ねる想定
+
+### テスト結果
+
+- `mise exec -- cargo test -p boardflow-worker`: 12 passed
+- `mise exec -- cargo test -p boardflow-github`: 11 passed
+- `mise exec -- cargo check`: 成功
+
+### 変更ファイル
+
+| ファイル | 変更内容 |
+|---------|---------|
+| `crates/github/src/error.rs` | RateLimited の `retry_after_secs` を `Some(60)` に変更、テスト更新 |
+| `crates/worker/src/handlers/mod.rs` | `tree_hash_changed()` ヘルパー関数追加 |
+| `crates/worker/src/handlers/create_dashboard_comment.rs` | tree_hash 変化判定を closed Issue 分岐に追加 |
+| `crates/worker/src/handlers/update_dashboard_comment.rs` | tree_hash 判定追加、`latest_completed_run_id` 使用に変更 |
+| `crates/worker/src/handlers/create_run_result_comment.rs` | tree_hash 変化判定を closed Issue 分岐に追加 |
+
+### 残リスク
+
+- `handle_github_error()` が各ハンドラに重複して定義されている（共通ユーティリティに抽出可能）
+- octocrab `HandleRateLimits` ミドルウェアの有効化は未実施（将来改善）
+- handler単体テスト（mock GitHubAppClient）は未実装（DB依存のため統合テスト推奨）
+- `retry_after_secs` は固定60秒であり、GitHub の実際の `retry-after` / `x-ratelimit-reset` ヘッダ値には追従していない
