@@ -400,3 +400,65 @@ running 2 tests (integration_test.rs) — 全pass
 ### 更新した作業ログパス
 - `docs/logs/5/worklog.md`
 
+---
+
+## レビュー指摘修正フェーズ (2026-05-01)
+
+### 修正内容
+
+レビュー指摘の必須修正6項目を実施:
+
+#### 1. Import API をトランザクション化
+- `crates/api/src/routes/board_run.rs` の `import_artifact_bundle` ハンドラ内で `pool.begin()` → `tx.commit()` を使用
+- bundle 更新、`mark_importing`、`enqueue_import` を同一トランザクション内で実行
+- 途中失敗時は自動ロールバックにより不整合を防止
+
+#### 2. Import API の staging_object_key 競合チェック
+- `find_by_import_key` で完全一致 (冪等) → 既存状態を返す
+- `find_existing_for_run` (sha256 IS NOT NULL) で既存 bundle がある場合 → 409 conflict
+- 異なる staging_object_key / sha256 のリクエストを正しく拒否
+
+#### 3. Fail API の status == "failed" 検証
+- `req.status != "failed"` の場合 400 `validation_failed` を返す
+- payload 変数名を `_req` → `req` に修正し、実際に使用
+
+#### 4. object_key の形式を仕様に合わせる
+- `uploads/{board_project_id}/{board_run_id}.zip` → `staging/runs/{br_id}/bundle.zip`
+- 冪等再送パスも同様に修正
+- テスト内の object_key も新形式に更新
+
+#### 5. テスト追加 (6件)
+| # | テスト名 | 観点 |
+|---|---|---|
+| 1 | test_import_artifact_bundle_completed_run | completed run → 既存 bundle 返却、job 未作成を確認 |
+| 2 | test_import_artifact_bundle_different_staging_key_conflict | 異なる staging_object_key → 409 |
+| 3 | test_fail_board_run_invalid_status | status != "failed" → 400 |
+| 4 | test_create_board_run_not_found_project | 存在しない board_project_id → 404 |
+| 5 | test_fail_board_run_not_found | 存在しない board_run_id → 404 |
+| 6 | test_import_artifact_bundle_not_found | 存在しない board_run_id → 404 |
+
+### テスト結果
+
+```
+DATABASE_URL=postgres://boardflow:boardflow@localhost:5432/boardflow
+cargo test -p boardflow-api
+
+board_run_test: 18 passed; 0 failed
+plan_test: 16 passed; 0 failed
+integration_test: 2 passed; 0 failed
+auth_test: 1 passed; 0 failed
+config_test: 8 passed; 0 failed
+total: 45 passed; 0 failed
+```
+
+### 変更ファイル
+- `crates/api/src/routes/board_run.rs` — トランザクション化、status検証、object_key修正、conflict改善
+- `crates/api/tests/board_run_test.rs` — 6テスト追加、既存テストの object_key 更新
+
+### 残リスク
+- presigned URL 生成は S3 client = None 時のモック動作のみ検証 (実 MinIO E2E は別途)
+- `project_path` フィールドの request vs DB 一致検証は未対応 (任意改善として記載あり)
+
+### 更新した作業ログパス
+- `docs/logs/5/worklog.md`
+
