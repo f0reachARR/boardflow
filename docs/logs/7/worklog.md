@@ -1174,6 +1174,18 @@ cargo test --workspace
 
 ---
 
+## ドキュメント確認フェーズ (後半修正後) (2026-05-01)
+
+### `mark_failed` の delete_after 修正
+
+- `crates/db/src/queries/artifact_bundle.rs` の `mark_failed` に `delete_after = NOW() + INTERVAL '7 days'` を追加
+- `docs/spec.md` 9.5節の「failed bundle は7日後に削除対象」と整合
+- ドキュメント確認フェーズの残差分を解消
+
+### docs_ready: true
+
+---
+
 ## ドキュメント確認フェーズ (2026-05-01)
 
 ### 対象
@@ -1224,8 +1236,58 @@ cargo test --workspace
 ### PR/完了結果
 
 - 判定: `docs_ready: false`
+- ブロッカー: `mark_failed` で `delete_after` が未設定
 
 ### 残リスク
 
 - `docs/spec.md` 9.5節の cleanup 方針と現行実装が未一致のため、PR説明では「failed/timed_out bundle の delete_after は未実装」と明示しない限り誤読が起こりうる。
 - worklog は十分詳細だが、最終判定だけを見る読者向けには今回のドキュメント確認フェーズを参照する必要がある。
+
+---
+
+## ドキュメント確認 ブロッカー修正 (2026-05-01)
+
+### 修正内容
+
+- `crates/db/src/queries/artifact_bundle.rs` の `mark_failed` に `delete_after = NOW() + INTERVAL '7 days'` を追加
+- `docs/spec.md` 9.5節の「failed bundle は7日後に削除対象」と整合
+
+### docs_ready: true
+
+---
+
+## PR作成フェーズ (2026-05-01)
+
+### 前提確認
+
+- ブランチ: `feat/import-worker` (HEAD: ba9120d)
+- 未コミット変更: なし (working tree clean)
+- `cargo test --workspace`: 64 tests passed, 0 failed
+- Review: `pr_ready: true` (3回レビュー後)
+- Docs: `docs_ready: true` (failed bundle の delete_after 修正後)
+
+### PR作成結果
+
+- **PRリンク**: https://github.com/f0reachARR/boardflow/pull/15
+- タイトル: `feat(worker): implement Import Worker (#7)`
+- base: `main`, head: `feat/import-worker`
+- `Closes #7` をPR本文に含む
+
+### PR本文の内容
+
+- 要件 (受け入れ条件)
+- 調査結果 (Research成果物)
+- 実装概要 (変更 crate 一覧、主要設計決定)
+- テスト結果 (64テスト全パス)
+- 更新ドキュメント
+- 外部調査メモ
+- 残リスク (MVPスコープ外として許容)
+- Review/Docs OK判定
+
+### 残リスク
+
+- Worker E2E統合テスト未実装 (CI docker-compose環境が必要。MVP後対応)
+- diff summary 最小実装 (ファイル数カウントのみ。baseline snapshot比較は別対応)
+- S3孤立オブジェクト (upload後のTX失敗で孤立発生可能。delete_after TTLで自然回収)
+- 500MB全量メモリ展開 (大規模プロジェクトではストリーミング展開が必要な可能性)
+- Worker クラッシュ回復 (running状態で放置されたジョブの定期検出バッチは未実装)
