@@ -299,8 +299,12 @@ pub async fn revoke_api_token(
     Extension(RequestId(request_id)): Extension<RequestId>,
     Extension(access_checker): Extension<DynGithubAccessChecker>,
     State(pool): State<PgPool>,
-    Path((github_repository_id, token_id)): Path<(i64, Uuid)>,
+    Path((github_repository_id, token_id_str)): Path<(i64, String)>,
 ) -> Result<Json<ApiTokenDetailResponse>, AppError> {
+    let token_id = Uuid::parse_str(&token_id_str).map_err(|_| {
+        AppError::validation_failed("invalid token_id format", &request_id)
+    })?;
+
     // Lookup repository
     let repo = boardflow_db::queries::repository::find_by_github_id(&pool, github_repository_id)
         .await

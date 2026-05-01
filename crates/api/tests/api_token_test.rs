@@ -613,3 +613,37 @@ async fn test_create_api_token_malformed_json() {
     let request_id = json["error"]["request_id"].as_str().unwrap();
     assert!(!request_id.is_empty(), "request_id must not be empty for malformed JSON");
 }
+
+// ─── Test: revoke with invalid token_id returns validation_failed + request_id ─
+
+#[tokio::test]
+async fn test_revoke_api_token_invalid_token_id() {
+    let Some(pool) = setup_pool().await else { return };
+    let app = create_test_app(pool.clone());
+
+    let user_id = create_test_user(&pool).await;
+    let session_id = create_test_session(&pool, user_id).await;
+    let github_repo_id = rand_i64();
+    create_test_repository(&pool, github_repo_id).await;
+
+    // Use an obviously invalid token_id (not a UUID)
+    let req = Request::builder()
+        .method("POST")
+        .uri(format!(
+            "/api/v1/repositories/{github_repo_id}/api-tokens/not-a-valid-uuid/revoke"
+        ))
+        .header("Cookie", session_cookie(session_id))
+        .body(Body::empty())
+        .unwrap();
+
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+
+    let body_bytes = resp.into_body().collect().await.unwrap().to_bytes();
+    let json: Value = serde_json::from_slice(&body_bytes).unwrap();
+
+    // Must return validation_failed with request_id
+    assert_eq!(json["error"]["code"], "validation_failed");
+    let request_id = json["error"]["request_id"].as_str().unwrap();
+    assert!(!request_id.is_empty(), "request_id must not be empty for invalid token_id");
+}
