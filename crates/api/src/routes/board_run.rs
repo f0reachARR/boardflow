@@ -240,10 +240,7 @@ pub async fn create_board_run(
         }
 
         // For created/uploading, generate new presigned URL
-        let object_key = format!(
-            "uploads/{}/{}.zip",
-            board_project_id, existing.id
-        );
+        let object_key = format!("staging/runs/{}/bundle.zip", format_board_run_id(existing.id));
         let upload_info = generate_upload_info(&s3_client, &object_key, 3600).await?;
         return Ok(Json(CreateBoardRunResponse {
             board_run_id: format_board_run_id(existing.id),
@@ -273,7 +270,7 @@ pub async fn create_board_run(
 
     // 6. Create ArtifactBundle
     let bundle_id = Uuid::now_v7();
-    let object_key = format!("uploads/{}/{}.zip", board_project_id, board_run.id);
+    let object_key = format!("staging/runs/{}/bundle.zip", format_board_run_id(board_run.id));
     boardflow_db::queries::artifact_bundle::insert_staging(&pool, bundle_id, board_run.id, &object_key)
         .await
         .map_err(|e| {
@@ -318,13 +315,18 @@ pub async fn fail_board_run(
     payload: Result<Json<FailBoardRunRequest>, JsonRejection>,
 ) -> Result<Json<FailBoardRunResponse>, AppError> {
     let rid = &request_id.0;
-    let _req = payload.map_err(|e| AppError::validation_failed(e.body_text(), rid))?;
+    let Json(req) = payload.map_err(|e| AppError::validation_failed(e.body_text(), rid))?;
 
-    // 1. Parse board_run_id
+    // 1. Validate status field
+    if req.status != "failed" {
+        return Err(AppError::validation_failed("status must be 'failed'", rid));
+    }
+
+    // 2. Parse board_run_id
     let board_run_id = parse_board_run_id(&board_run_id_str)
         .ok_or_else(|| AppError::validation_failed("invalid board_run_id format", rid))?;
 
-    // 2. Find board_run
+    // 3. Find board_run
     let board_run = boardflow_db::queries::board_run::find_by_id(&pool, board_run_id)
         .await
         .map_err(|e| {
@@ -333,7 +335,7 @@ pub async fn fail_board_run(
         })?
         .ok_or_else(|| AppError::not_found("board run not found", rid))?;
 
-    // 3. Verify ownership via board_project
+    // 4. Verify ownership via board_project
     let board_project =
         boardflow_db::queries::board_project::find_by_id(&pool, board_run.board_project_id)
             .await
@@ -350,7 +352,7 @@ pub async fn fail_board_run(
         ));
     }
 
-    // 4. Check status
+    // 5. Check status
     match board_run.status {
         BoardRunStatus::Failed => {
             // Idempotent: already failed
@@ -378,7 +380,7 @@ pub async fn fail_board_run(
         }
     }
 
-    // 5. Mark failed
+    // 6. Mark failed
     let updated = boardflow_db::queries::board_run::mark_failed(&pool, board_run_id)
         .await
         .map_err(|e| {
@@ -506,7 +508,7 @@ pub async fn import_artifact_bundle(
         }));
     }
 
-    // 6. Conflict check: different sha256 for same run
+    // 6. Conflict check: different staging_object_key or sha256 for same run
     if let Some(_existing) = boardflow_db::queries::artifact_bundle::find_existing_for_run(
         &pool, board_run_id,
     )
@@ -516,14 +518,20 @@ pub async fn import_artifact_bundle(
         AppError::internal_error("database error", rid)
     })? {
         return Err(AppError::conflict(
-            "a different artifact bundle has already been imported for this run",
+            "different bundle already submitted for this run",
             rid,
         ));
     }
 
-    // 7. Find or create ArtifactBundle and update for import
+    // 7. Begin transaction for bundle update + mark_importing + enqueue
+    let mut tx = pool.begin().await.map_err(|e| {
+        tracing::error!("transaction begin failed: {e}");
+        AppError::internal_error("database error", rid)
+    })?;
+
+    // 7a. Find or create ArtifactBundle and update for import
     let bundle = match boardflow_db::queries::artifact_bundle::find_by_board_run_id(
-        &pool,
+        &mut *tx,
         board_run_id,
     )
     .await
@@ -533,7 +541,7 @@ pub async fn import_artifact_bundle(
     })? {
         Some(existing_bundle) => {
             boardflow_db::queries::artifact_bundle::update_for_import(
-                &pool,
+                &mut *tx,
                 existing_bundle.id,
                 &req.bundle_sha256,
                 req.bundle_size_bytes,
@@ -547,7 +555,7 @@ pub async fn import_artifact_bundle(
         None => {
             let bundle_id = Uuid::now_v7();
             let bundle = boardflow_db::queries::artifact_bundle::insert_staging(
-                &pool,
+                &mut *tx,
                 bundle_id,
                 board_run_id,
                 &req.staging_object_key,
@@ -558,7 +566,7 @@ pub async fn import_artifact_bundle(
                 AppError::internal_error("database error", rid)
             })?;
             boardflow_db::queries::artifact_bundle::update_for_import(
-                &pool,
+                &mut *tx,
                 bundle.id,
                 &req.bundle_sha256,
                 req.bundle_size_bytes,
@@ -571,15 +579,15 @@ pub async fn import_artifact_bundle(
         }
     };
 
-    // 8. Mark run as importing
-    boardflow_db::queries::board_run::mark_importing(&pool, board_run_id)
+    // 7b. Mark run as importing
+    boardflow_db::queries::board_run::mark_importing(&mut *tx, board_run_id)
         .await
         .map_err(|e| {
             tracing::error!("mark_importing failed: {e}");
             AppError::internal_error("database error", rid)
         })?;
 
-    // 9. Enqueue import job
+    // 7c. Enqueue import job
     let job_id = Uuid::now_v7();
     let payload_json = serde_json::json!({
         "bundle_id": bundle.id.to_string(),
@@ -589,7 +597,7 @@ pub async fn import_artifact_bundle(
         "bundle_size_bytes": req.bundle_size_bytes,
     });
     boardflow_db::queries::github_job::enqueue_import(
-        &pool,
+        &mut *tx,
         job_id,
         auth.0.installation_id,
         board_project.repository_id,
@@ -600,6 +608,12 @@ pub async fn import_artifact_bundle(
     .await
     .map_err(|e| {
         tracing::error!("enqueue_import failed: {e}");
+        AppError::internal_error("database error", rid)
+    })?;
+
+    // 7d. Commit transaction
+    tx.commit().await.map_err(|e| {
+        tracing::error!("transaction commit failed: {e}");
         AppError::internal_error("database error", rid)
     })?;
 

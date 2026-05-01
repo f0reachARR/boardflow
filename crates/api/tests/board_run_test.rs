@@ -487,7 +487,7 @@ async fn test_import_artifact_bundle_success() {
 
     // Create an artifact_bundle for this run (as would be done by create_board_run)
     let bundle_id = Uuid::now_v7();
-    let object_key = format!("uploads/{}/{}.zip", bp_id, br_id);
+    let object_key = format!("staging/runs/br_{}/bundle.zip", br_id);
     sqlx::query(
         "INSERT INTO artifact_bundles (id, board_run_id, intake_mode, staging_object_key, status, received_at) \
          VALUES ($1, $2, 'staging_s3', $3, 'pending', NOW())",
@@ -542,7 +542,7 @@ async fn test_import_artifact_bundle_idempotent() {
     let bp_id = create_test_board_project(&pool, repo_id).await;
     let br_id = create_test_board_run(&pool, bp_id, "created").await;
 
-    let object_key = format!("uploads/{}/{}.zip", bp_id, br_id);
+    let object_key = format!("staging/runs/br_{}/bundle.zip", br_id);
     let sha256 = "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890";
 
     // Pre-create an artifact_bundle with sha256 already set (simulating prior import)
@@ -602,7 +602,7 @@ async fn test_import_artifact_bundle_conflict() {
     let bp_id = create_test_board_project(&pool, repo_id).await;
     let br_id = create_test_board_run(&pool, bp_id, "created").await;
 
-    let object_key = format!("uploads/{}/{}.zip", bp_id, br_id);
+    let object_key = format!("staging/runs/br_{}/bundle.zip", br_id);
 
     // Pre-create bundle with a DIFFERENT sha256
     let bundle_id = Uuid::now_v7();
@@ -676,4 +676,282 @@ async fn test_import_artifact_bundle_gone() {
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::GONE);
+}
+
+/// completed run への import → 既存 bundle 状態を返し、新 job を作らない
+#[tokio::test]
+async fn test_import_artifact_bundle_completed_run() {
+    let pool = match setup_pool().await {
+        Some(p) => p,
+        None => return,
+    };
+
+    let github_repo_id = rand_i64();
+    let installation_id: i64 = 2013;
+    let repo_id = create_test_repository(&pool, github_repo_id, installation_id).await;
+    let token = create_test_token(&pool, repo_id, installation_id).await;
+    let bp_id = create_test_board_project(&pool, repo_id).await;
+    let br_id = create_test_board_run(&pool, bp_id, "completed").await;
+
+    // Pre-create bundle for the completed run
+    let bundle_id = Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO artifact_bundles (id, board_run_id, intake_mode, staging_object_key, sha256, size_bytes, status, received_at) \
+         VALUES ($1, $2, 'staging_s3', $3, $4, 12345, 'completed', NOW())",
+    )
+    .bind(bundle_id)
+    .bind(br_id)
+    .bind("staging/runs/br_test/bundle.zip")
+    .bind("sha256_completed")
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let app = create_app(pool.clone(), None);
+    let body = serde_json::json!({
+        "staging_object_key": "staging/runs/br_test/bundle.zip",
+        "bundle_sha256": "sha256_completed",
+        "bundle_size_bytes": 12345
+    });
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/v1/board-runs/br_{}/artifact-bundles/import", br_id))
+                .header("content-type", "application/json")
+                .header("authorization", format!("Bearer {}", token))
+                .body(Body::from(serde_json::to_vec(&body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body_bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+
+    assert_eq!(json["bundle_id"], format!("ab_{}", bundle_id));
+    assert_eq!(json["status"], "completed");
+
+    // Verify no new job was created
+    let job_count: (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM github_jobs WHERE board_run_id = $1 AND type = 'artifact_bundle_import'",
+    )
+    .bind(br_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(job_count.0, 0);
+}
+
+/// 同一 run に異なる staging_object_key で 409 Conflict
+#[tokio::test]
+async fn test_import_artifact_bundle_different_staging_key_conflict() {
+    let pool = match setup_pool().await {
+        Some(p) => p,
+        None => return,
+    };
+
+    let github_repo_id = rand_i64();
+    let installation_id: i64 = 2014;
+    let repo_id = create_test_repository(&pool, github_repo_id, installation_id).await;
+    let token = create_test_token(&pool, repo_id, installation_id).await;
+    let bp_id = create_test_board_project(&pool, repo_id).await;
+    let br_id = create_test_board_run(&pool, bp_id, "created").await;
+
+    // Pre-create bundle with a specific staging_object_key and sha256
+    let bundle_id = Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO artifact_bundles (id, board_run_id, intake_mode, staging_object_key, sha256, size_bytes, status, received_at) \
+         VALUES ($1, $2, 'staging_s3', $3, $4, 999, 'pending', NOW())",
+    )
+    .bind(bundle_id)
+    .bind(br_id)
+    .bind("staging/runs/br_original/bundle.zip")
+    .bind("original_sha256")
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    // Send request with DIFFERENT staging_object_key
+    let app = create_app(pool, None);
+    let body = serde_json::json!({
+        "staging_object_key": "staging/runs/br_different/bundle.zip",
+        "bundle_sha256": "different_sha256",
+        "bundle_size_bytes": 12345
+    });
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/v1/board-runs/br_{}/artifact-bundles/import", br_id))
+                .header("content-type", "application/json")
+                .header("authorization", format!("Bearer {}", token))
+                .body(Body::from(serde_json::to_vec(&body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::CONFLICT);
+}
+
+/// status != "failed" で 400 validation_failed
+#[tokio::test]
+async fn test_fail_board_run_invalid_status() {
+    let pool = match setup_pool().await {
+        Some(p) => p,
+        None => return,
+    };
+
+    let github_repo_id = rand_i64();
+    let installation_id: i64 = 2015;
+    let repo_id = create_test_repository(&pool, github_repo_id, installation_id).await;
+    let token = create_test_token(&pool, repo_id, installation_id).await;
+    let bp_id = create_test_board_project(&pool, repo_id).await;
+    let br_id = create_test_board_run(&pool, bp_id, "created").await;
+
+    let app = create_app(pool, None);
+    let body = serde_json::json!({
+        "status": "completed",
+        "error": {
+            "message": "wrong status value"
+        }
+    });
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/v1/board-runs/br_{}/fail", br_id))
+                .header("content-type", "application/json")
+                .header("authorization", format!("Bearer {}", token))
+                .body(Body::from(serde_json::to_vec(&body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+}
+
+/// 存在しない board_project_id で 404
+#[tokio::test]
+async fn test_create_board_run_not_found_project() {
+    let pool = match setup_pool().await {
+        Some(p) => p,
+        None => return,
+    };
+
+    let github_repo_id = rand_i64();
+    let installation_id: i64 = 2016;
+    let repo_id = create_test_repository(&pool, github_repo_id, installation_id).await;
+    let token = create_test_token(&pool, repo_id, installation_id).await;
+
+    // Use a valid-format but non-existent board_project_id
+    let fake_bp_id = Uuid::now_v7();
+
+    let app = create_app(pool, None);
+    let body = serde_json::json!({
+        "board_project_id": format!("bp_{}", fake_bp_id),
+        "project_path": "hardware/Test.kicad_pro",
+        "tree_hash": "deadbeef123",
+        "commit_sha": "abc123",
+        "branch": "main",
+        "ref": "refs/heads/main",
+        "github_run_id": "99999",
+        "github_run_attempt": "1"
+    });
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/board-runs")
+                .header("content-type", "application/json")
+                .header("authorization", format!("Bearer {}", token))
+                .body(Body::from(serde_json::to_vec(&body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+}
+
+/// 存在しない board_run_id で fail → 404
+#[tokio::test]
+async fn test_fail_board_run_not_found() {
+    let pool = match setup_pool().await {
+        Some(p) => p,
+        None => return,
+    };
+
+    let github_repo_id = rand_i64();
+    let installation_id: i64 = 2017;
+    let repo_id = create_test_repository(&pool, github_repo_id, installation_id).await;
+    let token = create_test_token(&pool, repo_id, installation_id).await;
+
+    let fake_br_id = Uuid::now_v7();
+
+    let app = create_app(pool, None);
+    let body = serde_json::json!({
+        "status": "failed",
+        "error": { "message": "not found test" }
+    });
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/v1/board-runs/br_{}/fail", fake_br_id))
+                .header("content-type", "application/json")
+                .header("authorization", format!("Bearer {}", token))
+                .body(Body::from(serde_json::to_vec(&body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+}
+
+/// 存在しない board_run_id で import → 404
+#[tokio::test]
+async fn test_import_artifact_bundle_not_found() {
+    let pool = match setup_pool().await {
+        Some(p) => p,
+        None => return,
+    };
+
+    let github_repo_id = rand_i64();
+    let installation_id: i64 = 2018;
+    let repo_id = create_test_repository(&pool, github_repo_id, installation_id).await;
+    let token = create_test_token(&pool, repo_id, installation_id).await;
+
+    let fake_br_id = Uuid::now_v7();
+
+    let app = create_app(pool, None);
+    let body = serde_json::json!({
+        "staging_object_key": "staging/runs/br_fake/bundle.zip",
+        "bundle_sha256": "abc123",
+        "bundle_size_bytes": 100
+    });
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/v1/board-runs/br_{}/artifact-bundles/import", fake_br_id))
+                .header("content-type", "application/json")
+                .header("authorization", format!("Bearer {}", token))
+                .body(Body::from(serde_json::to_vec(&body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
 }

@@ -328,3 +328,75 @@ running 2 tests (integration_test.rs) — 全pass
 - トランザクション分離: import_artifact_bundleでのmark_importing + enqueue_importは個別クエリで実行 (race conditionリスクは低いがトランザクションにまとめる余地あり)
 - `board_run_id` 404ケースのテスト未追加 (存在しないUUIDでの404)
 
+---
+
+## レビューフェーズ (2026-05-01)
+
+### 対象Issue
+- Issue #5: Action API: BoardRun作成・Fail・Import実装
+
+### レビュー結果
+- `pr_ready: false`
+
+### 総評
+- 認証・認可、基本的な状態遷移、OpenAPI 露出までは実装されている。
+- 一方で Import API の冪等性と永続化の整合に仕様逸脱があり、さらに enqueue までの更新が非トランザクションで実装されているため、PR作成OK判定は出せない。
+- テスト報告は件数自体は存在するが、現環境では `DATABASE_URL` 未設定のため実行時に早期 return しており、worklog の「12 passed / 16 passed / 2 passed」はこのレビュー時点では再確認できていない。
+
+### 重大指摘
+
+1. **Import API が `staging_object_key` の競合を正しく拒否できていない**
+  - 仕様では同一 run に異なる `staging_object_key` または `bundle_sha256` が来た場合は `409 conflict` にし、状態を変えてはいけない。
+  - 実装は [crates/api/src/routes/board_run.rs](crates/api/src/routes/board_run.rs#L525) 以降で既存 bundle を再利用しつつ、[crates/db/src/queries/artifact_bundle.rs](crates/db/src/queries/artifact_bundle.rs#L37) の `update_for_import` で `sha256` と `size_bytes` しか更新していない。`staging_object_key` は保持されるため、最初の import で異なる key を送っても `409` ではなく受理される。
+  - その結果、仕様 [docs/backend/api.md](docs/backend/api.md#L298) [docs/backend/api.md](docs/backend/api.md#L299) の idempotency / conflict ルールを満たさない。
+  - 修正案: create 時に確定した `staging_object_key` と import request の `staging_object_key` を一致検証するか、bundle 更新時に request key を含めて原子的に upsert し、同一 run に別 key が来た場合は必ず `409` を返す。
+
+2. **Import API の状態更新と job enqueue が非トランザクションで、途中失敗で不整合が残る**
+  - 実装は bundle 更新、run の `importing` 遷移、job enqueue を [crates/api/src/routes/board_run.rs](crates/api/src/routes/board_run.rs#L525) [crates/api/src/routes/board_run.rs](crates/api/src/routes/board_run.rs#L575) [crates/api/src/routes/board_run.rs](crates/api/src/routes/board_run.rs#L591) で個別に実行している。
+  - これでは enqueue 失敗時に `board_runs.status = importing` かつ `artifact_bundles.sha256` 更新済みだが `github_jobs` が無い、という壊れた状態が残る。
+  - research / 計画では transaction 一括実行を前提としており、[docs/logs/5/worklog.md](docs/logs/5/worklog.md#L30) の記載とも不一致。
+  - 修正案: `sqlx::Transaction` で bundle 更新、`mark_importing`、`enqueue_import` を同一 transaction にまとめ、失敗時は全 rollback にする。
+
+### 必須修正
+- Fail API で request body を実質無視しており、`status` が `failed` 以外でも通る。実装は [crates/api/src/routes/board_run.rs](crates/api/src/routes/board_run.rs#L321) で payload を捨てているため、仕様 [docs/backend/api.md](docs/backend/api.md#L325) の契約に沿って `status == "failed"` を検証する必要がある。
+- worklog のテスト結果を実態に合わせて訂正する必要がある。現状のテストは [crates/api/tests/board_run_test.rs](crates/api/tests/board_run_test.rs#L9) [crates/api/tests/integration_test.rs](crates/api/tests/integration_test.rs#L12) [crates/api/tests/plan_test.rs](crates/api/tests/plan_test.rs#L9) の通り `DATABASE_URL` 未設定時にスキップするため、レビュー環境では「全pass」を根拠付きで確認できていない。
+
+### 任意改善
+- create_board_run の object key が仕様例 [docs/backend/api.md](docs/backend/api.md#L249) と異なり、実装は [crates/api/src/routes/board_run.rs](crates/api/src/routes/board_run.rs#L276) の `uploads/{board_project_id}/{board_run_id}.zip` を返している。API 契約として key 形式を固定したいなら docs か実装のどちらかを揃えるべき。
+- create_board_run は request の `project_path` を受け取るが、DB の `board_project.project_path` との一致確認をしていない。将来の診断容易性のため、少なくとも mismatch を `400` にするか、未使用フィールドとして request から外す判断を明確にした方がよい。
+
+### テスト不足
+- completed run への import が既存 bundle 状態を返し、新 job を作らないケースが未検証。仕様根拠は [docs/backend/api.md](docs/backend/api.md#L300)。
+- 異なる `staging_object_key` に対して `409 conflict` になるケースが未検証。今回の主要バグを見逃している。
+- fail API の invalid `status` を `400 validation_failed` にするケースが未検証。
+- 404 系 (`board_run_id` / `board_project_id` 不存在) のテストが不足している。既存 worklog でも不足が認識されている。
+- 既存の DB 依存テストは環境変数未設定で成功扱いになるため、CI で必ず DB を立てるか、skip を明示的に集計外へ出す仕組みが必要。
+
+### ドキュメント確認
+- [docs/backend/api.md](docs/backend/api.md) の 2.2 / 2.3 / 2.4 と照合した結果、Import API の conflict 条件と Fail API の request validation が実装と一致していない。
+- [docs/backend/summary.md](docs/backend/summary.md) はエンドポイント存在レベルでは更新済み。
+- [docs/logs/5/worklog.md](docs/logs/5/worklog.md) は実装項目の列挙は概ね正しいが、transaction 前提の計画と非transaction実装との差分、およびテスト結果の再現条件が十分に明記されていない。
+
+### plan / research / docs との不整合
+- research / 計画では enqueue を transaction 内で処理する前提だったが、実装はそうなっていない。
+- docs では import の idempotency key に `staging_object_key` を含めているが、実装は既存 bundle の key と request key の整合を保証していない。
+- テスト結果の記述は、DB 必須条件を外した形で読むと誤解を招く。
+
+### 追加アクション案
+1. Import API を transaction 化し、bundle 更新・run status 更新・job enqueue を原子的にする。
+2. import request の `staging_object_key` を create 時の bundle key と一致検証し、相違時は `409` を返すテストを追加する。
+3. Fail API で `status` 検証を追加し、invalid payload の `400` テストを追加する。
+4. worklog のテスト結果に「DB未設定時は skip」と実行条件を明記し、CI 上の実測結果へ更新する。
+
+### 残リスク
+- 非transaction実装のままでは、DB / queue の一貫性崩壊時に手動修復が必要になる。
+- Import API の key 不整合は Action 側のリトライや将来の object key 変更で表面化しやすい。
+- S3 presigned URL 生成は review 環境では実 bucket に対して未検証。
+
+### PR/完了結果
+- `pr_ready: false`
+- 修正後に再レビューが必要。
+
+### 更新した作業ログパス
+- `docs/logs/5/worklog.md`
+
