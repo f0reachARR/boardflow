@@ -85,3 +85,45 @@ pub async fn find_existing_for_run(
     .fetch_optional(executor)
     .await
 }
+
+/// Mark bundle as importing
+pub async fn mark_importing(
+    executor: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
+    id: Uuid,
+) -> Result<(), sqlx::Error> {
+    sqlx::query("UPDATE artifact_bundles SET status = 'importing' WHERE id = $1")
+        .bind(id)
+        .execute(executor)
+        .await?;
+    Ok(())
+}
+
+/// Mark bundle as completed
+pub async fn mark_completed(
+    executor: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
+    id: Uuid,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "UPDATE artifact_bundles SET status = 'completed', validated_at = NOW(), delete_after = NOW() + INTERVAL '24 hours' WHERE id = $1",
+    )
+    .bind(id)
+    .execute(executor)
+    .await?;
+    Ok(())
+}
+
+/// Mark bundle as failed (delete_after = 7 days per spec)
+pub async fn mark_failed(
+    executor: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
+    id: Uuid,
+    error_message: &str,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "UPDATE artifact_bundles SET status = 'failed', error_message = $2, delete_after = NOW() + INTERVAL '7 days' WHERE id = $1",
+    )
+    .bind(id)
+    .bind(error_message)
+    .execute(executor)
+    .await?;
+    Ok(())
+}

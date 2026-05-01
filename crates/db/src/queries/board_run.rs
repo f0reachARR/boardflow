@@ -94,3 +94,30 @@ pub async fn mark_importing(
     .fetch_one(executor)
     .await
 }
+
+/// Update BoardRun status to 'completed' with check summaries
+pub async fn mark_completed(
+    executor: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
+    id: Uuid,
+    erc_status: Option<&str>,
+    erc_errors: i32,
+    erc_warnings: i32,
+    drc_status: Option<&str>,
+    drc_errors: i32,
+    drc_warnings: i32,
+) -> Result<BoardRun, sqlx::Error> {
+    sqlx::query_as::<_, BoardRun>(
+        r#"UPDATE board_runs SET status = 'completed', erc_status = $2, erc_errors = $3, erc_warnings = $4,
+        drc_status = $5, drc_errors = $6, drc_warnings = $7, completed_at = NOW()
+        WHERE id = $1 RETURNING *"#,
+    )
+    .bind(id)
+    .bind(erc_status)
+    .bind(erc_errors)
+    .bind(erc_warnings)
+    .bind(drc_status)
+    .bind(drc_errors)
+    .bind(drc_warnings)
+    .fetch_one(executor)
+    .await
+}
