@@ -1033,3 +1033,7 @@ MVP では以下を API contract test として優先する。
 - cursor pagination は `limit`、`cursor`、`next_cursor`、`has_more` を返す。
 - viewer-sources は `available`、`partial`、`missing`、`failed`、`skipped` を viewer 単位で返せる。
 - artifact proxy URL は `expires_at` 以降に使えず、private artifact URL が GitHub Issue コメント本文に入らない。
+- Token Management API: create が平文 token を初回レスポンスのみに含み、list / revoke では返さない。
+- Token Management API: list が `limit`、`cursor`、`next_cursor`、`has_more` による cursor pagination を持つ。
+- Token Management API: access denied と token の repository 不一致は `404 not_found` になる（情報秘匿）。
+- Token Management API: revoke は冪等であり、既に revoke 済みの token に対して既存の `revoked_at` を保持して返す。
