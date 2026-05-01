@@ -2,7 +2,9 @@
 
 ## 最終状態サマリ
 
-**ステータス**: 完了 (PR作成待ち)
+**ステータス**: 完了 (PR作成済み)
+
+**PR**: https://github.com/f0reachARR/boardflow/pull/17
 
 **実装内容**:
 - 8 GET Read APIエンドポイント (Repository/BoardProject/BoardRun/Artifact一覧・詳細 + Viewer Sources)
@@ -986,3 +988,27 @@ limit+1行取得し、N+1行目が存在すれば `has_more=true`、N行目で n
 
 ### 残リスク
 - `cargo test` の並列実行時に既知の DB 共有競合が残るが、今回の修正内容と直接の因果は確認できない
+
+---
+
+## Phase 12: PR作成 (PR Creation)
+- 開始: 2026-05-01
+- 状態: 完了
+- 対象Issue: #6
+
+### PR/完了結果
+- Issue ID: #6
+- PR: https://github.com/f0reachARR/boardflow/pull/17
+- ブランチ: `feature/issue-6-web-ui-read-api` → `main`
+- ステータス: OPEN
+
+### PRの内容
+- タイトル: `feat: Web UI Read API (#6)`
+- `Closes #6` を含む
+- review: `pr_ready: true`、docs: `docs_ready: true` の判定を明記
+
+### 残リスク
+- `list_repositories` のGitHub API全ページ取得はスケーラビリティ課題（後続Issue）
+- OAuth統合テスト（外部API mock）は未実装
+- Artifact Proxy API本体は別Issue
+- 並列テスト実行時のDB競合は既知問題（`--test-threads=1` で回避済み）
