@@ -52,6 +52,7 @@ fn create_proxy_test_app(pool: PgPool) -> axum::Router {
         Some(TEST_SECRET.to_vec()),
         Some(checker),
         Some("test-bucket".to_string()),
+        Some("https://app.boardflow.example.com".to_string()),
     )
 }
 

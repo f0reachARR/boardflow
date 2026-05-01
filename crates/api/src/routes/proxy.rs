@@ -11,7 +11,7 @@ use boardflow_domain::models::artifact::ArtifactStatus;
 
 use crate::artifact_token::verify_artifact_token;
 use crate::error::{AppError, ErrorCode, RequestId};
-use crate::{ArtifactSecret, FinalBucket};
+use crate::{AppDomain, ArtifactSecret, FinalBucket};
 
 /// Parse artifact_id from path parameter, expecting `art_` prefix.
 fn parse_artifact_id(s: &str) -> Option<Uuid> {
@@ -28,6 +28,7 @@ pub async fn get_artifact(
     Extension(s3_client): Extension<Option<aws_sdk_s3::Client>>,
     Extension(secret): Extension<ArtifactSecret>,
     Extension(final_bucket): Extension<FinalBucket>,
+    Extension(app_domain): Extension<AppDomain>,
     Extension(RequestId(request_id)): Extension<RequestId>,
     Path(artifact_id_str): Path<String>,
     Query(query): Query<ProxyQuery>,
@@ -40,7 +41,10 @@ pub async fn get_artifact(
 
     // user_id is embedded in the token for audit purposes but not checked here;
     // the proxy endpoint is accessed via img/iframe src without a session cookie,
-    // so authentication relies solely on the HMAC-signed short-lived token.
+    // so authentication relies solely on the HMAC-signed short-lived token (1h expiry).
+    // Design decision: Bearer token only. No session verification required.
+    // The token is HMAC-signed with a server secret and short-lived; viewer-sources
+    // issues tokens only to authenticated users, so proxy-side session check is unnecessary.
     let (token_artifact_id, _user_id) = verify_artifact_token(token, &secret.0)
         .ok_or_else(|| AppError::unauthorized("invalid or expired token", &request_id))?;
 
@@ -96,13 +100,20 @@ pub async fn get_artifact(
         .as_deref()
         .unwrap_or("application/octet-stream");
 
-    // Determine CSP and X-Frame-Options based on artifact type
-    let (csp, x_frame_options) = match artifact.r#type.as_str() {
-        "ibom_html" => (
-            "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; frame-ancestors 'self'",
-            "SAMEORIGIN",
-        ),
-        _ => ("default-src 'none'", "DENY"),
+    // Determine CSP and X-Frame-Options based on artifact type.
+    // Design: artifact proxy is served on a separate domain (e.g. artifacts.boardflow.example.com).
+    // For iframe artifacts (ibom_html), we use CSP frame-ancestors to allow embedding
+    // from the app domain only. X-Frame-Options is omitted for iframe artifacts because
+    // ALLOW-FROM is deprecated; CSP frame-ancestors is the standard mechanism.
+    // For non-iframe artifacts, X-Frame-Options: DENY prevents any framing.
+    let is_iframe_artifact = artifact.r#type.as_str() == "ibom_html";
+    let csp = if is_iframe_artifact {
+        format!(
+            "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; frame-ancestors {}",
+            app_domain.0
+        )
+    } else {
+        "default-src 'none'; frame-ancestors 'none'".to_string()
     };
 
     // Build streaming response body from S3 SdkBody
@@ -112,9 +123,17 @@ pub async fn get_artifact(
     let mut builder = Response::builder()
         .header(header::CONTENT_TYPE, content_type)
         .header("X-Content-Type-Options", "nosniff")
-        .header("X-Frame-Options", x_frame_options)
         .header("Referrer-Policy", "no-referrer")
-        .header("Content-Security-Policy", csp);
+        .header("Content-Security-Policy", &csp)
+        .header("Access-Control-Allow-Origin", &app_domain.0)
+        .header("Access-Control-Allow-Methods", "GET")
+        .header("Vary", "Origin");
+
+    // Non-iframe artifacts get X-Frame-Options: DENY.
+    // iframe artifacts rely solely on CSP frame-ancestors (ALLOW-FROM is deprecated).
+    if !is_iframe_artifact {
+        builder = builder.header("X-Frame-Options", "DENY");
+    }
 
     // Add Content-Length if available
     if let Some(size) = artifact.size_bytes {
