@@ -675,6 +675,10 @@ total: 46 passed; 0 failed
 - 46 tests passed (board_run_test: 19, plan_test: 16, auth_test: 8, config_test: 1, integration_test: 2)
 - リグレッションなし
 
+### PR/完了結果
+- PR作成: https://github.com/f0reachARR/boardflow/pull/14
+- Closes #5
+
 ### 残リスク
 - presigned URL生成は実 MinIO での E2E テスト未実施
 - 真の並行テスト (tokio::spawn 同時リクエスト) は未実施
