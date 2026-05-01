@@ -2174,7 +2174,7 @@ docsレビューで以下の不整合が指摘された:
 
 ### PR作成結果
 
-- **PRリンク**: (作成後に記録)
+- **PRリンク**: https://github.com/f0reachARR/boardflow/pull/16
 - タイトル: `feat(worker): insert run_check_findings from manifest checks`
 - base: `main`, head: `feature/issue-7-run-check-findings-insert`
 - Issue #7 への追加実装 (元実装は PR #15 でマージ済み)
