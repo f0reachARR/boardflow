@@ -907,3 +907,82 @@ limit+1行取得し、N+1行目が存在すれば `has_more=true`、N行目で n
 ### 残リスク
 - auth routes の仕様未記載のまま進めると、frontend 実装時に cookie/session の扱いをコードから逆算する必要がある
 - worklog は監査ログとしては有用だが、最終状態のサマリが弱く、レビュー再開時に誤読が起きやすい
+
+## Phase 10: ドキュメント確認フォローアップ (Docs Review)
+- 開始: 2026-05-01
+- 状態: 完了
+- 対象Issue: #6
+- docs_ready: `true`
+
+### 確認対象
+- `docs/backend/api.md`
+- `docs/logs/6/worklog.md`
+
+### 確認結果
+- 前回必須修正 1: `docs/backend/api.md` に Web UI Auth API が追加され、`login` / `callback` / `logout` / `me` の 4 endpoint、cookie/session 前提、主要 status code が明記された
+- 前回必須修正 2: `docs/logs/6/worklog.md` の冒頭に最終状態サマリが追加され、実装内容、テスト結果、残リスクをレビュー履歴を読まずに把握できるようになった
+- 更新ドキュメントとして `docs/backend/api.md` の反映も確認でき、前回時点の「仕様書更新が不足している」指摘は今回確認範囲では解消済みと判断した
+
+### 総評
+- 今回の確認依頼対象だった前回必須修正 2 点は解消済み
+- Auth API 追記後の `docs/backend/api.md` と worklog 冒頭サマリの整合に問題は見当たらない
+
+### PR/完了結果
+- Issue ID: #6
+- `docs_ready: true`
+
+### 残リスク
+- `docs/logs/6/worklog.md` 内には過去の否定判定や修正前の計画メモも履歴として残っているため、詳細経緯を読む際のノイズは引き続きある
+- ただし今回の確認対象である「最終状態を即座に把握できること」は冒頭サマリで満たしている
+
+## Phase 11: 最終確認 (Final Review)
+- 開始: 2026-05-01
+- 状態: 完了
+- 対象Issue: #6
+- pr_ready: `true`
+
+### Issueまでの経緯
+- 前回レビューの唯一の必須修正は、GitHub access checker の error path に対する回帰テスト追加だった
+- 今回はその修正が実装・テスト・仕様の3点で閉じているかだけを最終確認した
+
+### ユーザー要望
+- `RateLimited/Upstream error` の回帰テスト追加が解消されたか確認すること
+- Issue #6 を PR ready と判定できるか最終判断すること
+
+### 調査結果
+- `crates/api/src/github_access.rs` に `RateLimitedGithubAccessChecker` と `UpstreamErrorGithubAccessChecker` が追加され、`check_access` と `list_accessible_repo_ids` の両方で error path を返せる test double になっていることを確認した
+- `crates/api/tests/read_api_test.rs` に以下の4件が追加され、route レベルで error mapping を固定していることを確認した
+  - `test_get_repository_rate_limited_returns_429`
+  - `test_get_repository_upstream_error_returns_500`
+  - `test_list_repositories_rate_limited_returns_429`
+  - `test_list_repositories_upstream_error_returns_500`
+- `crates/api/src/routes/read.rs` では `AccessError::RateLimited -> 429 rate_limited`、`AccessError::Upstream -> 500 internal_error` の変換が維持されていることを確認した
+- `docs/backend/api.md` の Web UI Read API 契約、および GitHub REST API troubleshooting の外部仕様と照合し、rate limit は `403` または `429`、private resource の非認可は `404` になり得る整理とも整合していることを確認した
+
+### テスト結果
+- `cargo test -p boardflow-api --test read_api_test -- --test-threads=1`: 41 passed
+- 追加された4件の回帰テストを含めて成功し、前回の唯一の必須修正が CI で検知可能な形になったことを確認した
+
+### レビュー結果
+- 前回の唯一の必須修正は解消済み
+- 実装、仕様、回帰テストの3点が一致しており、今回レビュー範囲では新たな blocking issue は見当たらない
+
+### 必須修正
+- なし
+
+### 任意改善
+- 並列実行時に既知の DB 共有競合が残っているため、別Issueでテスト分離または fixture 戦略の整理を進める余地はある
+
+### テスト不足
+- 今回の必須修正対象については不足なし
+- 並列実行時の既知失敗は今回の変更起因ではないが、継続的には改善余地がある
+
+### ドキュメント確認
+- `docs/backend/api.md` と `docs/logs/6/worklog.md` の確認範囲で、今回の最終判定を妨げる不整合は見当たらない
+
+### PR/完了結果
+- Issue ID: #6
+- `pr_ready: true`
+
+### 残リスク
+- `cargo test` の並列実行時に既知の DB 共有競合が残るが、今回の修正内容と直接の因果は確認できない
