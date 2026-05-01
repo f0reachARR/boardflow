@@ -134,7 +134,7 @@ match client.get_object().bucket(b).key(k).send().await {
 ## BoardFlow への示唆
 
 - S3 クライアントは presigned URL 生成と共有可能。`crates/artifact/` に S3 操作を集約するのが自然。
-- Worker の Cargo.toml に `aws-sdk-s3` と `aws-config` の workspace 依存を追加する。
+- S3 クライアント構築は `aws-config` 経由でも `aws-sdk-s3::config::Builder` の直接構築でもよい。現行実装は direct builder + 明示的 credentials provider を採用している。
 - ダウンロード → SHA256 検証 → ZIP 展開というパイプラインで、collect() による一括メモリ読み込みが適切。
   bundle_size_bytes の上限値（例: 500MB）を設定し、巨大ファイルを拒否すべき。
 - `sha2` クレートは workspace Cargo.toml に `"0.10"` で追加済み。

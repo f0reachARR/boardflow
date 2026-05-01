@@ -4,7 +4,7 @@
 
 ## 要約
 
-Import Worker は `github_jobs` テーブルから `artifact_bundle_import` ジョブをポーリングし、処理する。`SELECT ... FOR UPDATE SKIP LOCKED` パターンがデファクトスタンダードで、複数 worker インスタンスでの安全な並行処理が可能。既存の `github_jobs` スキーマに `run_after` と `attempts` カラムが存在するため、リトライとバックオフにそのまま利用できる。
+Import Worker は `github_jobs` テーブルから `artifact_bundle_import` ジョブをポーリングし、処理する。`SELECT ... FOR UPDATE SKIP LOCKED` パターンがデファクトスタンダードで、複数 worker インスタンスでの安全な並行処理が可能。既存の `github_jobs` スキーマに `run_after` と `attempts` カラムが存在するため、リトライとバックオフにそのまま利用できる。ポーリング間隔そのものは実装側で調整可能で、現行 worker は `POLL_INTERVAL_SECS` で上書きできる。
 
 ## 確認した情報
 

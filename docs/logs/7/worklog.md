@@ -1093,3 +1093,139 @@ cargo test --workspace: 64 tests passed, 0 failed
 - diff summary は現在ファイル数のみ。ファイルレベルの added/removed/changed 計算は baseline snapshot との比較が必要で、別途実装予定。
 - S3アップロード後にトランザクションが失敗すると孤立オブジェクトが残る。staging bucket の TTL (delete_after) で自然回収される想定。
 - Worker 統合テスト（DB + S3 の E2E）は未実装。CI 環境の docker-compose 設定が必要。
+
+---
+
+## レビューフェーズ3 (2026-05-01)
+
+### 対象
+
+- Issue #7: Import Worker実装
+- 確認対象は前回指摘の5件、`cargo build --workspace`、`cargo test --workspace`、および新規PRブロッカーの有無のみ
+
+### 調査結果
+
+#### 修正1: 後続ジョブenqueue
+
+- `crates/worker/src/main.rs` を確認
+- `board_project.issue_number` が未設定のときのみ `create_issue` を enqueue
+- `board_project.dashboard_comment_id` の有無で `create_dashboard_comment` / `update_dashboard_comment` を分岐
+- run result 用は `create_run_result_comment` を enqueue
+- `docs/spec.md` の job type 例と整合
+
+#### 修正2: delete_after
+
+- `crates/db/src/queries/artifact_bundle.rs` の `mark_completed` を確認
+- `delete_after = NOW() + INTERVAL '24 hours'` になっており、`docs/spec.md` の「import成功済みのstaging bundleは24時間以内に削除対象」と整合
+
+#### 修正3: manifest未記載entry拒否
+
+- `crates/artifact/tests/extract_test.rs` の `test_extract_bundle_rejects_unlisted_entry` を確認
+- エラー種別は `ArtifactError::Manifest` を期待しており、メッセージに `not declared in manifest` とファイル名を含むことを検証
+- `docs/spec.md` の「manifest未記載のzip entryは原則拒否する」と整合
+
+#### 修正4: test_fail_board_run_conflict
+
+- `crates/api/tests/board_run_test.rs` の `test_fail_board_run_conflict` は現行HEADで存在し、`cargo test --workspace` 再実行でも pass
+- 前回の失敗は現時点では再現せず、pre-existing issue は解消済みとして扱ってよい
+
+#### 修正5: github_job::enqueue
+
+- `crates/db/src/queries/github_job.rs` を確認
+- `enqueue` は `Result<Option<GithubJob>, sqlx::Error>` を返し、`fetch_optional` を使用
+- `INSERT ... ON CONFLICT DO NOTHING RETURNING *` は競合時に行を返さないため、この変更は PostgreSQL の挙動と整合
+- worker 側では戻り値 `Option` を無視しており、重複時にも異常終了しない
+
+### テスト結果
+
+```text
+cargo build --workspace
+- Finished dev profile successfully
+
+cargo test --workspace
+- 全64テスト pass
+- board_run_test: 19 passed（test_fail_board_run_conflict を含む）
+- extract_test: 18 passed（manifest未記載entry reject test を含む）
+```
+
+### ドキュメント確認
+
+- `docs/spec.md` の以下と整合を確認
+  - manifest未記載entry拒否
+  - import成功後の `delete_after = 24 hours`
+  - 後続 GitHub job type 名称
+
+### レビュー結果
+
+- 前回指摘の5件は、今回レビュー範囲ではすべて修正済みと判断
+- `cargo build --workspace` と `cargo test --workspace` は現行HEADで成功
+- ユーザーが許容すると明示した残リスク（E2E未整備、diff summary簡素、S3孤立オブジェクト自然回収）は、今回のPRブロッカーとして扱わない
+- 今回レビュー範囲で新たなPRブロッカーは見つからず
+
+### PR/完了結果
+
+- 判定: `pr_ready: true`
+
+### 残リスク
+
+- Worker 統合テスト（DB + S3 の E2E）は未実装だが、MVPスコープ外として許容
+- diff summary は最小実装のままだが、今回レビュー条件では許容
+- S3孤立オブジェクトはTTLベースの自然回収前提で、今回レビュー条件では許容
+
+---
+
+## ドキュメント確認フェーズ (2026-05-01)
+
+### 対象
+
+- Issue #7: Import Worker実装
+- 確認対象: `docs/spec.md` 9.5節、`docs/backend/api.md` Import API status、`docs/backend/summary.md`、`docs/technology.md`、新規 `docs/external/`、`docs/logs/7/worklog.md`
+
+### 調査結果
+
+#### 1. `docs/spec.md` 9.5節
+
+- 完了時の主処理順序は現行実装と概ね整合している。
+- ただし staging bundle cleanup は差分が残る。仕様は「failed または timed_out run の staging bundle は7日後に削除対象」としている一方、現行実装の `crates/db/src/queries/artifact_bundle.rs` では `mark_failed` が `delete_after` を設定していない。
+- このため 9.5節は仕様として妥当だが、現行実装とは完全一致していない。
+
+#### 2. `docs/backend/api.md`
+
+- Import API のレスポンス `status` は `queued` / `running` / `completed` / `failed` と記載されており、`crates/api/src/routes/board_run.rs` の `bundle_status_str()` と整合している。
+- `Pending -> queued`、`Validating` / `Importing -> running`、`Completed -> completed`、`Failed -> failed` を確認。
+
+#### 3. `docs/backend/summary.md`
+
+- Queue / Worker セクションに artifact import worker の責務、完了後の後続 job enqueue、staging/final bucket 方針がすでに記載されている。
+- Import Worker 実装に合わせた追加追記は今回必須ではない。
+
+#### 4. `docs/technology.md`
+
+- このファイルは crate 単位の依存一覧ではなく、採用技術のレイヤー別サマリを扱っている。
+- `zip = "2"` は workspace 依存の追加だが、技術スタック全体の意思決定として新セクションを足す必要まではない。
+
+#### 5. `docs/external/`
+
+- `docs/external/aws-sdk-s3-download.md` は採用メモの一部が stale だったため、現行実装に合わせて「`aws-config` 経由でも direct builder でもよい」形に修正。
+- `docs/external/postgresql-job-queue-polling.md` はポーリング間隔を固定値の結論に見せないよう、「実装側で調整可能」である旨を追記。
+- `docs/external/zip-archive-rust.md` は `zip = "2"`、インメモリ展開、未記載 entry 拒否、サイズ検証の方向性と矛盾していないため修正不要と判断。
+
+#### 6. `docs/logs/7/worklog.md`
+
+- 途中フェーズの古いレビュー内容は履歴として残っているが、末尾には再レビューと最終 `pr_ready: true` が追記されており、時系列ログとしては成立している。
+- ただし今回のドキュメント観点では、spec 9.5 と実装の cleanup 差分を明示しておく必要があるため、本フェーズを追記した。
+
+### ドキュメント確認
+
+- `docs/backend/api.md`、`docs/backend/summary.md`、`docs/technology.md` は今回の観点では修正不要。
+- `docs/external/aws-sdk-s3-download.md` と `docs/external/postgresql-job-queue-polling.md` は現行実装との読み違いを避けるため補正した。
+- `docs/spec.md` は仕様として維持すべき内容だが、現行実装が failed bundle の `delete_after` を設定しておらず、実装との差分が残る。
+
+### PR/完了結果
+
+- 判定: `docs_ready: false`
+
+### 残リスク
+
+- `docs/spec.md` 9.5節の cleanup 方針と現行実装が未一致のため、PR説明では「failed/timed_out bundle の delete_after は未実装」と明示しない限り誤読が起こりうる。
+- worklog は十分詳細だが、最終判定だけを見る読者向けには今回のドキュメント確認フェーズを参照する必要がある。

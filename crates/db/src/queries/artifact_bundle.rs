@@ -112,14 +112,14 @@ pub async fn mark_completed(
     Ok(())
 }
 
-/// Mark bundle as failed
+/// Mark bundle as failed (delete_after = 7 days per spec)
 pub async fn mark_failed(
     executor: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
     id: Uuid,
     error_message: &str,
 ) -> Result<(), sqlx::Error> {
     sqlx::query(
-        "UPDATE artifact_bundles SET status = 'failed', error_message = $2 WHERE id = $1",
+        "UPDATE artifact_bundles SET status = 'failed', error_message = $2, delete_after = NOW() + INTERVAL '7 days' WHERE id = $1",
     )
     .bind(id)
     .bind(error_message)
