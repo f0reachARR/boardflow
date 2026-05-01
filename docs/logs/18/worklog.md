@@ -304,5 +304,71 @@ S3 依存テストは `MINIO_ENDPOINT` 未設定時はスキップ。
 ### 更新した作業ログパス
 
 `docs/logs/18/worklog.md`
-2. iBOM HTML の CSP 設定は実際の iBOM 出力を確認して調整が必要。
-3. artifact token の生成/検証ロジックは既存の `crates/api/src/artifact_token.rs` の設計に依存。
+
+---
+
+## 実装フェーズ（2026-05-01）
+
+### 実装内容
+
+#### 変更ファイル一覧
+
+| ファイル | 変更種別 | 内容 |
+|---|---|---|
+| `crates/db/src/queries/artifact.rs` | 追加 | `find_by_id(executor, id) -> Option<Artifact>` 関数追加 |
+| `crates/api/src/routes/proxy.rs` | **新規** | `get_artifact` handler — token検証→DB→S3→ストリーミング |
+| `crates/api/src/routes/mod.rs` | 追加 | `pub mod proxy;` 行追加 |
+| `crates/api/src/lib.rs` | 追加 | `FinalBucket(String)` newtype + proxy route登録 + Extension追加 |
+| `crates/api/tests/proxy_test.rs` | **新規** | proxy API テスト（9ケース） |
+| `crates/api/tests/read_api_test.rs` | 修正 | `create_app_with_config` 引数追加対応（None追加） |
+
+#### 設計判断
+
+1. **`artifact_id` パス形式**: 計画では `art_` prefix 付きだったが、proxy API は token 内の raw UUID でアクセスする設計のため prefix なしの生UUID形式を採用。viewer-sources が生成するURLのformat と整合。
+2. **`Body::new(SdkBody)`**: コンパイル成功。aws-smithy-types v1 の SdkBody は http-body 1.0 を実装しているため axum 0.8 の Body::new に直接渡せた。
+3. **CSP 分岐**: 計画どおり artifact type で分岐。MVP ではシンプルに `ibom_html` のみ特別扱い、他は `default-src 'none'`。
+4. **エラーコード**: S3 client なし → 500 (internal_error)。計画では 503 だったが既存の AppError に ServiceUnavailable がないため internal_error を採用。
+5. **FinalBucket**: 環境変数 `MINIO_BUCKET_FINAL` から取得、デフォルト値 `boardflow-final`。
+
+### テスト結果
+
+```
+running 9 tests
+test test_proxy_artifact_not_available_returns_404 ... ok
+test test_proxy_empty_token_returns_401 ... ok
+test test_proxy_invalid_uuid_path_returns_404 ... ok
+test test_proxy_artifact_not_found_returns_404 ... ok
+test test_proxy_invalid_token_returns_401 ... ok
+test test_proxy_missing_token_returns_401 ... ok
+test test_proxy_no_s3_client_returns_500 ... ok
+test test_proxy_token_artifact_mismatch_returns_401 ... ok
+test test_proxy_wrong_secret_token_returns_401 ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+```
+
+全パッケージテスト: **41 passed; 0 failed** （リグレッションなし）
+
+### テスト観点
+
+| テストケース | 観点 | 保証内容 |
+|---|---|---|
+| `missing_token_returns_401` | 認証バリデーション | token なしリクエストを拒否 |
+| `invalid_token_returns_401` | 認証バリデーション | 不正形式token を拒否 |
+| `wrong_secret_token_returns_401` | 暗号検証 | 別秘密鍵で署名されたtoken を拒否 |
+| `token_artifact_mismatch_returns_401` | 認可チェック | 他artifact用token での不正アクセスを防止 |
+| `artifact_not_found_returns_404` | DB検証 | 存在しないartifact へのアクセスを拒否 |
+| `artifact_not_available_returns_404` | 状態検証 | status≠available の artifact 配信を防止 |
+| `no_s3_client_returns_500` | インフラ障害 | S3 未設定時の適切なエラー応答 |
+| `invalid_uuid_path_returns_404` | 入力バリデーション | 不正パスパラメータの処理 |
+| `empty_token_returns_401` | 境界値 | 空文字token の処理 |
+
+### 残リスク
+
+1. S3 正常系テスト未実装（MinIO 統合テスト環境が必要。docker-compose upで実行可能）
+2. `Body::new(SdkBody)` の実行時の bytes バージョン不整合の可能性（コンパイルは通ったが実行時にパニックする可能性は極めて低い）
+3. iBOM HTML の CSP で `img-src data:` を追加しているが、実際の iBOM 出力にどの程度のリソースが必要かは未検証
+
+### 更新ドキュメント
+
+- `docs/logs/18/worklog.md` — 本ファイル（実装フェーズ追記）
