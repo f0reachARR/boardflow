@@ -7,6 +7,7 @@ edition = "2024"
 boardflow-artifact = { path = "../artifact" }
 boardflow-db = { path = "../db" }
 boardflow-domain = { path = "../domain" }
+boardflow-github = { path = "../github" }
 boardflow-jobs = { path = "../jobs" }
 aws-sdk-s3 = { workspace = true }
 serde = { workspace = true }
