@@ -307,6 +307,66 @@ S3 依存テストは `MINIO_ENDPOINT` 未設定時はスキップ。
 
 ---
 
+## 再レビューフェーズ（2026-05-01）
+
+### ドキュメント確認
+
+- `docs/backend/api.md` §4 を再確認し、proxy token は `artifact、user/session、expiry` 紐付け、iframe 用 artifact には制限付き CSP と sandbox 前提ヘッダ、許可 origin は app domain 限定であることを再確認した。
+- `docs/backend/summary.md` と `docs/external/axum-s3-streaming-proxy.md` を再確認し、`Access-Control-Allow-Origin` 制限と iframe sandbox 前提が research / summary 側でも維持されていることを確認した。
+- `docs/frontend/summary.md` を再確認し、iBOM HTML は app domain と分離された artifact domain で表示する前提を確認した。
+
+### 調査結果
+
+1. `viewer-sources` は引き続き `/proxy/artifacts/art_{uuid}?token=...` を生成しており、proxy 側の `parse_artifact_id()` 追加により `art_` prefix 不整合は解消されている。
+2. proxy handler は `ibom_html` に `X-Frame-Options: SAMEORIGIN` と `frame-ancestors 'self'` を付与しているが、frontend 仕様の「app domain と分離された artifact domain で iframe 表示」と整合しない。
+3. proxy handler には依然として app domain を設定・注入する仕組みがなく、`Access-Control-Allow-Origin` も返していないため、仕様の「許可 origin は app domain に限定する」を満たしていない。
+4. token には `user_id` が含まれるが、handler 側ではコメントで未使用化されており、実際の認可条件は `artifact_id` と有効期限だけになっている。
+5. `cargo test --workspace -- --nocapture` は nightly で完走し、現行コードはコンパイルできた。ただし `DATABASE_URL` 未設定のため DB 依存テストの多くは early return で実質未実行だった。
+
+### レビュー結果
+
+- `pr_ready: false`
+
+#### 重大度順の指摘
+
+1. **High**: iframe 用ヘッダが app domain / artifact domain 分離前提と衝突しており、iBOM 埋め込みを本番構成で壊す。`ibom_html` に対して `X-Frame-Options: SAMEORIGIN` と `Content-Security-Policy: frame-ancestors 'self'` を返しているため、artifact domain から app domain への cross-origin iframe 埋め込みが拒否される。該当: `crates/api/src/routes/proxy.rs` の header 設定。関連仕様: `docs/frontend/summary.md` の artifact domain 分離方針、`docs/backend/api.md` の app domain 限定方針。
+2. **High**: 前回「修正済み」とされた origin 制御は実装上まだ閉じていない。proxy には app domain の設定値が存在せず、レスポンスにも `Access-Control-Allow-Origin` がないため、仕様・research・summary で求める app domain 限定配信を表現できていない。`'self'` は app domain 制限の代替にならず、前項のとおり cross-domain iframe を壊す。該当: `crates/api/src/lib.rs` と `crates/api/src/routes/proxy.rs`。
+3. **Medium**: token の `user/session` 紐付けは依然として実質未検証。`verify_artifact_token()` から取り出した `user_id` をコメントで破棄しており、URL 流出時は期限内の第三者利用を防げない。これは公開仕様の「artifact、user/session、expiry に紐づく」とまだ一致していない。該当: `crates/api/src/routes/proxy.rs`。
+
+#### 必須修正
+
+1. iframe 配信を artifact domain 前提で成立させるため、`ibom_html` の `frame-ancestors` と `X-Frame-Options` を app domain ベースで再設計するか、artifact domain 分離方針を docs から落とす。
+2. app domain を明示的に設定として注入し、proxy レスポンスでその値に基づく origin / framing 制御を行う。
+3. token の `user/session` 紐付けを実装で満たすか、現行の bearer URL 設計に合わせて仕様を修正する。
+
+#### 任意改善
+
+1. proxy URL の host を app 側解決に委ねず、artifact domain を含む完全 URL に寄せると frontend 方針との整合が取りやすい。
+2. ヘッダ値を検証する正常系テストを追加し、`ibom_html` と非 iframe artifact で分岐を固定化すると regressions を減らせる。
+
+#### テスト不足
+
+1. `DATABASE_URL` 未設定環境では proxy の DB 経由ケースが early return するため、今回のローカル再実行だけでは実データ経路の保証になっていない。
+2. `X-Frame-Options`、`Content-Security-Policy`、`Access-Control-Allow-Origin` の値を確認する成功系テストがない。
+3. artifact domain を跨いだ iframe 埋め込み前提の結合テストがない。
+
+#### ドキュメント確認
+
+- `docs/backend/api.md`、`docs/backend/summary.md`、`docs/frontend/summary.md`、`docs/external/axum-s3-streaming-proxy.md` を再確認した。
+- 現行実装はこれらのうち origin / framing 方針と未整合。
+
+#### PR/完了結果
+
+- art_ prefix パース修正とワークスペース全体のコンパイルは確認できたが、origin / framing 制御と token 紐付けの仕様差が残るため PR 作成はまだ非推奨。
+
+#### 残リスク
+
+1. 本番で artifact domain を分離した瞬間に iBOM iframe が表示不能になる可能性が高い。
+2. 短命 token を query string で運ぶ設計のため、仕様どおり `user/session` と結び付けない限り URL 漏えい耐性は限定的。
+3. DB / S3 を使う成功系はこの環境では未検証のまま。
+
+---
+
 ## 実装フェーズ（2026-05-01）
 
 ### 実装内容
@@ -528,6 +588,70 @@ test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
 
 1. S3 正常系ストリーミングテスト未実装（MinIO 統合テスト環境が必要）
 2. `Content-Type`、CSP、`X-Frame-Options` 等のヘッダ値の正常系検証テストがない（S3 mock が必要）
+3. iBOM HTML の実出力での CSP 検証が未完了
+
+### 更新した作業ログパス
+
+`docs/logs/18/worklog.md`
+
+---
+
+## Cross-origin 制御修正フェーズ（2026-05-01）
+
+### 修正内容
+
+レビュー指摘に基づき、以下を修正:
+
+#### 1. AppDomain 設定の注入
+
+- `crates/api/src/lib.rs` に `AppDomain(String)` newtype を追加
+- `create_app_with_config` に `app_domain: Option<String>` パラメータを追加（7番目の引数）
+- Extension として Router に注入
+- デフォルト値: 環境変数 `BOARDFLOW_APP_DOMAIN`、なければ `"http://localhost:3000"`
+- `crates/api/src/config.rs` の `AppConfig` に `app_domain: String` フィールドを追加
+
+#### 2. proxy handler でのヘッダ設定
+
+- `Extension(app_domain): Extension<AppDomain>` を handler の引数に追加
+- 全レスポンスに `Access-Control-Allow-Origin: <app_domain>` を設定
+- 全レスポンスに `Access-Control-Allow-Methods: GET` を設定
+- 全レスポンスに `Vary: Origin` を設定
+- 非iframe artifact: `X-Frame-Options: DENY` + CSP に `frame-ancestors 'none'`
+- iframe artifact (ibom_html): CSP に `frame-ancestors <app_domain>` のみ（X-Frame-Options 除去。ALLOW-FROM 非推奨のため CSP のみ使用）
+
+#### 3. CSP 見直し
+
+- ibom_html: `default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; frame-ancestors <app_domain>`
+- 画像/SVG/PDF/その他: `default-src 'none'; frame-ancestors 'none'`
+
+#### 4. Token user/session 紐付けコメント更新
+
+- proxy handler のコメントを更新し設計判断を明記:
+  - Bearer token のみで認証。session 検証は不要
+  - token は HMAC 署名済みで短命(1h)、viewer-sources が認証済みユーザーにのみ発行するため追加 session 検証は不要
+
+### 変更ファイル一覧
+
+| ファイル | 変更種別 | 内容 |
+|---|---|---|
+| `crates/api/src/lib.rs` | 修正 | `AppDomain` newtype追加、`create_app_with_config` 引数追加、Extension注入 |
+| `crates/api/src/config.rs` | 修正 | `app_domain: String` フィールド追加 |
+| `crates/api/src/routes/proxy.rs` | 修正 | `AppDomain` Extension引数追加、CORS/framing ヘッダ設定、コメント更新 |
+| `crates/api/tests/proxy_test.rs` | 修正 | `create_proxy_test_app` に `app_domain` パラメータ追加 |
+| `crates/api/tests/read_api_test.rs` | 修正 | 全 `create_app_with_config` 呼び出しに `None` パラメータ追加 |
+
+### テスト結果
+
+```
+test result: ok. 41 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+```
+
+全パッケージテスト41件パス。リグレッションなし。
+
+### 残リスク
+
+1. S3 正常系ストリーミングテスト未実装（MinIO 統合テスト環境が必要）
+2. CORS/framing ヘッダ値の正常系検証テストがない（S3 取得成功時のレスポンスヘッダ検証にはS3 mockが必要）
 3. iBOM HTML の実出力での CSP 検証が未完了
 
 ### 更新した作業ログパス
