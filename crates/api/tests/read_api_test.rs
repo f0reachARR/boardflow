@@ -2471,3 +2471,111 @@ async fn test_list_findings_board_run_not_found() {
 
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
 }
+
+/// バリデーション: 不正なcursorで400
+#[tokio::test]
+async fn test_list_findings_invalid_cursor() {
+    let Some(pool) = setup_pool().await else { return };
+
+    let user_id = create_test_user(&pool).await;
+    let session_id = create_test_session(&pool, user_id).await;
+    let github_repo_id = rand_i64();
+    let repo_id = create_test_repository(&pool, github_repo_id).await;
+    let bp_id = create_test_board_project(&pool, repo_id).await;
+    let br_id = create_test_board_run(&pool, bp_id, "completed").await;
+
+    let app = create_test_app(pool);
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(&format!(
+                    "/api/v1/board-runs/br_{br_id}/checks/erc/findings?cursor=not-valid-base64!!!"
+                ))
+                .header("cookie", session_cookie(session_id))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let body_bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+    assert_eq!(json["error"]["code"], "validation_failed");
+}
+
+/// 正常系: sort_index同値時のid tie-breakerテスト
+/// 2件のfindingsが同一sort_indexを持つ場合、idでtie-breakされて正しくpaginateされること
+#[tokio::test]
+async fn test_list_findings_sort_index_tie_breaker() {
+    let Some(pool) = setup_pool().await else { return };
+
+    let user_id = create_test_user(&pool).await;
+    let session_id = create_test_session(&pool, user_id).await;
+    let github_repo_id = rand_i64();
+    let repo_id = create_test_repository(&pool, github_repo_id).await;
+    let bp_id = create_test_board_project(&pool, repo_id).await;
+    let br_id = create_test_board_run(&pool, bp_id, "completed").await;
+    let rc_id = create_test_run_check(&pool, br_id, "erc", "failed", 2, 0).await;
+
+    // Create 2 findings with the SAME sort_index (0) — id will be the tie-breaker
+    let id_a = create_test_run_check_finding(&pool, rc_id, "error", 0, Some("ERC001"), Some("First"), None, None).await;
+    let id_b = create_test_run_check_finding(&pool, rc_id, "error", 0, Some("ERC002"), Some("Second"), None, None).await;
+
+    let app = create_test_app(pool.clone());
+
+    // Page 1: limit=1
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(&format!("/api/v1/board-runs/br_{br_id}/checks/erc/findings?limit=1"))
+                .header("cookie", session_cookie(session_id))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body_bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+    let items = json["items"].as_array().unwrap();
+    assert_eq!(items.len(), 1);
+    assert_eq!(json["has_more"], true);
+    let next_cursor = json["next_cursor"].as_str().unwrap();
+    let first_id = items[0]["id"].as_str().unwrap().to_string();
+
+    // Page 2: using cursor from page 1
+    let app2 = create_test_app(pool);
+    let response2 = app2
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(&format!(
+                    "/api/v1/board-runs/br_{br_id}/checks/erc/findings?limit=1&cursor={next_cursor}"
+                ))
+                .header("cookie", session_cookie(session_id))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response2.status(), StatusCode::OK);
+    let body_bytes2 = response2.into_body().collect().await.unwrap().to_bytes();
+    let json2: serde_json::Value = serde_json::from_slice(&body_bytes2).unwrap();
+    let items2 = json2["items"].as_array().unwrap();
+    assert_eq!(items2.len(), 1);
+    assert_eq!(json2["has_more"], false);
+    let second_id = items2[0]["id"].as_str().unwrap().to_string();
+
+    // The two pages must return different findings (both items returned, no duplicates)
+    assert_ne!(first_id, second_id);
+
+    // Both ids must be from our created findings
+    let expected_ids: std::collections::HashSet<String> = [id_a.to_string(), id_b.to_string()].into_iter().collect();
+    let actual_ids: std::collections::HashSet<String> = [first_id, second_id].into_iter().collect();
+    assert_eq!(expected_ids, actual_ids);
+}
