@@ -247,3 +247,48 @@ limit+1行取得し、N+1行目が存在すれば `has_more=true`、N行目で n
 - Viewer Sources の artifact proxy token 生成は後続Issue依存
 - board_project_count のサブクエリが大量データでパフォーマンス問題になる可能性（MVPでは許容）
 - GitHub OAuth session認証が未実装のため、全データが認証なしで閲覧可能（後続Issueで対応）
+
+---
+
+## Phase 3: 実装 (Implementation)
+- 開始: 2026-05-01
+- 状態: 完了
+- ブランチ: `feature/issue-6-web-ui-read-api`
+- コミット: `f2bb525` feat(api): implement Web UI Read API endpoints (#6)
+
+### 実装内容
+
+#### 新規ファイル
+- `crates/api/src/routes/read.rs` - 全8エンドポイントのハンドラ、レスポンス型、cursor helper、viewer sources ロジック
+- `crates/api/tests/read_api_test.rs` - 23件の統合テスト
+
+#### 変更ファイル
+- `Cargo.toml` - workspace に `base64 = "0.22"` 追加
+- `crates/api/Cargo.toml` - `base64` 依存追加
+- `crates/db/Cargo.toml` - `serde` 依存追加
+- `crates/api/src/lib.rs` - 8エンドポイントの route 登録
+- `crates/api/src/routes/mod.rs` - `pub mod read;` 追加
+- `crates/db/src/queries/repository.rs` - `find_by_github_id`, `list_with_stats` (+`RepositoryWithStats` struct)
+- `crates/db/src/queries/board_project.rs` - `list_by_repository_id`, `find_by_id_with_repository` (+`BoardProjectWithRepository` struct)
+- `crates/db/src/queries/board_run.rs` - `list_by_board_project`
+- `crates/db/src/queries/artifact.rs` - `list_by_board_run`
+- `crates/db/src/queries/run_check.rs` - `list_by_board_run`
+
+### テスト結果
+- 全23件パス (DB接続あり環境)
+- 既存テスト含む全体テストスイートもパス（regressionなし）
+- テスト観点:
+  - 正常系: 各エンドポイントの基本動作
+  - 境界値: limit=0のclamp、cursor pagination でのページ遷移
+  - エラー系: 不正ID、不正cursor、存在しないリソース → 適切なHTTPステータス
+  - 統合: cursor を使ったページ遷移の完全性
+  - Viewer Sources: available/partial/missing の状態判定
+
+### ドキュメント確認
+- `docs/backend/api.md` セクション3 の仕様に準拠
+- レスポンス形式・フィールド名・ID prefix・状態値すべて仕様通り
+
+### 未解決リスク（変更なし）
+- Viewer Sources の artifact proxy token 生成は後続Issue依存
+- board_project_count のサブクエリが大量データでパフォーマンス問題になる可能性（MVPでは許容）
+- GitHub OAuth session認証が未実装のため、全データが認証なしで閲覧可能（後続Issueで対応）
