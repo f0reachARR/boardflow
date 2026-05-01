@@ -7,7 +7,7 @@ use sqlx::PgPool;
 use crate::comment_body;
 use crate::config::WorkerConfig;
 
-use super::HandlerResult;
+use super::{tree_hash_changed, HandlerResult};
 
 pub async fn handle(
     pool: &PgPool,
@@ -73,6 +73,20 @@ pub async fn handle(
                     tracing::info!(job_id = %job.id, "Issue is closed and recreate_issue_on_update=false, stopping");
                     return HandlerResult::Completed;
                 }
+                // Only recreate if tree_hash has changed since the previous completed run
+                match tree_hash_changed(pool, board_project_id, board_run_id).await {
+                    Ok(false) => {
+                        tracing::info!(job_id = %job.id, "Issue is closed but tree_hash unchanged, skipping recreation");
+                        return HandlerResult::Completed;
+                    }
+                    Ok(true) => { /* proceed with recreation */ }
+                    Err(e) => {
+                        return HandlerResult::Reschedule {
+                            reason: format!("DB error checking tree_hash: {e}"),
+                            backoff_secs: boardflow_jobs::backoff_secs(job.attempts),
+                        };
+                    }
+                }
                 // Recreate: clear issue info, enqueue create_issue, reschedule
                 let _ = board_project::clear_issue_info(pool, board_project_id).await;
                 let _ = boardflow_db::queries::github_job::enqueue(
@@ -116,13 +130,14 @@ pub async fn handle(
         }
     }
 
-    // Debounce: fetch the board run at execution time to always use latest state.
-    // Even if multiple update jobs are queued, each will output the latest comment body.
-    let run = match board_run::find_by_id(pool, board_run_id).await {
+    // Debounce: always use latest_completed_run_id from board_project so that
+    // regardless of which update job executes last, we produce the current state.
+    let effective_run_id = bp.latest_completed_run_id.unwrap_or(board_run_id);
+    let run = match board_run::find_by_id(pool, effective_run_id).await {
         Ok(Some(r)) => r,
         Ok(None) => {
             return HandlerResult::Failed {
-                reason: format!("board_run {board_run_id} not found"),
+                reason: format!("board_run {effective_run_id} not found"),
             };
         }
         Err(e) => {

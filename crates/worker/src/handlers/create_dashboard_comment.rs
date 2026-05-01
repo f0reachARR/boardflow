@@ -7,7 +7,7 @@ use sqlx::PgPool;
 use crate::comment_body;
 use crate::config::WorkerConfig;
 
-use super::HandlerResult;
+use super::{tree_hash_changed, HandlerResult};
 
 pub async fn handle(
     pool: &PgPool,
@@ -79,6 +79,20 @@ pub async fn handle(
                 if !bp.recreate_issue_on_update {
                     tracing::info!(job_id = %job.id, "Issue is closed and recreate_issue_on_update=false, stopping");
                     return HandlerResult::Completed;
+                }
+                // Only recreate if tree_hash has changed since the previous completed run
+                match tree_hash_changed(pool, board_project_id, board_run_id).await {
+                    Ok(false) => {
+                        tracing::info!(job_id = %job.id, "Issue is closed but tree_hash unchanged, skipping recreation");
+                        return HandlerResult::Completed;
+                    }
+                    Ok(true) => { /* proceed with recreation */ }
+                    Err(e) => {
+                        return HandlerResult::Reschedule {
+                            reason: format!("DB error checking tree_hash: {e}"),
+                            backoff_secs: boardflow_jobs::backoff_secs(job.attempts),
+                        };
+                    }
                 }
                 // Need to recreate: clear issue info and reschedule (create_issue will handle)
                 let _ = board_project::clear_issue_info(pool, board_project_id).await;

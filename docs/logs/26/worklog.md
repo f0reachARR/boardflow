@@ -430,6 +430,75 @@ async fn main() {
 }
 ```
 
+---
+
+## 再レビューフェーズ (2026-05-02)
+
+### レビュー結果
+
+- 対象Issue: #26
+- 判定: `pr_ready: false`
+
+### 総評
+
+前回レビューで指摘した6項目のうち、Issue/コメントの404・closed確認、Dashboardコメントのcreateフォールバック、Run Result初回非投稿、本文テンプレートのspec寄せ、GitHubClientErrorの分類は概ね修正されている。`mise exec -- cargo test -p boardflow-worker` も 12 件成功し、前回からの改善は確認できた。
+
+一方で、spec 11.7 / 13.1 / 13.3 の中核要件にまだ未充足がある。特に closed Issue 再作成条件の tree_hash 判定が未実装な点と、Dashboardコメント更新の debounce が実際には最新状態へ集約できていない点は、運用時に重複Issue作成や stale な Dashboard 上書きを引き起こすため、PR 前に解消が必要。
+
+### 重大度順の指摘
+
+1. **closed Issue の再作成条件が spec どおりではない**
+    - `create_dashboard_comment` / `update_dashboard_comment` / `create_run_result_comment` は、Issue が closed かつ `recreate_issue_on_update = true` なら無条件で `clear_issue_info` → `create_issue` enqueue に進む。
+    - しかし spec 11.7 / 13.1 では、closed Issue の再作成は「前回completed runから `tree_hash` が変わった場合」に限定される。現状は `latest_tree_hash` を保持しているにもかかわらず、worker 側で比較に使っていない。
+    - 結果として、設計変更がない再実行や再配送でも closed Issue を増殖させうる。
+
+2. **Dashboard コメント更新の debounce が未達成で、古い run が最新状態を上書きしうる**
+    - spec 13.3 は同一 BoardProject の未処理 `update_dashboard_comment` を最新 run にまとめることを要求している。
+    - しかし follow-up job の投入は `board_run_id` 単位で行われ、DB 側の一意化も `(board_run_id, type)` だけなので、同一 BoardProject に対する update job は run ごとに別件で積まれる。
+    - さらに `update_dashboard_comment` は「実行時に最新を取る」というコメントに反して `job.board_run_id` の run をそのまま読み込んで本文を生成しているため、リトライや並び替え次第で古い run の内容が最後に反映される。
+
+3. **rate limit の `retry_after_secs` は参照しているだけで実データが入らない**
+    - handler 側は `GitHubClientError::RateLimited { retry_after_secs }` を参照する実装になったが、`crates/github/src/error.rs` では 403/429 を `retry_after_secs: None` で固定しており、`retry-after` / `x-ratelimit-reset` を取り出していない。
+    - spec 13.4 と GitHub REST API の推奨では、これらのヘッダに従って待機時間を決める必要がある。現状は分類のみで、待機時間制御としては未完了。
+
+### 必須修正
+
+1. closed Issue を再作成する前に、現在処理中の run と `board_projects.latest_tree_hash` などを比較し、tree_hash 変更時のみ再作成するようにする。
+2. Dashboard コメント更新を `board_project_id` 単位で最新 run に集約する。少なくとも job の一意性と、本文生成時に参照する run の決め方を spec 13.3 に合わせる。
+3. `GitHubClientError::RateLimited` に `retry-after` または `x-ratelimit-reset` 相当の値を格納し、reschedule が spec 13.4 の待機時間を使える状態にする。
+
+### 任意改善
+
+1. `update_dashboard_comment` / `create_dashboard_comment` / `create_run_result_comment` に対する mock `GitHubAppClient` ベースの handler 単体テストを追加し、closed/404/rate limit/debounce を直接検証できるようにする。
+2. README か worker 向けセットアップ文書に `GITHUB_APP_ID` / `GITHUB_PRIVATE_KEY_PEM` / `APP_BASE_URL` の説明を追加し、運用時の設定漏れを防ぐ。
+
+### テスト不足
+
+- 現在の 12 テストは `comment_body` 周辺に集中しており、dispatcher / handler / DB クエリの組み合わせを検証していない。
+- 特に以下は未検証:
+  - closed Issue + `recreate_issue_on_update` の分岐
+  - Issue/コメント 404 時の DB クリアと再作成フロー
+  - Dashboard update job の debounce / stale overwrite 防止
+  - rate limit / auth / not found の reschedule 分岐
+
+### ドキュメント確認
+
+- spec 11.5, 12.1, 12.3 への追従は前回より改善している。
+- ただし spec 11.7 / 13.1 / 13.3 / 13.4 にはまだ未充足が残る。
+- README には worker の新規環境変数説明は未反映。
+
+### PR/完了結果
+
+- `pr_ready: false`
+- 前回レビューの主要指摘の多くは解消されたが、上記3点は仕様逸脱のままなので PR 作成はまだ不可。
+
+### 残リスク
+
+- closed Issue に対して無変更 run でも新Issueを作成し、Issue が増殖する可能性がある。
+- 短時間に複数 run が入ると、古い Dashboard update job が最後に成功してコメントを巻き戻す可能性がある。
+- rate limit 応答で適切な待機時間を使えず、不要な再試行で GitHub 側制限を悪化させる可能性がある。
+
+
 #### dispatcher.rs の概要
 
 ```rust
