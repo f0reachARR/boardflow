@@ -1598,3 +1598,39 @@ for (idx, finding) in check.findings.iter().enumerate() {
 ### 更新した作業ログパス
 
 `docs/logs/7/worklog.md`
+
+---
+
+## 実装フェーズ: run_check_findings 保存 (2026-05-01)
+
+### 実装内容
+
+ブランチ: `feature/issue-7-run-check-findings-insert`
+
+1. **`crates/artifact/src/lib.rs`** — `ManifestFinding` / `CoordinateMm` 構造体追加、`ManifestCheck` に `findings: Vec<ManifestFinding>` フィールド追加 (`#[serde(default)]` で後方互換)
+2. **`crates/db/src/queries/run_check_finding.rs`** — 新規作成。`run_check_findings` テーブルへの INSERT クエリ (既存 `run_check.rs` パターン準拠)
+3. **`crates/db/src/queries/mod.rs`** — `pub mod run_check_finding;` 追加
+4. **`crates/worker/src/main.rs`** — `run_check_finding` import追加、Step 5 の `run_check::insert` 後に findings ループ挿入 (エラー時は raw_payload_json にフォールバック保存して処理続行)
+
+### 追加/更新テスト
+
+`crates/artifact/tests/extract_test.rs` に3テスト追加:
+- `test_manifest_check_findings_deserialization` — findings付きManifestCheckの完全デシリアライズ確認 (severity, rule_code, title, message, subject_kind, subject_ref, sheet_path, pos_mm)
+- `test_manifest_check_without_findings_backward_compat` — findings無しJSON (既存形式) がデシリアライズ成功、findings は空Vec
+- `test_coordinate_mm_to_um_conversion` — mm→μm変換 (正値, 負値, ゼロ, 小数点以下)
+
+### テスト結果
+
+- `cargo build`: 成功 (warning なし)
+- `cargo test -p boardflow-artifact`: 21テスト全通過
+- `cargo test -p boardflow-db -p boardflow-worker`: 通過
+
+### 更新ドキュメント
+
+なし (既存ドキュメントへの影響なし。`docs/external/kicad-erc-drc-findings.md` は調査フェーズで作成済み)
+
+### 残リスク
+
+- `run_check_findings` テーブルの DB統合テストはローカルDB依存のため本PRでは未実施 (既存の `board_run_test.rs` が同様にCI/DBに依存)
+- `test_fail_board_run_idempotent` はDBフィクスチャの既存不具合 (本変更とは無関係)
+- Worker の findings INSERT は `tracing::warn` + フォールバックで処理続行するため、パース不一致時にデータ欠損の可能性あり (設計通り)
