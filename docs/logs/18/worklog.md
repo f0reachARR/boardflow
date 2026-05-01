@@ -518,6 +518,78 @@ S3 依存テストは `MINIO_ENDPOINT` 未設定時はスキップ。
 1. `viewer-sources` は引き続き `/proxy/artifacts/art_{uuid}?token=...` を生成しており、proxy 側の `parse_artifact_id()` 追加により `art_` prefix 不整合は解消されている。
 2. proxy handler は `ibom_html` に `X-Frame-Options: SAMEORIGIN` と `frame-ancestors 'self'` を付与しているが、frontend 仕様の「app domain と分離された artifact domain で iframe 表示」と整合しない。
 3. proxy handler には依然として app domain を設定・注入する仕組みがなく、`Access-Control-Allow-Origin` も返していないため、仕様の「許可 origin は app domain に限定する」を満たしていない。
+
+---
+
+## ドキュメント再確認フェーズ（2026-05-01, viewer-sources URL 再確認）
+
+### 対象Issue
+
+- Issue ID: #18
+- 対象: 前回指摘3点の修正確認と、関連ドキュメントの残不整合確認
+
+### 今回確認した対象
+
+- `docs/spec.md`
+- `docs/external/kicanvas.md`
+- `docs/external/axum-s3-streaming-proxy.md`
+- 関連照合: `docs/backend/api.md`, `docs/backend/summary.md`
+- 実装照合: `crates/api/src/routes/read.rs`, `crates/api/src/routes/proxy.rs`, `crates/api/tests/proxy_test.rs`
+
+### 確認結果
+
+1. `docs/spec.md` の viewer-sources レスポンス例は signed URL ではなく proxy URL に更新されているが、現行実装が返す相対URL `/proxy/artifacts/art_{uuid}?token=...` ではなく、絶対URL `https://artifacts.boardflow.example.com/proxy/artifacts/...` のまま残っている。
+2. `docs/external/kicanvas.md` も同様に signed URL ではなく proxy URL へ更新済みだが、例示URLは絶対URLのままで、現行実装の相対URL契約と一致していない。
+3. `docs/external/axum-s3-streaming-proxy.md` のヘッダ方針は概ね現行実装と整合している。特に `X-Content-Type-Options: nosniff`、`Referrer-Policy: no-referrer`、`Access-Control-Allow-Origin`、iBOM 向け `sandbox allow-scripts` + `frame-ancestors <app_domain>`、非 iframe artifact の `frame-ancestors 'none'` は `crates/api/src/routes/proxy.rs` と `crates/api/tests/proxy_test.rs` の現在値と一致する。
+4. ただし `docs/external/axum-s3-streaming-proxy.md` には artifact 専用 domain / subdomain 前提や絶対URL前提の説明が残っており、`viewer-sources` の相対URL返却方針とは完全には整合していない。
+5. `docs/backend/api.md` の viewer-sources / proxy 例も絶対URLのままで、Issue #18 の現行実装・テストと不一致。
+6. `docs/backend/summary.md` は具体例がないため致命的不整合はないが、「artifact 専用 domain / subdomain」前提の説明は、現行の相対URL返却実装と読む人にズレた前提を与える可能性がある。
+
+### 実装照合メモ
+
+- `crates/api/src/routes/read.rs` は `format!("/proxy/artifacts/{}?token={}", ...)` で proxy URL を生成している。
+- `crates/api/tests/proxy_test.rs` も `viewer-sources` 由来の正しいURL形式として `/proxy/artifacts/art_{uuid}?token=...` を前提に検証している。
+- よって、今回の確認依頼 1 と 2 については「proxy 化済みだが、まだ実装どおりの URL 表記に揃い切っていない」という結論になる。
+
+### レビュー結果
+
+- `docs_ready: false`
+
+### 必須修正
+
+1. `docs/spec.md` の viewer-sources レスポンス例を、現行実装どおり `/proxy/artifacts/art_xxx?token=...` 形式の相対URLへ更新する。
+2. `docs/external/kicanvas.md` の URL 例を、現行実装どおり相対URLへ更新する。
+3. `docs/backend/api.md` の viewer-sources / proxy のレスポンス例も同じURL方針へ揃える。
+
+### 任意改善
+
+1. `docs/external/axum-s3-streaming-proxy.md` の artifact 専用 domain / subdomain 前提は、現行実装ではなく将来案ならその旨を明示する。
+2. `docs/backend/summary.md` も、相対URL返却実装との関係が分かるよう補足すると混乱を減らせる。
+
+### 不整合のあるドキュメント
+
+- `docs/spec.md`
+- `docs/external/kicanvas.md`
+- `docs/backend/api.md`
+- `docs/external/axum-s3-streaming-proxy.md`（軽微、ただし完全整合ではない）
+
+### 不足しているドキュメント
+
+- 必須不足はなし。
+
+### 外部調査メモに関する指摘
+
+- `docs/external/axum-s3-streaming-proxy.md` の research 根拠と採用されたヘッダ設計は概ね妥当。
+- ただし URL 提示や配信ドメイン前提は、現行実装の返却形式と同一ではないため、採用済み仕様として読むには注記が必要。
+
+### 残リスク
+
+1. ドキュメント読者が absolute URL を前提に frontend / API 統合を進めると、実際の `viewer-sources` レスポンスとの齟齬を生む。
+2. artifact domain 戦略が将来変わる場合でも、現行実装と将来案の境界を文書で分離しないと再び同種の不整合が発生しやすい。
+
+### 更新した作業ログパス
+
+- `docs/logs/18/worklog.md`
 4. token には `user_id` が含まれるが、handler 側ではコメントで未使用化されており、実際の認可条件は `artifact_id` と有効期限だけになっている。
 5. `cargo test --workspace -- --nocapture` は nightly で完走し、現行コードはコンパイルできた。ただし `DATABASE_URL` 未設定のため DB 依存テストの多くは early return で実質未実行だった。
 

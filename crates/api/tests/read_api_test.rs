@@ -28,12 +28,12 @@ async fn setup_pool() -> Option<PgPool> {
 
 fn create_test_app(pool: PgPool) -> axum::Router {
     let checker: DynGithubAccessChecker = Arc::new(AllowAllGithubAccessChecker);
-    create_app_with_config(pool, None, None, None, Some(checker), None, None)
+    create_app_with_config(pool, None, None, None, Some(checker), None, None, None)
 }
 
 fn create_deny_app(pool: PgPool) -> axum::Router {
     let checker: DynGithubAccessChecker = Arc::new(DenyAllGithubAccessChecker);
-    create_app_with_config(pool, None, None, None, Some(checker), None, None)
+    create_app_with_config(pool, None, None, None, Some(checker), None, None, None)
 }
 
 fn rand_i64() -> i64 {
@@ -1192,6 +1192,64 @@ async fn test_get_viewer_sources_run_not_found() {
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
 }
 
+/// 正常系: viewer-sources が artifact_base_url を使った絶対URLを生成する
+#[tokio::test]
+async fn test_get_viewer_sources_returns_absolute_url_with_custom_base() {
+    let pool = match setup_pool().await {
+        Some(p) => p,
+        None => return,
+    };
+
+    let user_id = create_test_user(&pool).await;
+    let session_id = create_test_session(&pool, user_id).await;
+    let github_repo_id = rand_i64();
+    let repo_id = create_test_repository(&pool, github_repo_id).await;
+    let bp_id = create_test_board_project(&pool, repo_id).await;
+    let br_id = create_test_board_run(&pool, bp_id, "completed").await;
+
+    create_test_artifact(&pool, br_id, "kicad_pro", "available").await;
+    create_test_artifact(&pool, br_id, "kicad_sch", "available").await;
+    create_test_artifact(&pool, br_id, "kicad_pcb", "available").await;
+
+    let checker: DynGithubAccessChecker = Arc::new(AllowAllGithubAccessChecker);
+    let app = create_app_with_config(
+        pool,
+        None,
+        None,
+        None,
+        Some(checker),
+        None,
+        None,
+        Some("https://artifacts.boardflow.example.com".to_string()),
+    );
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(&format!("/api/v1/board-runs/br_{br_id}/viewer-sources"))
+                .header("cookie", session_cookie(session_id))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body_bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+
+    let kicanvas_sources = json["viewers"]["kicanvas"]["sources"].as_array().unwrap();
+    for src in kicanvas_sources {
+        let url = src["url"].as_str().unwrap();
+        assert!(
+            url.starts_with("https://artifacts.boardflow.example.com/proxy/artifacts/art_"),
+            "URL should be absolute with configured base, got: {url}"
+        );
+        assert!(url.contains("?token="));
+    }
+}
+
 // ─── Pagination Integration Tests ────────────────────────────────────────────
 
 /// 統合: cursor pagination でページ遷移ができる
@@ -1570,12 +1628,12 @@ async fn test_list_repositories_allow_all_pagination_cursor() {
 
 fn create_rate_limited_app(pool: PgPool) -> axum::Router {
     let checker: DynGithubAccessChecker = Arc::new(RateLimitedGithubAccessChecker);
-    create_app_with_config(pool, None, None, None, Some(checker), None, None)
+    create_app_with_config(pool, None, None, None, Some(checker), None, None, None)
 }
 
 fn create_upstream_error_app(pool: PgPool) -> axum::Router {
     let checker: DynGithubAccessChecker = Arc::new(UpstreamErrorGithubAccessChecker);
-    create_app_with_config(pool, None, None, None, Some(checker), None, None)
+    create_app_with_config(pool, None, None, None, Some(checker), None, None, None)
 }
 
 #[tokio::test]
