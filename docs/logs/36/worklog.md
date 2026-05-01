@@ -733,3 +733,26 @@ cursor の decode (`decode_findings_cursor`) と limit の計算を step 3 に�
 ### 残リスク (docs)
 
 - この確認は repository 上の実装とテスト定義を根拠にしたドキュメント整合レビューであり、DB 付き実行環境での再検証結果そのものではない。
+
+---
+
+## PR 作成結果 (2026-05-01)
+
+### PR
+
+- **URL**: https://github.com/f0reachARR/boardflow/pull/40
+- **タイトル**: `feat(api): add run_check_findings list API (#36)`
+- **ベース**: `main` ← `feat/36-findings-read-api`
+- **Closes**: #36
+
+### PR 作成前の確認
+
+- review: `pr_ready: true` ✓
+- docs: `docs_ready: true` ✓
+- 未コミット変更: なし（worklog のみ → コミット済み）
+- テスト: 135 passed / 0 failed ✓
+
+### 残リスク
+
+- 現環境では migration を伴う DB 実動作確認まで完了していないため、最終安心材料は DB 付き CI 結果に依存する
+- `test_list_repositories_upstream_error_returns_500` がフレイキー（github_user_id のユニークキー衝突）。本 PR とは無関係のため別 Issue 対応推奨
