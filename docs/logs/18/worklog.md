@@ -26,7 +26,7 @@ docs以下の仕様に基づいてアプリケーションを一通り実装す�
 3. Content-Type / Content-Disposition / Content-Length ヘッダ設定
 4. セキュリティヘッダ（nosniff, CSP, CORS）
 
-### 調査結果
+### 4回目調査結果
 
 #### axum Body 構築
 
@@ -302,6 +302,133 @@ S3 依存テストは `MINIO_ENDPOINT` 未設定時はスキップ。
 ---
 
 ### 更新した作業ログパス
+
+`docs/logs/18/worklog.md`
+
+---
+
+## ドキュメント確認フェーズ（2026-05-01）
+
+### 対象
+
+- Issue #18: Artifact Proxy API実装
+- 実装: `crates/api/src/routes/proxy.rs`, `crates/api/src/lib.rs`, `crates/api/src/config.rs`, `crates/api/tests/proxy_test.rs`
+- ドキュメント: `docs/backend/api.md`, `docs/spec.md`, `docs/backend/summary.md`, `docs/frontend/summary.md`, `docs/external/axum-s3-streaming-proxy.md`, `docs/external/kicanvas.md`, `README.md`
+
+### 確認結果
+
+- `docs/backend/api.md` §4 は現行実装と概ね整合している。
+  - bearer token only（session 再検証なし）
+  - app domain 限定の origin 制御
+  - iframe artifact 向け CSP / sandbox 前提
+- `docs/backend/summary.md` と `docs/frontend/summary.md` の artifact domain 分離方針も現行実装と矛盾しない。
+- `docs/logs/18/worklog.md` 自体は時系列ログとして必要な経緯を保持しており、今回の確認結果を追記すれば記録としては十分。
+
+### レビュー結果
+
+**`docs_ready: false`**
+
+#### 必須修正
+
+1. `docs/spec.md` の viewer-sources レスポンス例がまだ signed URL 前提のままで、Issue #18 の実装済み artifact proxy URL と不整合。
+    - `https://artifacts.boardflow.example.com/signed/...` を返す例が残っている。
+    - 実装と `docs/backend/api.md` は `/proxy/artifacts/{artifact_id}?token=...` を標準としている。
+2. `docs/external/kicanvas.md` のレスポンス例も signed URL 前提のままで、viewer-sources の現行契約と不整合。
+3. `docs/external/axum-s3-streaming-proxy.md` に実装反映後の差分が残っている。
+    - iBOM CSP 例が `script-src 'self'` / `style-src 'self' 'unsafe-inline'` だが、現行実装は `sandbox allow-scripts; ... script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; frame-ancestors <app_domain>`。
+    - Content-Type / Content-Length を S3 `GetObjectOutput` から取る説明が中心だが、現行実装は DB metadata / artifact metadata ベースでヘッダを構築している。
+    - エラーハンドリング例の `S3 NoSuchKey -> 404, その他 -> 500` は、現行実装の `upstream storage error` / `storage not configured` と一致していない。
+
+#### 任意改善
+
+1. `README.md` は現状かなり簡素で、Issue #18 だけを理由に必須更新とは言い切れない。
+2. ただし運用手順を README に寄せる方針なら、artifact proxy に必要な `BOARDFLOW_APP_DOMAIN` と `BOARDFLOW_ARTIFACT_SECRET` の説明先を README か別の設定ドキュメントに一本化するとよい。
+3. `docs/logs/18/worklog.md` は時系列ログとして適切だが、過去の指摘が多く残るため、PR 本文では最終状態だけを別途要約した方が読みやすい。
+
+### 不整合のあるドキュメント
+
+- `docs/spec.md`
+- `docs/external/kicanvas.md`
+- `docs/external/axum-s3-streaming-proxy.md`
+
+### 不足しているドキュメント
+
+- 必須不足はなし。
+- 任意で、artifact proxy の追加設定値 (`BOARDFLOW_APP_DOMAIN`) を説明する設定ドキュメントがあると運用しやすい。
+
+### 外部調査メモに関する指摘
+
+- `docs/external/axum-s3-streaming-proxy.md` の方向性自体は妥当で、axum + S3 ストリーミング方針の根拠としては有効。
+- ただし実装完了後の採用結果として見ると、CSP 詳細、ヘッダ値の決定元、エラーマッピングの3点が古い。
+- 調査メモを「候補案」ではなく「採用済み設計」として扱うなら、現行コードに合わせて更新が必要。
+
+### 総評
+
+- `docs/backend/api.md` の主契約は実装と一致している。
+- しかし仕様本体 (`docs/spec.md`) と関連調査メモの一部が signed URL や旧ヘッダ設計のまま残っており、Issue #18 の成果がドキュメント全体にはまだ反映し切れていない。
+- PR をドキュメント観点で閉じる前に、少なくとも `docs/spec.md` と関連 external docs の整合を取るべき。
+
+### 更新した作業ログパス
+
+`docs/logs/18/worklog.md`
+
+---
+
+## レビュー結果フェーズ（2026-05-01, 4回目レビュー）
+
+### 調査結果
+
+- Issue #18 の対象実装として `crates/api/src/routes/proxy.rs`、`crates/api/src/lib.rs`、`crates/db/src/queries/artifact.rs`、`crates/api/tests/proxy_test.rs`、`docs/backend/api.md` を再確認した。
+- `docs/backend/api.md` §4 の bearer token only 設計、app domain 限定 framing / origin 制御、iframe artifact への sandbox 前提ヘッダ追加は現行コードと整合していることを確認した。
+- `docs/frontend/summary.md`、`docs/backend/summary.md`、`docs/external/axum-s3-streaming-proxy.md` も確認し、artifact domain 分離と iframe sandbox 方針が継続していることを確認した。
+- Web 調査では CSP `sandbox` と `frame-ancestors` の併用方針が一般的な実装と矛盾しないことを再確認した。
+
+### 4回目テスト結果
+
+- `mise exec -- cargo test -p boardflow-api --test proxy_test -- --nocapture`
+    - 23 tests passed
+    - DB 前提ケースは `DATABASE_URL not set` のため一部スキップ
+- `mise exec -- cargo test -p boardflow-api --test read_api_test -- --nocapture`
+    - 41 tests passed
+    - 同様に DB 前提ケースは一部スキップ
+
+### 4回目レビュー結果
+
+- 総評: Issue #18 の主要求である proxy ルート、bearer token 設計の反映、sandbox 付き CSP、app domain 限定の framing / origin 制御、ヘッダ生成テスト追加は満たしている。前回指摘の3点は解消済みと判断できる。
+- `pr_ready: true`
+
+### 4回目指摘事項
+
+1. **Medium**: ストレージ未設定と upstream S3 失敗が依然として 500 に丸められており、Issue 内の実装計画および過去 worklog の「503/502 で分離する」方針とは不一致。現状コードは `AppError::internal_error("storage not configured")` と `AppError::internal_error("upstream storage error")` を返しており、テストも 500 を正として固定している。Issue 仕様本文の必須要件からは外れているため今回の PR ブロッカーにはしないが、plan / worklog との整合は崩れている。該当: `crates/api/src/routes/proxy.rs`, `crates/api/tests/proxy_test.rs`, `docs/logs/18/worklog.md`
+
+### 4回目必須修正
+
+- なし
+
+### 4回目任意改善
+
+1. `ErrorCode` に 502 / 503 相当を追加して、proxy の upstream failure と server misconfiguration を API レベルで区別できるようにする。
+
+### 4回目テスト不足
+
+1. S3 正常系の handler レベル統合テストは未整備。今回追加された 12 件のヘッダユニットテストは有効だが、実際の `get_artifact()` レスポンスに同じヘッダ群が乗ることまでは MinIO / mock S3 で未検証。
+2. この環境での再実行では `DATABASE_URL` 未設定により DB 前提テストが一部スキップされたため、ローカルでは full integration の再現までは確認できていない。
+
+### 4回目ドキュメント確認
+
+- `docs/backend/api.md` §4 の bearer token only 設計は最新実装と整合。
+- `docs/frontend/summary.md` と `docs/backend/summary.md` の artifact domain 分離方針とも矛盾なし。
+
+### 4回目 plan / research / docs との不整合
+
+1. plan / worklog では storage 未設定を 503、S3 取得失敗を 502 としていたが、現実装とテストは 500 に寄せている。
+
+### 4回目残リスク
+
+1. upstream / config failure を 500 に集約したままだと、運用時の障害分類と監視条件が粗くなる。
+2. proxy 成功系の E2E 検証が未整備のため、S3 クライアント設定やレスポンス構築の結合不具合は別途 MinIO テストで拾う必要がある。
+
+### 4回目更新した作業ログパス
 
 `docs/logs/18/worklog.md`
 
@@ -820,6 +947,45 @@ running 23 tests — all passed
 
 1. S3 正常系ストリーミングテストは docker-compose 統合テスト（MinIO）で実施予定
 2. iBOM HTML の実出力での CSP sandbox 動作確認は frontend 統合テストで実施予定
+
+### 更新した作業ログパス
+
+`docs/logs/18/worklog.md`
+
+---
+
+## ドキュメント修正フェーズ（2026-05-01）
+
+### 対象
+
+docsレビューで指摘された3点のドキュメント不整合を修正。
+
+### 修正内容
+
+#### 1. `docs/spec.md` viewer-sources レスポンス例
+
+- **問題**: URLが `https://artifacts.boardflow.example.com/signed/...` のまま残っていた
+- **修正**: 全URLを `https://artifacts.boardflow.example.com/proxy/artifacts/art_xxx?token=eyJ...` 形式に更新
+- **対象箇所**: kicanvas sources (3件)、schematic primary (1件)、pcb_preview sources (3件)、ibom iframe_url (1件)、bom downloads (1件)、fabrication downloads (1件) — 計10箇所
+- API説明文も「短命URLまたはartifact proxy URL」→「artifact proxy URL」に統一
+
+#### 2. `docs/external/kicanvas.md` viewer-sources 例
+
+- **問題**: 同じく `signed/...` 形式のURLが残っていた
+- **修正**: 3件のURLを proxy 形式に更新
+- 「短命 URL を取得する」→「artifact proxy URL を取得する」に説明文も修正
+
+#### 3. `docs/external/axum-s3-streaming-proxy.md`
+
+- **iBOM CSP**: `default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'` → `sandbox allow-scripts; default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; frame-ancestors <app_domain>` に更新
+- **他artifact CSP**: `default-src 'none'` → `default-src 'none'; frame-ancestors 'none'` に更新
+- **ヘッダ一覧**: `Access-Control-Allow-Methods: GET`、`Vary: Origin`、`Referrer-Policy: no-referrer` を追加
+- **エラーマッピング**: `S3 NoSuchKey → 404、その他 → 500` → `token無効/期限切れ → 401、artifact未存在/非available → 404、storage未設定 → 500、S3障害 → 500` に更新
+- CSP説明文を現行実装の sandbox + frame-ancestors 方針に合わせて書き直し
+
+### コミット
+
+`94452dc` — `docs: align viewer-sources URLs and proxy headers with implementation (#18)`
 
 ### 更新した作業ログパス
 
