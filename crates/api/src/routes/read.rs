@@ -1511,7 +1511,17 @@ pub async fn list_findings(
         ));
     }
 
-    // 3. Validate severity if provided
+    // 3. Validate cursor (must reject invalid cursor before any early-return path)
+    let limit = params.limit.unwrap_or(50).clamp(1, 100);
+    let cursor = match &params.cursor {
+        None => None,
+        Some(c) => Some(
+            decode_findings_cursor(c)
+                .ok_or_else(|| AppError::validation_failed("invalid cursor", &request_id))?,
+        ),
+    };
+
+    // 4. Validate severity if provided
     if let Some(ref sev) = params.severity {
         if sev != "error" && sev != "warning" && sev != "notice" {
             return Err(AppError::validation_failed(
@@ -1521,7 +1531,7 @@ pub async fn list_findings(
         }
     }
 
-    // 4. Check repository access (same pattern as get_board_run)
+    // 5. Check repository access (same pattern as get_board_run)
     let repo = boardflow_db::queries::board_run::find_repository_by_board_run_id(&pool, br_id)
         .await
         .map_err(|e| {
@@ -1537,7 +1547,7 @@ pub async fn list_findings(
         return Err(err);
     }
 
-    // 5. Find run_check by board_run_id + check_kind
+    // 6. Find run_check by board_run_id + check_kind
     let run_check =
         boardflow_db::queries::run_check::find_by_board_run_and_kind(&pool, br_id, &check_kind)
             .await
@@ -1556,16 +1566,6 @@ pub async fn list_findings(
                 has_more: false,
             }));
         }
-    };
-
-    // 6. Parse pagination params
-    let limit = params.limit.unwrap_or(50).clamp(1, 100);
-    let cursor = match &params.cursor {
-        None => None,
-        Some(c) => Some(
-            decode_findings_cursor(c)
-                .ok_or_else(|| AppError::validation_failed("invalid cursor", &request_id))?,
-        ),
     };
 
     // 7. Query findings with pagination + severity filter
