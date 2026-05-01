@@ -843,3 +843,82 @@ cargo build → Finished `dev` profile [unoptimized + debuginfo] target(s)
 - 部分失敗後の永続状態が壊れた場合、手動 DB 修復が必要になる可能性がある。
 - 現状の ZIP 検証では、仕様上 reject すべき malformed bundle を completed 扱いする可能性がある。
 - 運用環境で worker だけ設定名が異なるため、デプロイ時に設定漏れが起きやすい。
+
+---
+
+## レビュー指摘対応 (2026-05-01)
+
+### 修正内容
+
+6点 + 追加修正1点のレビュー指摘を対応。
+
+#### 修正1: Import永続化をトランザクション化
+- `process_import_job` のDB書き込みを `pool.begin()` / `tx.commit()` でトランザクション化
+- S3ダウンロード・SHA256検証・ZIP展開・S3アップロードはトランザクション外（事前）
+- artifact insert, run_check insert, snapshot insert, diff insert, board_run mark_completed, board_project update, artifact_bundle mark_completed, github_job mark_completed, 後続job enqueue → すべてトランザクション内
+- 途中失敗時のリトライで重複insert問題を解消
+
+#### 修正2: Baseline解決とdiff summary作成
+- `board_project::find_by_id` (既存) を使って `latest_completed_run_id` を取得
+- base_run_id が Some なら diff status = "ready"、None なら "no_baseline"
+- summary_json にファイル数を含むシンプルなサマリーを保存
+
+#### 修正3: 後続ジョブenqueue
+- `github_job::enqueue` 汎用関数を `crates/db/src/queries/github_job.rs` に追加
+- Import成功後にトランザクション内で `issue_sync` と `run_result_comment` ジョブを enqueue
+
+#### 修正4: ZIP/manifest検証強化
+- `ManifestArtifact` に `sha256: Option<String>` と `size_bytes: Option<i64>` フィールド追加
+- extract時に sha256 と size_bytes が指定されていれば検証
+- zip内に manifest 未記載エントリがある場合は `tracing::warn` ログを出力
+- テスト4件追加: sha256検証pass/fail、size検証pass/fail
+
+#### 修正5: Worker env名をAPIと統一
+- `MINIO_BUCKET_STAGING`, `MINIO_BUCKET_FINAL`, `MINIO_ENDPOINT`, `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY` を使用
+- `aws-config` 依存を削除、明示的な credentials provider で S3 client 構築
+- `WorkerConfig` に `s3_access_key` / `s3_secret_key` フィールド追加
+
+#### 修正6: Retryable failure時のbundle status
+- `handle_job_failure` を修正: `attempts >= MAX_ATTEMPTS` の場合のみ bundle と run を failed に
+- リトライ可能な失敗時は bundle を 'importing' のまま維持
+- `artifact_bundle::mark_completed` に `delete_after = NOW() + INTERVAL '7 days'` を追加
+
+#### 追加修正: crates/jobs/ の重複排除
+- `crates/jobs/src/lib.rs` から重複SQL操作を削除
+- `MAX_ATTEMPTS`, `BASE_BACKOFF_SECS`, `backoff_secs()` のみ保持
+- Worker は `boardflow_jobs` の定数を利用、SQL操作は `boardflow_db::queries::github_job` を使用
+- `crates/jobs/Cargo.toml` から不要依存を削除
+
+### 変更ファイル一覧
+
+| ファイル | 変更概要 |
+|---|---|
+| `crates/worker/src/main.rs` | トランザクション化、baseline解決、後続job enqueue、S3 config修正、retry修正 |
+| `crates/worker/src/config.rs` | env名統一 (MINIO_*)、access_key/secret_key追加 |
+| `crates/worker/Cargo.toml` | aws-config 依存削除 |
+| `crates/artifact/src/lib.rs` | ManifestArtifact に sha256/size_bytes追加、extract時検証追加、未記載エントリ警告 |
+| `crates/artifact/tests/extract_test.rs` | 新フィールド対応 + 検証テスト4件追加 |
+| `crates/db/src/queries/github_job.rs` | `enqueue` 汎用関数追加 |
+| `crates/db/src/queries/artifact_bundle.rs` | mark_completed に delete_after 追加 |
+| `crates/jobs/Cargo.toml` | 不要依存削除 |
+| `crates/jobs/src/lib.rs` | 定数/ヘルパーのみに簡素化 |
+
+### テスト結果
+
+```
+test result: ok. 63 passed; 0 failed; 0 ignored
+```
+
+内訳:
+- auth_test: 8 passed
+- board_run_test: 19 passed
+- config_test: 1 passed
+- integration_test: 2 passed
+- plan_test: 16 passed
+- extract_test: 17 passed (4件新規追加)
+
+### 残リスク
+
+- `github_job::enqueue` は `ON CONFLICT DO NOTHING` + `RETURNING *` のため、conflict時に `RowNotFound` エラーとなる。MVP では同一ジョブが二重enqueueされる可能性は低いが、将来的に `fetch_optional` への変更を検討。
+- diff summary は現在ファイル数のみ。ファイルレベルの added/removed/changed 計算は baseline snapshot との比較が必要で、別途実装予定。
+- S3アップロード後にトランザクションが失敗すると孤立オブジェクトが残る。staging bucket の TTL (delete_after) で自然回収される想定。
