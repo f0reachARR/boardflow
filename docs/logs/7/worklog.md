@@ -1726,6 +1726,147 @@ for (idx, finding) in check.findings.iter().enumerate() {
 
 ---
 
+## ドキュメント確認フェーズ: run_check_findings 追加実装 (2026-05-01)
+
+### 対象
+
+- Issue ID: #7
+- タイトル: Import Worker: ERC/DRC結果のrun_checks/run_check_findings保存
+- 確認対象:
+  - `docs/spec.md`
+  - `docs/backend/api.md`
+  - `docs/external/kicad-erc-drc-findings.md`
+  - `docs/logs/7/worklog.md`
+
+### ドキュメント確認結果
+
+- **docs/spec.md / Section 10.7**: **整合**
+  - `run_check_findings` の列定義 (`severity`, `subject_kind`, `raw_payload_json`, `sort_index`, `x_um`, `y_um`) は現実装および migration と一致している
+  - 「parser が取りこぼしたくない項目は raw JSON も保持する」という方針も、worker の raw payload 保存方針と矛盾しない
+- **docs/backend/api.md**: **更新不足**
+  - `BoardRun` 詳細は `checks` 集計のみを返す記述で、`run_check_findings` を UI がどう取得するかの API 契約が未記載
+  - `docs/spec.md` では `run_check_findings` を「レビュー UI で直接使う明細」としているため、read API 側に取得経路の記述がないのはドキュメント間で不整合
+- **docs/external/kicad-erc-drc-findings.md**: **旧設計の記述が残存**
+  - `ManifestCheck.findings` を `Vec<ManifestFinding>` としており、現実装の `Vec<serde_json::Value>` と一致していない
+  - Worker が `check.findings` を直接 typed finding として INSERT する例になっており、現実装の「個別デシリアライズ」「severity/subject_kind 正規化」「malformed finding の raw 保存継続」を反映できていない
+  - manifest → DB マッピング表で `severity` / `subject_kind` を「そのまま保存」としているが、現実装は DB 制約を満たすため正規化を行う
+- **docs/logs/7/worklog.md**: **概ね完全**
+  - 経緯、要望、調査、計画、実装、テスト、レビュー、残リスクの履歴は揃っている
+  - 今回のドキュメント確認結果を追記したことで、Issue #7 の記録として必要な時系列は満たした
+
+### PR作成可否
+
+- `docs_ready: false`
+
+### 必須修正
+
+1. `docs/external/kicad-erc-drc-findings.md` の `ManifestCheck.findings` 記述を現実装どおり `Vec<serde_json::Value>` ベースに更新すること
+2. `docs/external/kicad-erc-drc-findings.md` の Worker 保存フローを、個別デシリアライズ・`severity` / `subject_kind` 正規化・パース失敗時の `raw_payload_json` 保存継続に合わせて更新すること
+3. `docs/external/kicad-erc-drc-findings.md` の manifest → `run_check_findings` マッピング表で、`severity` / `subject_kind` が常にそのまま保存されるわけではない点を明記すること
+4. `docs/backend/api.md` に、`run_check_findings` を UI が取得する read API 契約を追記するか、MVP では未提供であることを明示して `docs/spec.md` の「UI で直接使う」方針との関係を整理すること
+
+### 任意改善
+
+1. `docs/spec.md` の manifest 例にも `checks[].findings` の例を追加すると、Action / Worker / DB の契約が追いやすい
+2. `docs/external/kicad-erc-drc-findings.md` に、正規化で変換された元値は `raw_payload_json` 側にしか残らないことを補足すると運用時の期待値が明確になる
+
+### 不整合のあるドキュメント
+
+- `docs/backend/api.md`
+- `docs/external/kicad-erc-drc-findings.md`
+
+### 不足しているドキュメント
+
+- `run_check_findings` の read API 契約を説明する backend API 記述
+
+### 外部調査メモに関する指摘
+
+- KiCad JSON 自体の調査内容、severity/exclusion の整理、座標の mm → µm 変換方針は概ね妥当
+- ただし「BoardFlow への示唆」以降に実装確定前の設計スケッチが残っており、現在は research note ではなく旧仕様として誤読されうる
+- 特に型 (`Vec<ManifestFinding>`) と INSERT フローの説明は実装と逆転しているため、参照資料としては修正が必要
+
+### 残リスク
+
+- API 契約が未整理のままだと、`run_check_findings` を参照する UI 実装時に別解釈が入りやすい
+- external note の旧設計記述を残したままだと、次の実装者が malformed finding の扱いを誤解する可能性がある
+
+### 更新した作業ログパス
+
+- `docs/logs/7/worklog.md`
+
+---
+
+## 再レビューフェーズ: run_check_findings 追加実装 3回目確認 (2026-05-01)
+
+### 対象
+
+- Issue ID: #7
+- タイトル: Import Worker: ERC/DRC結果のrun_checks/run_check_findings保存
+- 対象コミット:
+  - `3e1741f` feat(worker): insert run_check_findings from manifest checks
+  - `c937752` fix(worker): absorb malformed findings, round coordinates, safe fallback severity
+  - `6336ba7` fix(worker): normalize severity/subject_kind before INSERT to prevent tx abort
+  - `101ed2b` docs: update worklog with review fix details for #7
+
+### レビュー結果
+
+- **前回ブロッカー（PostgreSQL transaction abort 後のフォールバックINSERT不成立）**: **解消**
+  - worker 側で severity と subject_kind を INSERT 前に正規化しており、前回問題だった CHECK 制約違反起点の transaction abort は発生しない構造になった
+- **追加で見つかったブロッカー**: なし
+- **PR Ready 判定**: true
+
+### 重大度順の指摘
+
+1. 非ブロッカー: findings INSERT 失敗後も同一 transaction を継続できる前提のコメントは厳密には正しくない
+   - 対象: crates/worker/src/main.rs
+   - PostgreSQL は制約違反に限らず SQL エラー後の transaction を abort するため、予期しない DB エラー時に本当に継続できるわけではない
+   - 今回の修正で入力由来の CHECK 制約違反は潰れており、通常系の成立性は回復しているため、PR ブロッカーではない
+
+### 必須修正
+
+- なし
+
+### 任意改善
+
+1. 正規化ロジックを小さな関数に切り出し、worker テストまたは DB 統合テストから直接検証できるようにすると退行を捕まえやすい
+2. severity または subject_kind を正規化した件数を structured log で集計できるようにすると、manifest 生成側の異常検知がしやすい
+
+### テスト不足
+
+1. 追加された test_severity_normalization と test_subject_kind_normalization は production code を直接叩いておらず、集合の自己確認に留まっている
+2. worker 経由で run_check_findings に sort_index, raw_payload_json, 正規化後の severity と subject_kind が保存されることを確認する DB 統合テストは未追加
+
+### ドキュメント確認
+
+- docs/external/kicad-erc-drc-findings.md の座標 round 方針と今回実装は整合している
+- docs/spec.md の run_check_findings テーブル定義とも整合している
+- ただし docs/spec.md の manifest 例は checks.findings 拡張をまだ例示しておらず、仕様理解の補助としては弱い
+
+### plan / research / docs との不整合
+
+1. plan では findings INSERT の正常系と異常系テストまで想定していたが、実際に追加されたのは artifact 側ユニットテスト中心で worker 統合テストは未実施
+2. research で前提にしていた raw JSON 保持方針は parse 失敗時には満たしているが、正規化で吸収した値そのものを検証するテストはまだ薄い
+
+### テスト結果
+
+- cargo test --workspace: 71 passed, 0 failed
+- cargo test -p boardflow-artifact: 25 passed, 0 failed
+
+### PR/完了結果
+
+- pr_ready: true
+
+### 残リスク
+
+- 予期しない DB エラー発生時は finding 単位での継続ではなく import 全体失敗になる可能性が高い
+- 正規化ロジックの退行を直接検知するテストはまだ弱い
+
+### 更新した作業ログパス
+
+- docs/logs/7/worklog.md
+
+---
+
 ## 再レビューフェーズ: run_check_findings 追加実装 再確認 (2026-05-01)
 
 ### 対象
@@ -1911,6 +2052,44 @@ cargo test --workspace: 71 passed, 0 failed (extract_test: 25 passed)
 
 - 正規化後のINSERT失敗時はその finding がスキップされる (ログには記録される)
 - 正規化で severity が `"notice"` に変換された場合、元の severity 情報は finding の raw_payload_json 内にのみ残る
+
+### 更新した作業ログパス
+
+- `docs/logs/7/worklog.md`
+
+---
+
+## ドキュメント修正フェーズ (2026-05-01)
+
+### 経緯
+
+docsレビューで以下の不整合が指摘された:
+1. `docs/external/kicad-erc-drc-findings.md` のセクション4〜5が旧設計のままで、現実装と不一致
+2. `docs/backend/api.md` に `run_check_findings` の read API 契約が未記載
+
+### 修正内容
+
+#### 1. `docs/external/kicad-erc-drc-findings.md` セクション5の更新
+
+以下を現実装に合わせて全面書き換え:
+- `ManifestCheck.findings` が `Vec<serde_json::Value>` であることを明記 (旧: `Vec<ManifestFinding>`)
+- Worker側で `serde_json::from_value::<ManifestFinding>()` による個別デシリアライズ方式を記述
+- severity INSERT前正規化ルール追記: `"error"` / `"warning"` / `"notice"` 以外 → `"notice"` にフォールバック
+- subject_kind INSERT前正規化ルール追記: `"schematic"` / `"pcb"` / `"net"` / `"footprint"` / `"symbol"` 以外 → `None` にフォールバック
+- パース失敗時の挙動追記: severity=`"notice"` + `raw_payload_json` に生データ保存して処理継続
+- 正規化で変換された元値は `raw_payload_json` (raw フィールド) 側にのみ残ることを明記
+
+#### 2. `docs/backend/api.md` に注釈追加
+
+- セクション5 (契約テスト観点) の冒頭に、`run_check_findings` の read API は今後のIssueで追加予定であり、現時点では Worker による INSERT のみが実装済みである旨の注記を追加
+- BoardRun 詳細 API (3.6) が返す `checks` は集計値のみであり、finding 明細の取得経路は未提供であることを明記
+
+### 変更ファイル
+
+| ファイル | 変更概要 |
+|---|---|
+| `docs/external/kicad-erc-drc-findings.md` | セクション5を現実装に合わせて全面書き換え (正規化ルール、パース失敗挙動、Vec<serde_json::Value> 型) |
+| `docs/backend/api.md` | セクション5冒頭に run_check_findings read API 未実装の注記追加 |
 
 ### 更新した作業ログパス
 

@@ -513,9 +513,9 @@ fn extract_subject_ref(item_description: &str) -> Option<String> {
 
 ## 5. BoardFlow への示唆
 
-### 5.1 ManifestCheck 構造体の変更
+### 5.1 ManifestCheck 構造体 (実装確定版)
 
-現在の `ManifestCheck` に `findings` フィールドを追加:
+`ManifestCheck.findings` は **`Vec<serde_json::Value>`** として定義する。個別 finding を typed struct ではなく生 JSON で保持することで、1 件の malformed finding が manifest 全体のデシリアライズを阻害しない設計にしている。
 
 ```rust
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -534,50 +534,127 @@ pub struct ManifestCheck {
     pub tool_version: Option<String>,
     #[serde(default)]
     pub raw_summary: Option<serde_json::Value>,
-    // ↓ 追加
+    /// findings は Vec<serde_json::Value> とし、Worker 側で個別にデシリアライズする
     #[serde(default)]
-    pub findings: Vec<ManifestFinding>,
+    pub findings: Vec<serde_json::Value>,
 }
 ```
 
-### 5.2 Worker (crates/worker) の変更
+Worker が findings を処理する際に使う typed struct (`ManifestFinding`) は以下:
 
-Step 5 の run_checks INSERT 後に findings INSERT ループを追加:
+```rust
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ManifestFinding {
+    pub severity: String,
+    pub rule_code: String,
+    pub title: String,
+    #[serde(default)]
+    pub message: Option<String>,
+    #[serde(default)]
+    pub subject_kind: Option<String>,
+    #[serde(default)]
+    pub subject_ref: Option<String>,
+    #[serde(default)]
+    pub sheet_path: Option<String>,
+    #[serde(default)]
+    pub pcb_layer: Option<String>,
+    #[serde(default)]
+    pub pos_mm: Option<CoordinateMm>,
+    #[serde(default)]
+    pub raw: Option<serde_json::Value>,
+}
+```
+
+### 5.2 Worker (crates/worker) の findings 保存フロー
+
+Worker は findings を **個別にデシリアライズ** し、INSERT 前に **正規化** を行う:
 
 ```rust
 for check in &manifest.checks {
     let check_id = Uuid::now_v7();
     run_check::insert(&mut *tx, check_id, board_run_id, ...);
 
-    // ↓ 追加: findings を INSERT
-    for (idx, finding) in check.findings.iter().enumerate() {
-        let x_um = finding.pos_mm.as_ref().map(|p| (p.x * 1000.0).round() as i32);
-        let y_um = finding.pos_mm.as_ref().map(|p| (p.y * 1000.0).round() as i32);
-        run_check_finding::insert(
-            &mut *tx,
-            Uuid::now_v7(),
-            check_id,
-            &finding.severity,
-            finding.rule_code.as_deref(),
-            finding.title.as_deref(),
-            finding.message.as_deref(),
-            finding.subject_kind.as_deref(),
-            finding.subject_ref.as_deref(),
-            finding.sheet_path.as_deref(),
-            finding.pcb_layer.as_deref(),
-            x_um,
-            y_um,
-            None, // bbox_json
-            finding.raw.as_ref(),
-            idx as i32,
-        ).await?;
+    for (idx, raw_finding) in check.findings.iter().enumerate() {
+        // 1. 個別デシリアライズを試行
+        match serde_json::from_value::<ManifestFinding>(raw_finding.clone()) {
+            Ok(finding) => {
+                // 2. INSERT前にDB制約に合わせて正規化
+                let severity = normalize_severity(&finding.severity);
+                let subject_kind = normalize_subject_kind(finding.subject_kind.as_deref());
+                let x_um = finding.pos_mm.as_ref().map(|p| (p.x * 1000.0).round() as i32);
+                let y_um = finding.pos_mm.as_ref().map(|p| (p.y * 1000.0).round() as i32);
+
+                run_check_finding::insert(
+                    &mut *tx, Uuid::now_v7(), check_id,
+                    severity, Some(&finding.rule_code), Some(&finding.title),
+                    finding.message.as_deref(),
+                    subject_kind, finding.subject_ref.as_deref(),
+                    finding.sheet_path.as_deref(), finding.pcb_layer.as_deref(),
+                    x_um, y_um, None,
+                    finding.raw.as_ref().or(Some(raw_finding)),
+                    idx as i32,
+                ).await?;
+            }
+            Err(_) => {
+                // 3. パース失敗: severity="notice" + raw_payload_json に生データ保存
+                run_check_finding::insert(
+                    &mut *tx, Uuid::now_v7(), check_id,
+                    "notice", None, None, None,
+                    None, None, None, None,
+                    None, None, None,
+                    Some(raw_finding),
+                    idx as i32,
+                ).await?;
+            }
+        }
     }
 }
 ```
 
-### 5.3 DB クエリ追加 (crates/db)
+### 5.3 INSERT前の正規化ルール
 
-`run_check_finding::insert` クエリが必要:
+DB の CHECK 制約違反を未然に防止するため、Worker は INSERT 前に以下の正規化を行う。正規化で変換された元の値は `raw_payload_json` (finding の `raw` フィールド) 側にのみ残る。
+
+#### severity 正規化
+
+```rust
+fn normalize_severity(s: &str) -> &str {
+    match s {
+        "error" | "warning" | "notice" => s,
+        _ => "notice",  // 不明な severity は "notice" にフォールバック
+    }
+}
+```
+
+DB CHECK 制約: `severity IN ('error', 'warning', 'notice')`
+
+#### subject_kind 正規化
+
+```rust
+fn normalize_subject_kind(s: Option<&str>) -> Option<&str> {
+    match s {
+        Some("schematic" | "pcb" | "net" | "footprint" | "symbol") => s,
+        _ => None,  // 不明な subject_kind は None にフォールバック
+    }
+}
+```
+
+DB CHECK 制約: `subject_kind IN ('schematic', 'pcb', 'net', 'footprint', 'symbol')` (nullable)
+
+### 5.4 パース失敗時の挙動
+
+- finding の `serde_json::from_value::<ManifestFinding>()` が失敗した場合:
+  - `severity = "notice"` (DB CHECK 制約安全値)
+  - `rule_code`, `title`, `message`, `subject_kind`, `subject_ref` 等は全て NULL
+  - `raw_payload_json` に元の JSON Value をそのまま保存
+  - 処理は中断せず、次の finding に進む
+- 正規化で `severity` が変換された場合:
+  - 変換前の値は `raw_payload_json` 内の元データ (`raw` フィールド) にのみ残る
+  - DB の `severity` カラムには正規化後の安全な値が入る
+
+### 5.5 DB クエリ (crates/db)
+
+`run_check_finding::insert` クエリ:
 
 ```sql
 INSERT INTO run_check_findings (
@@ -585,10 +662,11 @@ INSERT INTO run_check_findings (
     subject_kind, subject_ref, sheet_path, pcb_layer,
     x_um, y_um, bbox_json, raw_payload_json,
     sort_index, created_at
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, NOW())
+RETURNING *
 ```
 
-### 5.4 GitHub Action 側の変換ロジック
+### 5.6 GitHub Action 側の変換ロジック
 
 Action は以下を実行:
 1. `kicad-cli sch erc --format json --severity-all --output erc.json`
