@@ -268,10 +268,23 @@ async fn process_import_job(
 
         // Insert findings for this check
         for (idx, raw_finding) in check.findings.iter().enumerate() {
-            // Try to parse the finding
             match serde_json::from_value::<boardflow_artifact::ManifestFinding>(raw_finding.clone())
             {
                 Ok(finding) => {
+                    // Normalize severity to pass DB CHECK constraint
+                    let severity = match finding.severity.as_str() {
+                        "error" | "warning" | "notice" => finding.severity.as_str(),
+                        _ => "notice",
+                    };
+
+                    // Normalize subject_kind to pass DB CHECK constraint
+                    let subject_kind = finding.subject_kind.as_deref().and_then(|sk| {
+                        match sk {
+                            "schematic" | "pcb" | "net" | "footprint" | "symbol" => Some(sk),
+                            _ => None,
+                        }
+                    });
+
                     let x_um =
                         finding.pos_mm.as_ref().map(|p| (p.x * 1000.0).round() as i32);
                     let y_um =
@@ -281,11 +294,11 @@ async fn process_import_job(
                         &mut *tx,
                         Uuid::now_v7(),
                         check_id,
-                        &finding.severity,
+                        severity,
                         Some(&finding.rule_code),
                         Some(&finding.title),
                         finding.message.as_deref(),
-                        finding.subject_kind.as_deref(),
+                        subject_kind,
                         finding.subject_ref.as_deref(),
                         finding.sheet_path.as_deref(),
                         finding.pcb_layer.as_deref(),
@@ -297,33 +310,14 @@ async fn process_import_job(
                     )
                     .await
                     {
-                        tracing::warn!(
+                        // If INSERT still fails after normalization, it's an unexpected error
+                        // Log and continue - don't abort the entire import
+                        tracing::error!(
                             check_id = %check_id,
                             sort_index = idx,
                             error = %e,
-                            "Failed to insert parsed finding, falling back to raw"
+                            "Failed to insert finding after normalization, skipping"
                         );
-                        // Fallback: store raw with safe severity
-                        let _ = run_check_finding::insert(
-                            &mut *tx,
-                            Uuid::now_v7(),
-                            check_id,
-                            "notice",
-                            None,
-                            None,
-                            None,
-                            None,
-                            None,
-                            None,
-                            None,
-                            None,
-                            None,
-                            None,
-                            Some(raw_finding),
-                            idx as i32,
-                        )
-                        .await
-                        .ok();
                     }
                 }
                 Err(e) => {
@@ -334,7 +328,7 @@ async fn process_import_job(
                         error = %e,
                         "Failed to parse finding, storing raw payload"
                     );
-                    let _ = run_check_finding::insert(
+                    if let Err(insert_err) = run_check_finding::insert(
                         &mut *tx,
                         Uuid::now_v7(),
                         check_id,
@@ -353,7 +347,14 @@ async fn process_import_job(
                         idx as i32,
                     )
                     .await
-                    .ok();
+                    {
+                        tracing::error!(
+                            check_id = %check_id,
+                            sort_index = idx,
+                            error = %insert_err,
+                            "Failed to insert raw finding fallback, skipping"
+                        );
+                    }
                 }
             }
         }

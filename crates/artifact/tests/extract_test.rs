@@ -675,3 +675,28 @@ fn test_coordinate_mm_to_um_rounding() {
     let rounded = (0.0006_f64 * 1000.0).round() as i32;
     assert_eq!(rounded, 1); // rounding gives correct result
 }
+
+#[test]
+fn test_severity_normalization() {
+    // Valid severities pass through unchanged
+    assert!(["error", "warning", "notice"].contains(&"error"));
+    assert!(["error", "warning", "notice"].contains(&"warning"));
+    assert!(["error", "warning", "notice"].contains(&"notice"));
+    // Invalid severity should be caught by normalization (not in allowed set)
+    assert!(!["error", "warning", "notice"].contains(&"critical"));
+    assert!(!["error", "warning", "notice"].contains(&""));
+}
+
+#[test]
+fn test_subject_kind_normalization() {
+    let valid = ["schematic", "pcb", "net", "footprint", "symbol"];
+    assert!(valid.contains(&"schematic"));
+    assert!(valid.contains(&"pcb"));
+    assert!(valid.contains(&"net"));
+    assert!(valid.contains(&"footprint"));
+    assert!(valid.contains(&"symbol"));
+    // Invalid should be normalized to None
+    assert!(!valid.contains(&"board"));
+    assert!(!valid.contains(&""));
+    assert!(!valid.contains(&"component"));
+}

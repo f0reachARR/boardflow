@@ -1726,6 +1726,89 @@ for (idx, finding) in check.findings.iter().enumerate() {
 
 ---
 
+## 再レビューフェーズ: run_check_findings 追加実装 再確認 (2026-05-01)
+
+### 対象
+
+- Issue ID: #7
+- タイトル: Import Worker: ERC/DRC結果のrun_checks/run_check_findings保存
+- 対象コミット:
+  - `3e1741f` feat(worker): insert run_check_findings from manifest checks
+  - `4732e69` docs: update worklog for issue #7 run_check_findings implementation
+  - `c937752` fix(worker): absorb malformed findings, round coordinates, safe fallback severity
+
+### 再レビュー結果
+
+- **前回ブロッカー1（findings 個別パース）**: **部分的に解消**
+  - `ManifestCheck.findings` が `Vec<serde_json::Value>` になり、JSON構造レベルで壊れた finding を 1 件ずつ吸収できるようになった
+  - ただし DB INSERT 失敗時のフォールバックは同一 transaction 内で実行しており、PostgreSQL では先行クエリ失敗後の transaction が abort 状態になるため、想定どおりの継続にはならない
+- **前回ブロッカー2（座標変換の切り捨て）**: **解消**
+  - `mm * 1000.0` が `round()` 付きになり、research / 計画と一致
+- **前回ブロッカー3（フォールバック severity 不正）**: **部分的に解消**
+  - フォールバック severity が `"notice"` に固定され、CHECK 制約値自体は安全になった
+  - ただし INSERT 失敗後に同一 transaction で再 INSERT しているため、SQL エラー起点のフォールバック自体は成立しない
+
+### 重大度順の指摘
+
+1. **ブロッカー: DB INSERT 失敗時のフォールバックが transaction abort により機能しない**
+   - 対象: `crates/worker/src/main.rs`
+   - `run_check_finding::insert(...)` が CHECK 制約違反などで失敗した時点で PostgreSQL transaction は abort 状態になる
+   - その直後に同じ `tx` で `"notice"` のフォールバック INSERT を試みても成功せず、その後続の `snapshot`, `diff`, `board_run`, `github_job` 更新も失敗する
+   - つまり「malformed / semantically invalid finding は raw_payload_json に保存して処理継続」という設計意図をまだ満たしていない
+   - 具体例:
+     - `severity = "fatal"` のような DB 非許容値
+     - `subject_kind = "layer"` のような DB CHECK 非許容値
+   - 外部確認でも、PostgreSQL は一度エラーになった transaction では rollback まで後続コマンドを受け付けないことが知られている
+
+### 必須修正
+
+1. `run_check_finding` の保存で「構造化 INSERT が失敗したら raw に落として継続」を本当に成立させること
+   - 例:
+     - INSERT 前に `severity` / `subject_kind` を worker 側で正規化・検証し、DBエラーを起こさない
+     - あるいは savepoint / nested transaction 相当を使って、失敗した finding だけを raw 保存へ切り替える
+     - あるいは最初から DB制約に抵触しうるフィールドを Option/正規化済み値に落として INSERT する
+
+### 任意改善
+
+1. `raw_payload_json` にフォールバックした件数をメトリクスまたは構造化ログで集計できるようにすると、manifest 生成側の不具合検知がしやすい
+2. `ManifestFinding` の `severity` / `subject_kind` を String のまま受けるにしても、worker 側で enum 相当の正規化関数を明示しておくと意図が読みやすい
+
+### テスト結果
+
+- `cargo test -p boardflow-artifact`: 23 passed
+- `cargo build --workspace`: success
+
+### テスト不足
+
+1. worker 経由で `run_check_finding` の DB CHECK 制約違反が起きたときに raw フォールバックで import 継続できることの統合テストがない
+2. `subject_kind` 不正値のような「JSON としては parse できるが DB 制約には違反する finding」のケースが未テスト
+3. `run_check_findings.sort_index`, `x_um`, `y_um`, `raw_payload_json` が実DBにどう保存されるかの worker 統合テストは依然として未実施
+
+### ドキュメント確認
+
+- `docs/external/kicad-erc-drc-findings.md`: findings 設計、`round()` 変換、fallback severity 方針は今回の意図と整合
+- `docs/spec.md`: manifest 例は依然として集計 `checks` のみで、`checks[].findings` 拡張が反映されていない
+
+### plan / research / docs との不整合
+
+1. research / worklog は「INSERT 失敗時も raw_payload_json 保存で継続」を前提にしているが、実装は PostgreSQL transaction abort を考慮できていない
+2. `docs/spec.md` の manifest 例は `checks` オブジェクト中心のままで、今回の `checks[].findings` 拡張と一致していない
+
+### PR/完了結果
+
+- `pr_ready: false`
+
+### 残リスク
+
+- manifest 生成側が DB 非許容の `severity` / `subject_kind` を出した場合、現状の worker は finding 単位で吸収できず import 全体を失敗させる
+- spec 正本に findings 拡張が未反映のため、Action 側 / API 側 / 将来実装との契約が曖昧なまま残る
+
+### 更新した作業ログパス
+
+- `docs/logs/7/worklog.md`
+
+---
+
 ## レビューブロッカー修正フェーズ (2026-05-01)
 
 ### 経緯
