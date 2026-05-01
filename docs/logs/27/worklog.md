@@ -515,3 +515,91 @@ Issue #27 の実装差分、`docs/spec.md`、`docs/backend/api.md`、既存 read
 - `rand_i64()` の UUID v7 ベース生成がパラレルテスト実行で衝突する可能性あり（`--test-threads=1` で回避中、Issue #27 固有ではない）
 - token 数上限（per-repo）の制約なし（MVP スコープ外）
 - rate limit テスト未追加（他エンドポイントと同一パターンのため優先度低）
+
+---
+
+## 再レビューフェーズ（2026-05-01）
+
+### レビュー結果
+
+前回レビューの指摘3点について再確認した。
+
+- `create_api_token` は `Result<Json<CreateApiTokenRequest>, JsonRejection>` で受け、handler 内で `AppError::validation_failed(..., &request_id)` に変換していることを確認
+- `docs/backend/api.md` に `3.0.5 Token Management API` が追加され、既存セクションと同じ記述粒度で create/list/revoke の契約、認証、エラーケース、pagination が記載されていることを確認
+- `crates/api/tests/api_token_test.rs` に cursor pagination / list access denied / revoke access denied / malformed JSON の4テストが追加され、前回のテスト不足を埋めていることを確認
+
+追加確認:
+
+- `mise exec rust@nightly -- cargo test -p boardflow-api --test api_token_test` → 14/14 pass
+- `mise exec rust@nightly -- cargo test` → workspace 全体 pass（`read_api_test` は 62/62 pass、他 test binary/Doc-test も失敗なし）
+- Web 調査でも、token の hash 保存、平文の一回表示、revoke の冪等性は一般的な token 管理のベストプラクティスと整合
+
+### 指摘事項
+
+#### Medium: revoke API の `token_id` path validation が既存 API のエラー契約と揃っていない
+
+- `crates/api/src/routes/api_token.rs` の `revoke_api_token` は `Path<(i64, Uuid)>` を直接受けており、`token_id` の parse failure が handler 到達前に axum extractor 側で処理される
+- 既存 read API は `Path<String>` を受けた上で handler 内で parse し、`request_id` 付き `validation_failed` を返す実装に寄せている
+- そのため revoke API だけ、不正な `token_id` を与えた際の 400 レスポンスが他 endpoint と同じ JSON エラー形式・`request_id` 付与を満たさない可能性がある
+
+### ドキュメント確認
+
+- `docs/spec.md` の token 要件（平文は作成時のみ、DB は hash 保存、revoke は認証不可化）と実装は整合
+- `docs/backend/api.md` の新設 `3.0.5 Token Management API` は既存フォーマットと整合
+- Issue #27 の research / plan / 実装 / ドキュメントの主線は一致
+
+### PR/完了結果
+
+- `pr_ready: false`
+
+### 必須修正
+
+1. revoke API でも `token_id` を handler 内で parse して、invalid format を `request_id` 付き `validation_failed` に統一する
+2. 上記に対応する invalid `token_id` の統合テストを追加する
+
+### 任意改善
+
+1. path/query/body の validation error を request_id 付きで統一する共通パターンを整理する
+
+### テスト不足
+
+- revoke API の invalid `token_id` に対する error contract の検証テストが未追加
+
+### 残リスク
+
+- 主要な受け入れ要件と前回指摘は満たしているが、revoke の invalid path parameter だけ error contract の一貫性が崩れる余地が残る
+
+### 更新した作業ログパス
+
+- `docs/logs/27/worklog.md`
+
+---
+
+## レビュー修正（2回目）（2026-05-01）
+
+### 指摘事項
+
+1. **revoke API の token_id パース (Medium)**: `Path<(i64, Uuid)>` で受けていたため、不正な token_id が axum の Path extractor でエラーとなり `request_id` 付きの `validation_failed` にならない問題。
+
+### 実施した修正
+
+1. `crates/api/src/routes/api_token.rs` の `revoke_api_token`:
+   - `Path<(i64, Uuid)>` → `Path<(i64, String)>` に変更
+   - handler 内で `Uuid::parse_str()` し、失敗時に `AppError::validation_failed("invalid token_id format", &request_id)` を返すように修正
+   - read.rs の board_project_id パースパターンと同じ方式
+
+2. `crates/api/tests/api_token_test.rs` に `test_revoke_api_token_invalid_token_id` テスト追加:
+   - 不正 token_id (`"not-a-valid-uuid"`) を指定して revoke → 400 `validation_failed` + `request_id` 非空を検証
+
+### テスト結果
+
+- 全15件の api_token_test が pass
+- 全パッケージの全テスト (175件) が pass、0 failures
+
+### 残リスク
+
+- なし（指摘箇所は全て解消済み）
+
+### 更新した作業ログパス
+
+- `docs/logs/27/worklog.md`
