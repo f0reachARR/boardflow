@@ -575,6 +575,75 @@ Issue #27 の実装差分、`docs/spec.md`、`docs/backend/api.md`、既存 read
 
 ---
 
+## 最終レビューフェーズ（2026-05-01）
+
+### レビュー結果
+
+Issue #27 の最終確認として、Issue本文、既存 research / plan、`docs/spec.md`、`docs/backend/api.md`、実装差分、関連テスト、全体テストを再確認した。
+
+確認した観点:
+
+- revoke API が `Path<(i64, String)>` で受け、handler 内で `Uuid::parse_str()` していること
+- invalid `token_id` テストが追加され、`validation_failed` + `request_id` を検証していること
+- `mise exec -- cargo test -p boardflow-api --test api_token_test` が 15/15 pass であること
+- `mise exec -- cargo test` が workspace 全体で pass していること
+- 前回 1回目・2回目レビュー指摘が実装とテストの両面で解消されていること
+
+追加で判明した事項:
+
+- 実装の revoke API は invalid `token_id` に対して `400 validation_failed` を返す
+- しかし `crates/api/src/routes/api_token.rs` の utoipa 注釈には revoke API の `400` response が未記載
+- `docs/backend/api.md` の revoke エラーケース表にも `400 validation_failed`（invalid `token_id`）が未記載
+
+### 指摘事項
+
+#### Medium: revoke API の 400 error contract が OpenAPI / backend API doc に未反映
+
+- 実装では `invalid token_id format` を `AppError::validation_failed(..., &request_id)` として返している
+- `crates/api/tests/api_token_test.rs` にも invalid `token_id` 時の `400 validation_failed` テストが追加済み
+- 一方で `crates/api/src/routes/api_token.rs` の revoke endpoint の `#[utoipa::path]` responses には `400` がない
+- `docs/backend/api.md` の `3.0.5.3 Token 失効（Revoke）` のエラーケース表も `401` / `404` のみで、path parameter 形式不正の `400 validation_failed` が落ちている
+- このままだと実装・テストと API 契約書 / OpenAPI が不一致になる
+
+### テスト結果
+
+- `mise exec -- cargo test -p boardflow-api --test api_token_test` → 15/15 pass
+- `mise exec -- cargo test` → workspace 全体 pass（前回ログ記載の 175 件に対する回帰なし、failure 0）
+
+### ドキュメント確認
+
+- `docs/spec.md`: token 平文は作成時のみ表示、DB には hash 保存、revoke 済み token は認証不可、という要件と整合
+- `docs/backend/api.md`: create / list は契約が記載されているが、revoke の invalid path parameter に対する `400 validation_failed` の記述が不足
+- research / plan / 実装 / テストの主線は一致している
+
+### PR/完了結果
+
+- `pr_ready: false`
+
+### 必須修正
+
+1. `crates/api/src/routes/api_token.rs` の revoke endpoint の utoipa responses に `400 Validation error` を追加する
+2. `docs/backend/api.md` の `3.0.5.3 Token 失効（Revoke）` のエラーケース表に `400 validation_failed`（invalid `token_id` format）を追記する
+
+### 任意改善
+
+1. token 管理 API の validation error 契約をコード注釈・backend API doc・統合テストで常に同時更新する運用に寄せる
+
+### テスト不足
+
+- 追加の必須テスト不足は見当たらない
+
+### 残リスク
+
+- OpenAPI / ドキュメント利用者は revoke API が `400 validation_failed` を返しうることを認識できず、クライアント生成や UI 実装時に契約齟齬を踏む可能性がある
+- Critical / High の新規問題は確認できなかった
+
+### 更新した作業ログパス
+
+- `docs/logs/27/worklog.md`
+
+---
+
 ## レビュー修正（2回目）（2026-05-01）
 
 ### 指摘事項

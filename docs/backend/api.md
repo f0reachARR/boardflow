@@ -530,6 +530,7 @@ Response (200):
 
 | status | code | 条件 |
 |--------|------|------|
+| 400 | `validation_failed` | `token_id` の形式が不正（UUID でない） |
 | 401 | `unauthorized` | session がない、または無効 |
 | 404 | `not_found` | repository が存在しない、アクセス権がない、または token が存在しない/別 repository に属する |
 

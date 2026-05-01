@@ -290,6 +290,7 @@ pub async fn list_api_tokens(
     ),
     responses(
         (status = 200, description = "Token revoked", body = ApiTokenDetailResponse),
+        (status = 400, description = "Validation error", body = crate::error::ErrorResponse),
         (status = 401, description = "Unauthorized", body = crate::error::ErrorResponse),
         (status = 404, description = "Not found", body = crate::error::ErrorResponse),
     )
