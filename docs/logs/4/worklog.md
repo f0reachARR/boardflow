@@ -1015,3 +1015,29 @@ plan_empty_project_path_returns_error ... ok (新規追加)
 
 - tree_hash の空白文字混入ケースの回帰テスト追加
 - DB あり環境での統合テスト再実行確認
+
+---
+
+## PR 作成結果 (2026-05-01)
+
+### PR リンク
+
+- https://github.com/f0reachARR/boardflow/pull/13
+
+### 作成条件確認
+
+- `pr_ready: true` (6回目レビュー): ✅
+- `docs_ready: true` (最終ドキュメント確認): ✅
+- 未コミット変更なし: ✅
+- ブランチ `feat/4-plan-api` リモートプッシュ済み: ✅
+
+### PR 概要
+
+- **タイトル**: feat(api): implement POST /api/v1/runs/plan endpoint (#4)
+- **ベース**: main ← **ヘッド**: feat/4-plan-api
+- **対象 Issue**: Closes #4
+
+### 残リスク
+
+- tree_hash の空白文字混入ケースの回帰テスト追加（任意改善）
+- DB あり環境での統合テスト再実行確認（CI 実行時に検証）
