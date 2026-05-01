@@ -410,3 +410,125 @@ limit+1行取得し、N+1行目が存在すれば `has_more=true`、N行目で n
 - MVP簡易版として repository 権限チェックは session 認証のみ（GitHub API権限チェックは後続Issue）
 - OAuth login/callback は reqwest で外部GitHub APIを呼ぶため、テスト時はmockが必要（現在はDB操作のみテスト）
 - artifact_token の secret がデフォルト値 "default-dev-secret" を使う場合のセキュリティ（本番では環境変数必須）
+
+---
+
+## Phase 6: レビュー再確認 (Review Re-check)
+- 開始: 2026-05-01
+- 状態: 完了
+- 対象Issue: #6
+- PR作成可否: `pr_ready: false`
+
+### レビュー結果
+- 前回指摘の 1, 2, 4, 5 は実装上おおむね解消されていることを確認。
+- 前回指摘 3 の「短命 token 付き viewer sources URL」も placeholder から実 token に置き換わっているが、OAuth flow と token 運用に新たなセキュリティ欠陥が残る。
+- Read API への session 認証適用自体は確認できたが、repository 権限ベースの認可は未実装で、仕様の `404 not_found` ベースの情報秘匿には未到達。
+- ユーザー申告の「api package: unit 4 + integration 75 = 79 tests pass」はこの環境では再現せず、`cargo test -p boardflow-api` で 4 件失敗した。`cargo test -p boardflow-api --test read_api_test` 単体では 29 件成功。
+
+### 重大な指摘
+1. OAuth callback の `state` が CSRF 防御として機能していない。`/api/v1/auth/login` は `redirect_uri` をそのまま `state` に載せ、`/api/v1/auth/callback` は server-side に保存した nonce との照合を行っていないため、OAuth login CSRF が成立する。
+2. OAuth callback が `query.state` をそのまま `Location` に使っており、open redirect になっている。`redirect_uri` の許可リストまたは相対 path 制限がない。
+3. artifact token の秘密鍵が未設定時に `default-dev-secret` へフォールバックする。環境変数未設定で起動できてしまうため、token forge が可能になる。
+4. テスト結果の再現性に問題がある。`read_api_test.rs` の helper は `INSERT ... RETURNING id` を発行している一方で `.execute()` を使っており、`ON CONFLICT` 発生時に DB 上に存在しないローカル生成 UUID を返し得る。実際に `cargo test -p boardflow-api` では foreign key violation で 4 件失敗した。
+
+### 必須修正
+1. OAuth login で乱数 `state` を server-side に保存し、callback で照合する。遷移先は `state` に直入れせず、別途 allowlist された相対 path のみ許可する。
+2. `BOARDFLOW_ARTIFACT_SECRET` を本番必須にし、危険な固定デフォルト値を廃止する。
+3. `read_api_test.rs` の repository / board_project helper を `query_scalar` / `fetch_one` に変更するか、衝突しない test data 設計にして、全体テストで再現性を担保する。
+4. repository 権限ベースの認可仕様がこの Issue の完了条件に含まれるなら、session 認証だけでなく resource access 判定まで実装・検証する。
+
+### 任意改善
+1. session cookie に `Secure` を付与し、HTTPS 前提環境では平文 transport を防ぐ。
+2. artifact token に session binding または nonce / jti を持たせ、proxy 側で再利用抑止できる設計へ寄せる。
+3. OAuth route (`login`, `callback`, `logout`, `me`) の統合テストを追加する。
+
+### テスト結果
+- `cargo test -p boardflow-api --test read_api_test`: 29/29 pass
+- `cargo test -p boardflow-api`: 75 pass, 4 fail
+- 失敗テスト:
+  - `test_get_board_project_state_failed`
+  - `test_get_viewer_sources_missing`
+  - `test_get_viewer_sources_skipped`
+  - `test_pagination_cursor_traversal`
+- 失敗内容はいずれも `board_projects.repository_id` の foreign key violation。全体実行時の DB state 共有または helper の upsert 返り値扱いが原因候補。
+
+### ドキュメント確認
+- `docs/backend/api.md` の Read API 認証前提とは整合するようになった。
+- ただし `docs/backend/api.md` が要求する repository 権限ベースの認可と `404 not_found` による情報秘匿は未充足。
+- `docs/technology.md` の GitHub OAuth + GitHub App 方針には概ね沿うが、OAuth CSRF / redirect 安全性は不足。
+- `docs/external/kicanvas.md` の「短命 URL」「private artifact」方針とは概ね整合するが、token replay 抑止と proxy 実運用導線は未確認。
+
+### 残リスク
+- OAuth login CSRF により、ユーザーが意図しない GitHub アカウントで session を作らされる可能性がある。
+- open redirect により、認証完了後に外部サイトへ飛ばせる。
+- artifact secret 未設定のまま運用すると token 署名の意味が失われる。
+- OAuth / artifact proxy の実利用フローを通す統合テストがなく、セキュリティ回りの回帰を検出しにくい。
+
+---
+
+## Phase 7: セキュリティ修正 (Security Fixes)
+- 開始: 2026-05-01
+- 状態: 完了
+- ブランチ: `feature/issue-6-web-ui-read-api`
+
+### 修正内容
+
+#### 修正1: OAuth callback CSRF対策 + Open Redirect防止
+- `routes/auth.rs` の `login` ハンドラ: UUID v4 乱数stateを生成し、HttpOnly cookie `boardflow_oauth_state` に保存（Max-Age=300秒）
+- `routes/auth.rs` の `callback` ハンドラ: cookie中のstateとGitHub callbackのquery param stateを照合。不一致時は `403 Forbidden` を返す
+- redirect先を `query.state` からのユーザー入力ではなく、ハードコード `"/"` に固定（open redirect防止）
+- callback完了時に `boardflow_oauth_state` cookieをクリア
+
+#### 修正2: BOARDFLOW_ARTIFACT_SECRET 必須化
+- `lib.rs` の `create_app_with_config` で `artifact_secret` が `None` の場合、`BOARDFLOW_ARTIFACT_SECRET` 環境変数が未設定なら `expect()` で即座にパニック（起動失敗）
+- `"default-dev-secret"` のフォールバックを完全に削除
+- テスト側では `unsafe { std::env::set_var(...) }` で明示的にテスト用secretを設定
+
+#### 修正3: テストhelperのSQL問題修正
+- `read_api_test.rs`, `board_run_test.rs`, `plan_test.rs` の `create_test_repository` と `create_test_board_project` ヘルパーを修正
+- `.execute()` → `sqlx::query_scalar(...).fetch_one()` に変更し、`RETURNING id` で返された実際のDB上のIDを使用
+- ON CONFLICT発生時にローカル生成UUIDと実際のDBレコードIDが不一致になる問題を解消
+
+#### 修正4: Repository権限ベースの簡易認可 (MVP方針)
+- 全Read APIハンドラに session認証 (`AuthenticatedSession`) が既に適用済み
+- MVP方針として session認証のみで認可とし、Repository単位の閲覧制限は後続Issueとする
+- `routes/read.rs` の `list_repositories` ハンドラに `// TODO: repository permission check (post-MVP)` コメント追加
+
+#### 修正5: uuid v4 feature追加
+- workspace `Cargo.toml` の uuid依存に `v4` feature追加（OAuth state生成に必要）
+
+### 変更ファイル一覧
+- `Cargo.toml` - uuid features に `v4` 追加
+- `crates/api/src/routes/auth.rs` - OAuth CSRF防御 + open redirect防止
+- `crates/api/src/routes/read.rs` - TODO コメント追加
+- `crates/api/src/lib.rs` - artifact_secret 必須化
+- `crates/api/tests/read_api_test.rs` - helper修正 + env var設定
+- `crates/api/tests/board_run_test.rs` - helper修正 + env var設定
+- `crates/api/tests/plan_test.rs` - helper修正 + env var設定
+- `crates/api/tests/integration_test.rs` - env var設定
+
+### テスト結果
+- `cargo test -p boardflow-api`: **79件全パス、0失敗**
+  - unit tests: 4 pass
+  - auth_test: 19 pass
+  - board_run_test: 8 pass
+  - config_test: 1 pass
+  - integration_test: 2 pass
+  - plan_test: 16 pass
+  - read_api_test: 29 pass
+- 以前失敗していた4件（foreign key violation）が修正により全てパス:
+  - `test_get_board_project_state_failed` ✅
+  - `test_get_viewer_sources_missing` ✅
+  - `test_get_viewer_sources_skipped` ✅
+  - `test_pagination_cursor_traversal` ✅
+
+### 解消されたセキュリティ問題
+1. ✅ OAuth CSRF: state パラメータがサーバーサイドcookieとの照合で検証される
+2. ✅ Open Redirect: redirect先がハードコード "/" のみ
+3. ✅ Artifact Secret: 未設定時にデフォルト値ではなくパニック（起動不可）
+4. ✅ テストhelper FK violation: 実際のDB IDを使用するように修正
+
+### 残リスク
+- Repository権限ベースの認可は後続Issueで実装予定（MVP = session認証のみ）
+- OAuth login/callback の統合テスト（外部GitHub API呼び出し含む）は mock server が必要で未実装
+- session cookie に `Secure` flag未付与（HTTPS環境専用にする場合は追加が必要）

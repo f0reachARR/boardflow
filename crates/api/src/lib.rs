@@ -51,7 +51,7 @@ pub fn create_app_with_config(
 
     let secret = artifact_secret.unwrap_or_else(|| {
         std::env::var("BOARDFLOW_ARTIFACT_SECRET")
-            .unwrap_or_else(|_| "default-dev-secret".to_string())
+            .expect("BOARDFLOW_ARTIFACT_SECRET must be set")
             .into_bytes()
     });
 

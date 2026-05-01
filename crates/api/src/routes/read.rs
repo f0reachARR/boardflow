@@ -360,7 +360,7 @@ fn derive_board_project_state(
     )
 )]
 pub async fn list_repositories(
-    _session: AuthenticatedSession,
+    _session: AuthenticatedSession, // TODO: repository permission check (post-MVP)
     Extension(RequestId(request_id)): Extension<RequestId>,
     State(pool): State<PgPool>,
     Query(params): Query<PaginationParams>,
