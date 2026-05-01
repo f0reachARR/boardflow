@@ -251,3 +251,29 @@ test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 42 filtered out
 ### 残リスク
 
 - OpenAPI JSON の実生成物そのものはこのレビューでは再出力していないため、最終的な公開成果物確認は PR 前の通常 CI に委ねる。
+
+## PR / 完了結果
+
+### PR作成日時
+
+- 2026-05-01
+
+### PR情報
+
+- PR URL: https://github.com/f0reachARR/boardflow/pull/39
+- タイトル: feat: Diff詳細Read API実装 (#35)
+- ベースブランチ: main
+- ヘッドブランチ: feat/35-diff-read-api
+- Closes #35
+
+### 最終コミット
+
+- `feat(#35): implement Diff Detail Read API`
+- `docs(#35): add worklog`
+- `fix(#35): use null instead of field omission for diff API contract`
+- `docs(#35): update worklog with review results`
+
+### 残リスク
+
+- 実 DB を使った統合テストはローカル環境では未実行（DATABASE_URL 未設定）
+- nested metadata 内部の optional field は省略設計のまま（現行ドキュメント対象外）
