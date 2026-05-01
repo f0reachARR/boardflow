@@ -1,6 +1,6 @@
 use axum::body::Body;
 use axum::extract::{Path, Query, State};
-use axum::http::header;
+use axum::http::header::{self, HeaderMap, HeaderValue};
 use axum::http::Response;
 use axum::Extension;
 use serde::Deserialize;
@@ -100,59 +100,95 @@ pub async fn get_artifact(
         .as_deref()
         .unwrap_or("application/octet-stream");
 
-    // Determine CSP and X-Frame-Options based on artifact type.
-    // Design: artifact proxy is served on a separate domain (e.g. artifacts.boardflow.example.com).
-    // For iframe artifacts (ibom_html), we use CSP frame-ancestors to allow embedding
-    // from the app domain only. X-Frame-Options is omitted for iframe artifacts because
-    // ALLOW-FROM is deprecated; CSP frame-ancestors is the standard mechanism.
-    // For non-iframe artifacts, X-Frame-Options: DENY prevents any framing.
-    let is_iframe_artifact = artifact.r#type.as_str() == "ibom_html";
-    let csp = if is_iframe_artifact {
-        format!(
-            "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; frame-ancestors {}",
-            app_domain.0
-        )
-    } else {
-        "default-src 'none'; frame-ancestors 'none'".to_string()
-    };
+    // Build response headers using the helper
+    let headers = build_response_headers(
+        content_type,
+        &artifact.r#type,
+        &app_domain.0,
+        artifact.size_bytes,
+        artifact.filename.as_deref(),
+    );
 
     // Build streaming response body from S3 SdkBody
     let sdk_body = s3_resp.body.into_inner();
     let body = Body::new(sdk_body);
 
-    let mut builder = Response::builder()
-        .header(header::CONTENT_TYPE, content_type)
-        .header("X-Content-Type-Options", "nosniff")
-        .header("Referrer-Policy", "no-referrer")
-        .header("Content-Security-Policy", &csp)
-        .header("Access-Control-Allow-Origin", &app_domain.0)
-        .header("Access-Control-Allow-Methods", "GET")
-        .header("Vary", "Origin");
-
-    // Non-iframe artifacts get X-Frame-Options: DENY.
-    // iframe artifacts rely solely on CSP frame-ancestors (ALLOW-FROM is deprecated).
-    if !is_iframe_artifact {
-        builder = builder.header("X-Frame-Options", "DENY");
-    }
-
-    // Add Content-Length if available
-    if let Some(size) = artifact.size_bytes {
-        builder = builder.header(header::CONTENT_LENGTH, size.to_string());
-    }
-
-    // Add Content-Disposition for downloadable types
-    if let Some(filename) = &artifact.filename {
-        let disposition = match artifact.r#type.as_str() {
-            "ibom_html" | "schematic_svg" | "pcb_svg" | "schematic_pdf" | "pcb_pdf" => {
-                format!("inline; filename=\"{filename}\"")
-            }
-            _ => format!("attachment; filename=\"{filename}\""),
-        };
-        builder = builder.header(header::CONTENT_DISPOSITION, disposition);
+    let mut builder = Response::builder();
+    for (name, value) in headers.iter() {
+        builder = builder.header(name, value);
     }
 
     builder.body(body).map_err(|e| {
         tracing::error!("Failed to build response: {e}");
         AppError::internal_error("response error", &request_id)
     })
+}
+
+/// Build response headers for artifact proxy responses.
+/// Extracted for unit testability without S3 dependency.
+pub fn build_response_headers(
+    content_type: &str,
+    artifact_type: &str,
+    app_domain: &str,
+    size_bytes: Option<i64>,
+    filename: Option<&str>,
+) -> HeaderMap {
+    let mut headers = HeaderMap::new();
+
+    headers.insert(header::CONTENT_TYPE, HeaderValue::from_str(content_type).unwrap_or_else(|_| HeaderValue::from_static("application/octet-stream")));
+    headers.insert("X-Content-Type-Options", HeaderValue::from_static("nosniff"));
+    headers.insert("Referrer-Policy", HeaderValue::from_static("no-referrer"));
+
+    // Determine CSP and X-Frame-Options based on artifact type.
+    // Design: artifact proxy is served on a separate domain (e.g. artifacts.boardflow.example.com).
+    // For iframe artifacts (ibom_html), we use CSP frame-ancestors to allow embedding
+    // from the app domain only. X-Frame-Options is omitted for iframe artifacts because
+    // ALLOW-FROM is deprecated; CSP frame-ancestors is the standard mechanism.
+    // For non-iframe artifacts, X-Frame-Options: DENY prevents any framing.
+    let is_iframe_artifact = artifact_type == "ibom_html";
+    let csp = if is_iframe_artifact {
+        // sandbox allow-scripts: treats content as unique origin (blocks same-origin access,
+        // form submissions, popups, navigation) while allowing script execution (needed for iBOM).
+        format!(
+            "sandbox allow-scripts; default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; frame-ancestors {}",
+            app_domain
+        )
+    } else {
+        "default-src 'none'; frame-ancestors 'none'".to_string()
+    };
+
+    headers.insert("Content-Security-Policy", HeaderValue::from_str(&csp).unwrap());
+
+    if let Ok(origin) = HeaderValue::from_str(app_domain) {
+        headers.insert("Access-Control-Allow-Origin", origin);
+    }
+    headers.insert("Access-Control-Allow-Methods", HeaderValue::from_static("GET"));
+    headers.insert("Vary", HeaderValue::from_static("Origin"));
+
+    // Non-iframe artifacts get X-Frame-Options: DENY.
+    if !is_iframe_artifact {
+        headers.insert("X-Frame-Options", HeaderValue::from_static("DENY"));
+    }
+
+    // Add Content-Length if available
+    if let Some(size) = size_bytes {
+        if let Ok(val) = HeaderValue::from_str(&size.to_string()) {
+            headers.insert(header::CONTENT_LENGTH, val);
+        }
+    }
+
+    // Add Content-Disposition for downloadable types
+    if let Some(filename) = filename {
+        let disposition = match artifact_type {
+            "ibom_html" | "schematic_svg" | "pcb_svg" | "schematic_pdf" | "pcb_pdf" => {
+                format!("inline; filename=\"{filename}\"")
+            }
+            _ => format!("attachment; filename=\"{filename}\""),
+        };
+        if let Ok(val) = HeaderValue::from_str(&disposition) {
+            headers.insert(header::CONTENT_DISPOSITION, val);
+        }
+    }
+
+    headers
 }

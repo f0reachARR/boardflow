@@ -469,3 +469,200 @@ async fn test_proxy_viewer_sources_url_format() {
     // "storage not configured" means we got past auth and DB lookup successfully
     assert_eq!(json["error"]["message"], "storage not configured");
 }
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Header generation helper unit tests (no S3/DB dependency)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+use boardflow_api::routes::proxy::build_response_headers;
+
+// ─── Test: ibom_html CSP includes sandbox allow-scripts ──────────────────────
+
+#[test]
+fn test_headers_ibom_html_has_sandbox_csp() {
+    let headers = build_response_headers(
+        "text/html",
+        "ibom_html",
+        "https://app.boardflow.example.com",
+        Some(4096),
+        Some("ibom.html"),
+    );
+
+    let csp = headers.get("Content-Security-Policy").unwrap().to_str().unwrap();
+    assert!(csp.starts_with("sandbox allow-scripts;"), "CSP should start with sandbox directive, got: {csp}");
+    assert!(csp.contains("script-src 'unsafe-inline'"));
+    assert!(csp.contains("style-src 'unsafe-inline'"));
+    assert!(csp.contains("img-src data:"));
+    assert!(csp.contains("frame-ancestors https://app.boardflow.example.com"));
+    assert!(csp.contains("default-src 'none'"));
+}
+
+// ─── Test: ibom_html does NOT get X-Frame-Options ────────────────────────────
+
+#[test]
+fn test_headers_ibom_html_no_x_frame_options() {
+    let headers = build_response_headers(
+        "text/html",
+        "ibom_html",
+        "https://app.boardflow.example.com",
+        None,
+        None,
+    );
+
+    assert!(headers.get("X-Frame-Options").is_none(), "iframe artifacts should not have X-Frame-Options");
+}
+
+// ─── Test: non-iframe artifact gets X-Frame-Options: DENY ────────────────────
+
+#[test]
+fn test_headers_non_iframe_has_x_frame_options_deny() {
+    let headers = build_response_headers(
+        "application/pdf",
+        "schematic_pdf",
+        "https://app.boardflow.example.com",
+        Some(2048),
+        Some("schematic.pdf"),
+    );
+
+    let xfo = headers.get("X-Frame-Options").unwrap().to_str().unwrap();
+    assert_eq!(xfo, "DENY");
+}
+
+// ─── Test: non-iframe CSP has frame-ancestors 'none' ─────────────────────────
+
+#[test]
+fn test_headers_non_iframe_csp_no_sandbox() {
+    let headers = build_response_headers(
+        "image/svg+xml",
+        "schematic_svg",
+        "https://app.boardflow.example.com",
+        None,
+        None,
+    );
+
+    let csp = headers.get("Content-Security-Policy").unwrap().to_str().unwrap();
+    assert_eq!(csp, "default-src 'none'; frame-ancestors 'none'");
+    assert!(!csp.contains("sandbox"));
+}
+
+// ─── Test: common security headers present ───────────────────────────────────
+
+#[test]
+fn test_headers_common_security_headers() {
+    let headers = build_response_headers(
+        "application/pdf",
+        "schematic_pdf",
+        "https://app.boardflow.example.com",
+        None,
+        None,
+    );
+
+    assert_eq!(headers.get("X-Content-Type-Options").unwrap(), "nosniff");
+    assert_eq!(headers.get("Referrer-Policy").unwrap(), "no-referrer");
+    assert_eq!(headers.get("Access-Control-Allow-Methods").unwrap(), "GET");
+    assert_eq!(headers.get("Vary").unwrap(), "Origin");
+    assert_eq!(
+        headers.get("Access-Control-Allow-Origin").unwrap(),
+        "https://app.boardflow.example.com"
+    );
+}
+
+// ─── Test: Content-Length set when size_bytes provided ────────────────────────
+
+#[test]
+fn test_headers_content_length_set() {
+    let headers = build_response_headers(
+        "application/pdf",
+        "schematic_pdf",
+        "https://app.boardflow.example.com",
+        Some(12345),
+        None,
+    );
+
+    assert_eq!(headers.get("Content-Length").unwrap(), "12345");
+}
+
+// ─── Test: Content-Length absent when size_bytes is None ──────────────────────
+
+#[test]
+fn test_headers_content_length_absent_when_none() {
+    let headers = build_response_headers(
+        "application/pdf",
+        "schematic_pdf",
+        "https://app.boardflow.example.com",
+        None,
+        None,
+    );
+
+    assert!(headers.get("Content-Length").is_none());
+}
+
+// ─── Test: Content-Disposition inline for viewable types ─────────────────────
+
+#[test]
+fn test_headers_content_disposition_inline() {
+    for artifact_type in &["ibom_html", "schematic_svg", "pcb_svg", "schematic_pdf", "pcb_pdf"] {
+        let headers = build_response_headers(
+            "application/pdf",
+            artifact_type,
+            "https://app.boardflow.example.com",
+            None,
+            Some("test.file"),
+        );
+
+        let disp = headers.get("Content-Disposition").unwrap().to_str().unwrap();
+        assert!(disp.starts_with("inline;"), "Expected inline for {artifact_type}, got: {disp}");
+        assert!(disp.contains("test.file"));
+    }
+}
+
+// ─── Test: Content-Disposition attachment for other types ─────────────────────
+
+#[test]
+fn test_headers_content_disposition_attachment() {
+    let headers = build_response_headers(
+        "application/zip",
+        "gerber_zip",
+        "https://app.boardflow.example.com",
+        None,
+        Some("gerbers.zip"),
+    );
+
+    let disp = headers.get("Content-Disposition").unwrap().to_str().unwrap();
+    assert!(disp.starts_with("attachment;"), "Expected attachment for gerber_zip, got: {disp}");
+    assert!(disp.contains("gerbers.zip"));
+}
+
+// ─── Test: Content-Disposition absent when filename is None ──────────────────
+
+#[test]
+fn test_headers_content_disposition_absent_when_no_filename() {
+    let headers = build_response_headers(
+        "application/pdf",
+        "schematic_pdf",
+        "https://app.boardflow.example.com",
+        None,
+        None,
+    );
+
+    assert!(headers.get("Content-Disposition").is_none());
+}
+
+// ─── Test: Content-Type passed through correctly ─────────────────────────────
+
+#[test]
+fn test_headers_content_type_passthrough() {
+    let headers = build_response_headers(
+        "image/svg+xml",
+        "schematic_svg",
+        "https://app.boardflow.example.com",
+        None,
+        None,
+    );
+
+    assert_eq!(headers.get("Content-Type").unwrap(), "image/svg+xml");
+}
+
+// TODO: S3 正常系テスト（ストリーミングレスポンス全体の検証）は
+// docker-compose 統合テスト（MinIO）で実施予定。
+// ヘッダ生成ロジックは上記ユニットテストでカバー済み。

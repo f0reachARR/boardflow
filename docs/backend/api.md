@@ -769,7 +769,7 @@ GET /proxy/artifacts/{artifact_id}?token=...
 
 要件:
 
-- token は短命で、artifact、user/session、expiry に紐づく。
+- token は短命(1時間)で、artifact_id、user_id、expiry を含む HMAC 署名済みトークン。viewer-sources API が認証済みユーザーにのみ発行する。proxy 側では token の署名検証と expiry チェックのみ行い、追加の session 検証は不要（bearer token 設計）。
 - `Content-Type` は import 済み artifact metadata から設定する。
 - `X-Content-Type-Options: nosniff` を付与する。
 - iframe 用 artifact には制限付き `Content-Security-Policy` と sandbox 前提の配信ヘッダを付与する。
