@@ -1,5 +1,30 @@
 # Issue #6: Web UI Read API実装
 
+## 最終状態サマリ
+
+**ステータス**: 完了 (PR作成待ち)
+
+**実装内容**:
+- 8 GET Read APIエンドポイント (Repository/BoardProject/BoardRun/Artifact一覧・詳細 + Viewer Sources)
+- 4 Auth APIエンドポイント (login/callback/logout/me)
+- GitHub OAuth session認証 (CSRF防御付き)
+- GitHub APIベースのrepository権限チェック (trait抽象化、GithubAccessChecker)
+- HMAC-SHA256 artifact token (短命1時間)
+- Cursor pagination (base64url JSON keyset pagination)
+- BoardProject state 5状態導出 (detected/processing/failed/timed_out/completed)
+- Viewer status 5状態 (available/partial/missing/failed/skipped)
+
+**テスト**: 41件パス (read_api_test)、全パッケージテスト合格
+
+**ブランチ**: `feature/issue-6-web-ui-read-api`
+
+**残リスク**:
+- list_repositories のGitHub API全ページ取得はスケーラビリティ課題 (後続Issue)
+- OAuth統合テスト(外部API mock)は未実装
+- Artifact Proxy API本体は別Issue
+
+---
+
 ## 経緯
 - バックエンド実装Issue分割タスクの一環として作成
 - フロントエンドが利用するRead API群
@@ -825,3 +850,60 @@ limit+1行取得し、N+1行目が存在すれば `has_more=true`、N行目で n
 ### 残リスク
 - いまのままでも実装が正しい可能性は高いが、GitHub 側ヘッダ差異や将来の refactor で 403 分類が崩れても CI で検知できない
 - 今回の修正点は前回の唯一の重大指摘だったため、回帰テストなしでのマージ判断は保守的に避けるべき
+
+## Phase 9: ドキュメント確認 (Docs Review)
+- 開始: 2026-05-01
+- 状態: 完了
+- 対象Issue: #6
+- docs_ready: `false`
+
+### 確認対象
+- `docs/backend/api.md`
+- `docs/spec.md`
+- `docs/frontend/summary.md`
+- `docs/logs/6/worklog.md`
+
+### 実装確認
+- `crates/api/src/routes/read.rs` に Read API 8 endpoint が実装済み
+- `crates/api/src/routes/auth.rs` に `GET /api/v1/auth/login`, `GET /api/v1/auth/callback`, `POST /api/v1/auth/logout`, `GET /api/v1/auth/me` が実装済み
+- `crates/api/src/lib.rs` で auth/read routes が router 登録済み
+- `cargo test -p boardflow-api --test read_api_test -- --nocapture`: 41 passed
+- `cargo test -p boardflow-api --test auth_test -- --nocapture`: 8 passed
+
+### 総評
+- Read API 本体の契約は `docs/backend/api.md`, `docs/spec.md`, `docs/frontend/summary.md` と概ね整合している
+- 一方で、Issue #6 で実装済みの auth routes が API 仕様書に未反映で、frontend 側の利用導線もドキュメント上で十分につながっていない
+- `docs/logs/6/worklog.md` には時系列のレビュー履歴は残っているが、古い否定判断と修正後の状態が混在しており、最終状態の読み取りコストが高い
+
+### 必須修正
+1. `docs/backend/api.md` に Web UI auth API (`login`, `callback`, `logout`, `me`) の節を追加し、session cookie 前提、想定 status code、frontend からの利用意図を明記すること
+2. `docs/logs/6/worklog.md` の末尾または要約部に、Issue #6 の最終実装状態を要約して、古い `pr_ready: false` 判定との差分を読まずに現状が分かるようにすること
+3. Issue の「更新ドキュメント」が `docs/logs/6/worklog.md` のみになっている点を是正し、実装追加に応じて更新が必要な仕様書を明示すること
+
+### 任意改善
+1. `docs/frontend/summary.md` に `auth/me` と `auth/logout` を frontend 利用上の前提 API として追記すると、ログイン状態確認とログアウト導線が明確になる
+2. `docs/spec.md` に auth routes への短い参照を追加すると、OAuth/session の概念記述と実 endpoint の対応が追いやすくなる
+
+### 不整合のあるドキュメント
+- `docs/backend/api.md`: Read API の前提として OAuth session は書かれているが、実装済み auth routes 自体の API 契約が未記載
+- `docs/logs/6/worklog.md`: 古いレビュー結果が多く残っており、現時点では解消済みの指摘と未解消の指摘が連続して出てくるため、最終状態の可読性が低い
+
+### 不足しているドキュメント
+- Web UI auth API の詳細仕様
+- frontend から見た auth API 利用導線の簡潔な記述
+
+### 外部調査メモに関する指摘
+- Issue #6 では外部調査不要という整理で問題なし
+- `docs/external/` に今回追加実装と矛盾する調査メモは見当たらない
+
+### 判定理由
+- 実装自体は Read API 8 endpoint、OAuth session、repository 権限チェック、artifact token まで入っている
+- ただし、Issue #6 の確認依頼に含まれていた「実装されているが仕様に記載がないもの」の代表例である auth routes が `docs/backend/api.md` に未反映のため、ドキュメント観点では PR ready とまでは言えない
+
+### PR/完了結果
+- Issue ID: #6
+- `docs_ready: false`
+
+### 残リスク
+- auth routes の仕様未記載のまま進めると、frontend 実装時に cookie/session の扱いをコードから逆算する必要がある
+- worklog は監査ログとしては有用だが、最終状態のサマリが弱く、レビュー再開時に誤読が起きやすい
