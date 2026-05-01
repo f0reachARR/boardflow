@@ -319,11 +319,8 @@ pub struct BoardRunDiffResponse {
     pub board_run_id: String,
     pub base_board_run_id: Option<String>,
     pub status: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub summary: Option<serde_json::Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata: Option<DiffMetadataResponse>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub error_message: Option<String>,
     pub created_at: String,
 }
