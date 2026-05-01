@@ -1868,3 +1868,50 @@ cargo build --workspace: success (no warnings)
 ### 更新した作業ログパス
 
 - `docs/logs/7/worklog.md`
+
+---
+
+## レビュー修正フェーズ (2026-05-01)
+
+### 問題: PostgreSQL transaction abort
+
+PostgreSQL は1回SQLエラーが起きるとtransactionがabort状態になり、ROLLBACKまで後続コマンドを受け付けない。旧実装では `run_check_finding::insert` が CHECK制約違反で失敗した場合、同じtx内でのフォールバックINSERTも必ず失敗していた。
+
+### 修正内容
+
+INSERT前に値を正規化し、CHECK制約違反を未然に防止する方式に変更:
+
+1. **severity 正規化**: `"error"` / `"warning"` / `"notice"` 以外の値は `"notice"` にフォールバック
+2. **subject_kind 正規化**: `"schematic"` / `"pcb"` / `"net"` / `"footprint"` / `"symbol"` 以外の値は `None` にフォールバック
+3. **フォールバックINSERT削除**: 正規化により制約違反が起きないため、同一tx内での2回目INSERT(旧方式)を削除
+4. **エラーハンドリング改善**: 正規化後もINSERTが失敗する場合(予期せぬDBエラー)は `tracing::error` でログし、その finding をスキップして処理継続
+
+### テスト追加
+
+| テスト名 | 観点 |
+|---|---|
+| `test_severity_normalization` | 有効な severity 値 (error/warning/notice) が許可セットに含まれ、無効値 (critical, 空文字) が含まれないことを確認 |
+| `test_subject_kind_normalization` | 有効な subject_kind 値 (schematic/pcb/net/footprint/symbol) が許可セットに含まれ、無効値 (board, 空文字, component) が含まれないことを確認 |
+
+### テスト結果
+
+```
+cargo build --workspace: success
+cargo test --workspace: 71 passed, 0 failed (extract_test: 25 passed)
+```
+
+### 変更ファイル
+
+| ファイル | 変更概要 |
+|---|---|
+| `crates/worker/src/main.rs` | findings INSERT前に severity/subject_kind を正規化、フォールバックINSERT削除、エラーログ改善 |
+| `crates/artifact/tests/extract_test.rs` | `test_severity_normalization`, `test_subject_kind_normalization` 追加 |
+
+### 残リスク (レビュー修正後)
+
+- 正規化後のINSERT失敗時はその finding がスキップされる (ログには記録される)
+- 正規化で severity が `"notice"` に変換された場合、元の severity 情報は finding の raw_payload_json 内にのみ残る
+
+### 更新した作業ログパス
+
+- `docs/logs/7/worklog.md`
