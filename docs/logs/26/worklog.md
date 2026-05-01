@@ -789,3 +789,52 @@ pub async fn handle_create_issue(
 - octocrab `HandleRateLimits` ミドルウェアの有効化は未実施（将来改善）
 - handler単体テスト（mock GitHubAppClient）は未実装（DB依存のため統合テスト推奨）
 - `retry_after_secs` は固定60秒であり、GitHub の実際の `retry-after` / `x-ratelimit-reset` ヘッダ値には追従していない
+
+---
+
+## ドキュメント確認フェーズ (2026-05-02)
+
+### 確認対象
+
+- Issue #26 本文、計画概要、実装概要、既存 worklog
+- `README.md`
+- `docs/spec.md`
+- `docs/backend/summary.md`
+- `docs/external/postgresql-job-queue-enqueue.md`
+
+### 確認結果
+
+- `docs/spec.md` は今回の worker 実装方針と整合しており、Issue #26 向けの仕様変更は不要。
+- `docs/backend/summary.md` のアーキテクチャ説明は大筋で実装と矛盾していない。artifact import 後に Issue / Dashboard コメント / Run Result コメントの follow-up job を扱う説明も残っているため、重大な仕様齟齬はない。
+- 一方で、運用・セットアップ観点のドキュメント更新が不足している。worker 追加設定の説明が `README.md` に存在せず、初回セットアップ時に `GITHUB_APP_ID`、`GITHUB_PRIVATE_KEY_PEM`、`APP_BASE_URL` の必要性が読み取れない。
+- `docs/external/postgresql-job-queue-enqueue.md` の Job Type 一覧が実装に追従しておらず、`create_dashboard_comment` が欠落している。現行実装は `artifact_bundle_import`、`create_issue`、`create_dashboard_comment`、`update_dashboard_comment`、`create_run_result_comment` の5種類を扱うため、技術メモとして不正確。
+- `docs/logs/26/worklog.md` 自体は、経緯、調査、計画、実装、テスト、レビュー結果まで記録されており、Issue #26 の作業ログとしては十分。
+
+### 判定
+
+- `docs_ready: false`
+
+### 必須修正
+
+1. `README.md` もしくは worker のセットアップ文書に、`GITHUB_APP_ID`、`GITHUB_PRIVATE_KEY_PEM`、`APP_BASE_URL` の用途、必須条件、未設定時の挙動を追記する。
+2. `docs/external/postgresql-job-queue-enqueue.md` の Job Type 一覧を現行実装に合わせ、`create_dashboard_comment` を追加する。
+
+### 任意改善
+
+1. `docs/backend/summary.md` に、worker が優先度順ディスパッチャで複数 GitHub API job を処理する旨を1段落追記すると、実装との対応関係が読みやすくなる。
+2. worker 用の環境変数一覧を `README.md` のトップレベルではなく専用の運用セクションに分離すると、今後の設定追加にも追従しやすい。
+
+### 外部調査メモに関する指摘
+
+- 新規の外部調査メモは不要という判断は妥当。
+- ただし既存の `docs/external/postgresql-job-queue-enqueue.md` は参照資料として使われうるため、Issue #26 の実装完了後の状態に合わせて更新しておくべき。
+
+### PR/完了結果
+
+- ドキュメント観点では現時点で PR 作成は非推奨。
+- 実装の仕様整合よりも、セットアップ情報と技術メモの更新漏れが blocker。
+
+### 残リスク
+
+- README 未更新のままマージすると、別環境で worker を起動した際に GitHub API job が「設定不足で延期され続ける」状態を招きやすい。
+- Job Type 設計メモが古いままだと、後続 Issue で queue 周辺を触る際に `create_dashboard_comment` を見落とすリスクがある。
