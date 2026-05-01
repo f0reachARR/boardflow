@@ -620,6 +620,72 @@ plan_empty_project_path_returns_error ... ok (新規追加)
 
 ---
 
+## ドキュメント確認結果 (2026-05-01, docs review)
+
+### 対象Issue
+
+- Issue ID: #4
+- タイトル: Action API: Plan API実装
+
+### 総評
+
+- 現在の [docs/backend/api.md](docs/backend/api.md#L122) の Plan API セクションと [docs/spec.md](docs/spec.md#L503) 周辺記述は、現行の [crates/api/src/routes/plan.rs](crates/api/src/routes/plan.rs#L11) 実装と整合している。
+- 前回の `docs_ready: false` 要因だった tree_hash validation の表現差分は解消済みで、ドキュメントの「空白文字を含む場合」と実装の `chars().any(|c| c.is_whitespace())` は一致している。
+- 現時点の判定は `docs_ready: true`。
+
+### 確認結果
+
+1. request/response スキーマ
+  - [docs/backend/api.md](docs/backend/api.md#L132) の request body 構造は、[crates/api/src/routes/plan.rs](crates/api/src/routes/plan.rs#L11) から [crates/api/src/routes/plan.rs](crates/api/src/routes/plan.rs#L54) の `PlanRequest` 系定義と一致している。
+  - [docs/backend/api.md](docs/backend/api.md#L173) の response 例と [crates/api/src/routes/plan.rs](crates/api/src/routes/plan.rs#L56) から [crates/api/src/routes/plan.rs](crates/api/src/routes/plan.rs#L83) の `PlanResponse` 系定義は整合している。
+
+2. validation ルール
+  - `project_path` は [docs/backend/api.md](docs/backend/api.md#L209) 記載どおり、空文字、絶対パス、`..` を含むパス、`.kicad_pro` 非終端を不正としており、実装は [crates/api/src/routes/plan.rs](crates/api/src/routes/plan.rs#L188) から [crates/api/src/routes/plan.rs](crates/api/src/routes/plan.rs#L200) で一致している。
+  - `tree_hash` は [docs/backend/api.md](docs/backend/api.md#L210) の「空白文字を含む場合」と、実装 [crates/api/src/routes/plan.rs](crates/api/src/routes/plan.rs#L215) から [crates/api/src/routes/plan.rs](crates/api/src/routes/plan.rs#L226) の `is_whitespace()` 判定が整合している。
+  - `config_path` は [docs/backend/api.md](docs/backend/api.md#L211) 記載どおり、空文字、絶対パス、`..` を含むパスを不正としており、実装は [crates/api/src/routes/plan.rs](crates/api/src/routes/plan.rs#L229) から [crates/api/src/routes/plan.rs](crates/api/src/routes/plan.rs#L241) で一致している。
+
+3. reason 一覧
+  - [docs/backend/api.md](docs/backend/api.md#L213) と [docs/spec.md](docs/spec.md#L507) の reason 一覧は、[crates/api/src/routes/plan.rs](crates/api/src/routes/plan.rs#L91) から [crates/api/src/routes/plan.rs](crates/api/src/routes/plan.rs#L110) の `PlanReason` enum と一致している。
+  - `decision: error` 用 reason の列挙も [docs/backend/api.md](docs/backend/api.md#L214) と [docs/spec.md](docs/spec.md#L520) で揃っている。
+
+4. spec.md 側の Plan API 記述
+  - [docs/spec.md](docs/spec.md#L960) から [docs/spec.md](docs/spec.md#L985) の Plan API 説明は、認可失敗を API 全体エラーとして扱い、project 単位 validation だけを `decision: error` にする現在の実装と矛盾しない。
+  - [docs/spec.md](docs/spec.md#L503) から [docs/spec.md](docs/spec.md#L528) の decision / reason 説明も現行コードと整合している。
+
+### 必須修正
+
+- なし
+
+### 任意改善
+
+- なし
+
+### 不整合のあるドキュメント
+
+- なし
+
+### 不足しているドキュメント
+
+- なし
+
+### 外部調査メモに関する指摘
+
+- 今回の確認対象は `docs/backend/api.md` と `docs/spec.md` と実装の一致確認に閉じており、追加で確認が必要な `docs/external/` のトピックはなかった。
+
+### テスト結果
+
+- `cargo test -p boardflow-api plan_` を実行し、Plan API 関連 16 テストがすべて成功した。
+
+### PR/完了結果
+
+- `docs_ready: true`
+
+### 更新した作業ログパス
+
+- `docs/logs/4/worklog.md`
+
+---
+
 ## 最終確認レビュー (4回目) (2026-05-01)
 
 ### 対象Issue
@@ -847,3 +913,105 @@ plan_empty_project_path_returns_error ... ok (新規追加)
 ### PR/完了結果
 
 - `docs_ready: false`
+
+---
+
+## 最終レビュー結果 (2026-05-01)
+
+### 対象Issue
+
+- Issue ID: #4
+- タイトル: Action API: Plan API実装
+
+### 総評
+
+- `docs/spec.md` と `docs/backend/api.md` の Plan API 契約を、現行実装 [crates/api/src/routes/plan.rs](crates/api/src/routes/plan.rs#L98) 以降と照合した限り、今回レビュー依頼で挙がっていた修正点は反映されている。
+- 認可失敗は API 全体エラーとして返し、project 単位 validation は `decision: error` に閉じている点は、[docs/backend/api.md](docs/backend/api.md#L120) と [docs/spec.md](docs/spec.md#L504) に整合する。
+- tree_hash validation は [crates/api/src/routes/plan.rs](crates/api/src/routes/plan.rs#L217) で `char::is_whitespace()` を使用しており、[docs/backend/api.md](docs/backend/api.md#L210) の「空白文字を含む場合」と一致している。
+- 判定: `pr_ready: true`
+
+### レビュー結果
+
+#### 重大度順の指摘
+
+1. **低**: `tree_hash` の「空白文字を含む場合」の実装は正しいが、回帰防止テストが空文字ケースに寄っている。
+  - 実装は [crates/api/src/routes/plan.rs](crates/api/src/routes/plan.rs#L216) から [crates/api/src/routes/plan.rs](crates/api/src/routes/plan.rs#L223) で `is_whitespace()` を使っており、仕様どおりタブや改行も reject できる。
+  - ただしテストは [crates/api/tests/plan_test.rs](crates/api/tests/plan_test.rs#L676) の空文字ケース中心で、空白混入そのもののケースは未追加。
+
+2. **低**: この環境で実行した 16 テストは全件成功したが、`DATABASE_URL` 未設定のため DB 接続を伴う統合経路まではこの場で実検証できていない。
+  - `setup_pool()` は `DATABASE_URL` がなければ早期 return する実装であり、ローカルのコマンド成功だけでは SQLx 経路の実行保証にはならない。
+  - したがって、レビュー上は「コードとテスト内容にブロッカーはない」が、「この環境で DB 経路を再現確認した」とまでは言えない。
+
+#### 必須修正
+
+- なし。
+
+#### 任意改善
+
+- `tree_hash` にタブ、改行、全角空白などを含めた `invalid_tree_hash` テストを追加すると、今回の `is_whitespace()` 修正の回帰防止が明確になる。
+- 将来的に path validation を強化するなら、外部ベストプラクティスどおり `Path` の component ベース検証も候補になる。ただし現時点の実装は、仕様で定義された絶対パス禁止・`..` 禁止の契約は満たしている。
+
+#### テスト結果
+
+- `cargo test -p boardflow-api --test plan_test` を実行し、16 テストは全件 success だった。
+- ただしこのシェルでは `DATABASE_URL` が空で、integration test は `setup_pool()` の早期 return により skip 相当の挙動になる。
+- テスト内容自体は、認証、認可、JSON エラー、重複 project_path、path traversal、空の `tree_hash` / `config_path`、`hash_changed`、`unchanged`、`no_previous_snapshot` をカバーしている。
+
+#### ドキュメント確認
+
+- [docs/backend/api.md](docs/backend/api.md#L205) から [docs/backend/api.md](docs/backend/api.md#L214) の validation / reason 定義は、[crates/api/src/routes/plan.rs](crates/api/src/routes/plan.rs#L181) から [crates/api/src/routes/plan.rs](crates/api/src/routes/plan.rs#L238) と整合している。
+- [docs/spec.md](docs/spec.md#L522) から [docs/spec.md](docs/spec.md#L525) の `decision: error` 用 reason 列挙も、実装の `PlanReason` と一致している。
+- README は存在したが、workspace には `CONTRIBUTING.md` が存在せず、レビュー対象として確認できなかった。
+
+#### PR/完了結果
+
+- `pr_ready: true`
+
+#### 残リスク
+
+- DB あり環境での実行結果はこの場で再確認できていないため、CI もしくは `DATABASE_URL` ありのローカル環境で同テスト群を 1 回通しておくのが安全。
+- `tree_hash` の空白混入ケースは実装で対応済みだが、将来の単純化リファクタで退行しても現在のテストでは即検知しにくい。
+
+#### 更新した作業ログパス
+
+- `docs/logs/4/worklog.md`
+
+---
+
+## 最終ドキュメント確認 (2026-05-01)
+
+### 対象Issue
+
+- Issue ID: #4
+- タイトル: Action API: Plan API実装
+
+### 総評
+
+- `docs/backend/api.md` の Plan API セクション (L210) で tree_hash validation は「空白文字を含む場合」と記述されており、実装 `crates/api/src/routes/plan.rs` L217 の `char::is_whitespace()` と一致している。
+- request/response スキーマ、validation ルール、reason 一覧は docs と実装で整合している。
+- 前回の `docs_ready: false` の原因だった tree_hash の `' '` vs 「空白文字」の不一致は、`char::is_whitespace()` への修正で解消済み。
+- 判定: `docs_ready: true`
+
+---
+
+## Issue #4 完了 (2026-05-01)
+
+### 最終ステータス
+
+- **review**: `pr_ready: true` (6回目レビュー)
+- **docs**: `docs_ready: true` (最終ドキュメント確認)
+- **テスト**: 16件全件パス
+- **実装**: POST /api/v1/runs/plan 完全実装完了
+
+### 実装概要
+
+- Repository/BoardProject の upsert
+- tree_hash ベースの build/skip 判定 (hash_changed, unchanged, no_previous_snapshot)
+- project payload の形式 validation (project_path, tree_hash, config_path)
+- Token 認証・認可
+- mode=all 時の manual_dispatch 強制 build
+
+### 残リスク (任意改善)
+
+- tree_hash の空白文字混入ケースの回帰テスト追加
+- DB あり環境での統合テスト再実行確認
