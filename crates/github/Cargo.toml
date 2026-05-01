@@ -4,3 +4,12 @@ version = "0.0.1"
 edition = "2024"
 
 [dependencies]
+octocrab = { workspace = true }
+secrecy = { workspace = true }
+jsonwebtoken = { workspace = true }
+async-trait = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }
