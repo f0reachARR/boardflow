@@ -7,7 +7,18 @@ pub fn issue_body(
     project_path: &str,
     board_project_id: Uuid,
     base_url: &str,
+    latest_completed_run_id: Option<Uuid>,
 ) -> String {
+    let board_page_url = format!(
+        "{base_url}/repositories/{github_repository_id}/boards/{board_project_id}"
+    );
+    let diff_section = match latest_completed_run_id {
+        Some(run_id) => format!(
+            "\nLatest diff page:\n\n{base_url}/repositories/{github_repository_id}/boards/{board_project_id}/runs/{run_id}/diff"
+        ),
+        None => String::new(),
+    };
+
     format!(
         r#"<!-- boardflow:repository_id={github_repository_id} -->
 <!-- boardflow:project_path={project_path} -->
@@ -24,7 +35,7 @@ This issue tracks design, fabrication, assembly, and verification for this board
 
 Latest board page:
 
-{base_url}/repositories/{github_repository_id}/boards/{board_project_id}"#
+{board_page_url}{diff_section}"#
     )
 }
 
@@ -50,6 +61,10 @@ pub fn dashboard_comment(
     let board_page_url = format!(
         "{base_url}/repositories/{github_repository_id}/boards/{board_project_id}"
     );
+    let run_url = format!(
+        "{base_url}/repositories/{github_repository_id}/boards/{board_project_id}/runs/{}",
+        board_run.id
+    );
     let diff_url = format!(
         "{base_url}/repositories/{github_repository_id}/boards/{board_project_id}/runs/{}/diff",
         board_run.id
@@ -66,6 +81,7 @@ Latest run: `{commit_sha_short}` on `{branch}`
 | Item | Link |
 |---|---|
 | Board page | {board_page_url} |
+| Latest run | {run_url} |
 | Latest diff | {diff_url} |
 
 ### Latest status
@@ -123,12 +139,13 @@ Diff: {diff_url}
 /// - New DRC/ERC errors appeared
 /// - Previous run passed → current run failed
 /// - Previous run failed → current run passed
+/// Returns false for the first completed run (no previous run to compare against).
 pub fn should_post_run_result(current: &BoardRun, previous: Option<&BoardRun>) -> bool {
     use boardflow_domain::models::board_run::CheckStatus;
 
-    // Always post if there's no previous run (first completed run)
+    // Do NOT post if there's no previous run (first completed run per spec 12.3)
     let Some(prev) = previous else {
-        return true;
+        return false;
     };
 
     // Check ERC status transition
@@ -213,11 +230,21 @@ mod tests {
 
     #[test]
     fn test_issue_body_contains_markers() {
-        let body = issue_body(12345, "hardware/LightStick.kicad_pro", Uuid::nil(), "https://boardflow.example.com");
+        let body = issue_body(12345, "hardware/LightStick.kicad_pro", Uuid::nil(), "https://boardflow.example.com", None);
         assert!(body.contains("<!-- boardflow:repository_id=12345 -->"));
         assert!(body.contains("<!-- boardflow:project_path=hardware/LightStick.kicad_pro -->"));
         assert!(body.contains("`hardware/LightStick.kicad_pro`"));
         assert!(body.contains("https://boardflow.example.com/repositories/12345/boards/"));
+        // Without latest_completed_run_id, no diff link
+        assert!(!body.contains("diff"));
+    }
+
+    #[test]
+    fn test_issue_body_with_diff_link() {
+        let run_id = Uuid::now_v7();
+        let body = issue_body(12345, "hardware/board.kicad_pro", Uuid::nil(), "https://bf.dev", Some(run_id));
+        assert!(body.contains("Latest diff page:"));
+        assert!(body.contains(&format!("/runs/{run_id}/diff")));
     }
 
     #[test]
@@ -236,6 +263,8 @@ mod tests {
         assert!(body.contains("✅ Passed"));
         assert!(body.contains("❌ Failed (2 errors, 0 warnings)"));
         assert!(body.contains("Last updated by BoardFlow."));
+        assert!(body.contains("| Latest run |"));
+        assert!(body.contains("| Latest diff |"));
     }
 
     #[test]
@@ -251,7 +280,8 @@ mod tests {
     #[test]
     fn test_should_post_run_result_first_run() {
         let current = make_run(Some(CheckStatus::Passed), 0, Some(CheckStatus::Passed), 0);
-        assert!(should_post_run_result(&current, None));
+        // First run (no previous) should NOT post per spec 12.3
+        assert!(!should_post_run_result(&current, None));
     }
 
     #[test]

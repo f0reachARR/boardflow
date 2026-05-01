@@ -1,6 +1,6 @@
 use boardflow_db::queries::{board_project, github_job};
 use boardflow_domain::models::github_job::GithubJob;
-use boardflow_github::GitHubAppClient;
+use boardflow_github::{GitHubAppClient, GitHubClientError};
 use sqlx::PgPool;
 
 use crate::comment_body;
@@ -51,6 +51,7 @@ pub async fn handle(
         &bp.project_path,
         board_project_id,
         &config.app_base_url,
+        bp.latest_completed_run_id,
     );
 
     // Create the issue via GitHub API
@@ -60,10 +61,7 @@ pub async fn handle(
     {
         Ok(c) => c,
         Err(e) => {
-            return HandlerResult::Reschedule {
-                reason: format!("GitHub API error: {e}"),
-                backoff_secs: boardflow_jobs::backoff_secs(job.attempts),
-            };
+            return handle_github_error(e, job.attempts);
         }
     };
 
@@ -104,4 +102,26 @@ pub async fn handle(
     );
 
     HandlerResult::Completed
+}
+
+fn handle_github_error(e: GitHubClientError, attempts: i32) -> HandlerResult {
+    match e {
+        GitHubClientError::RateLimited { retry_after_secs } => {
+            let backoff = retry_after_secs
+                .map(|s| s as f64)
+                .unwrap_or_else(|| boardflow_jobs::backoff_secs(attempts) * 2.0);
+            HandlerResult::Reschedule {
+                reason: format!("Rate limited: {e}"),
+                backoff_secs: backoff,
+            }
+        }
+        GitHubClientError::Auth(_) => HandlerResult::Reschedule {
+            reason: format!("Auth error: {e}"),
+            backoff_secs: boardflow_jobs::backoff_secs(attempts),
+        },
+        _ => HandlerResult::Reschedule {
+            reason: format!("GitHub API error: {e}"),
+            backoff_secs: boardflow_jobs::backoff_secs(attempts),
+        },
+    }
 }
