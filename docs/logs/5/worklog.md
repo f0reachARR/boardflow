@@ -402,6 +402,62 @@ running 2 tests (integration_test.rs) — 全pass
 
 ---
 
+## 再レビューフェーズ (2026-05-01)
+
+### 対象Issue
+- Issue #5: POST /api/v1/board-runs, POST .../fail, POST .../artifact-bundles/import の3エンドポイント実装
+
+### 再レビュー結果
+- `pr_ready: false`
+
+### 総評
+- 前回の必須修正4件はコード上で反映を確認した。
+- 追加テスト6件は実装済みで、`cargo test -p boardflow-api --test board_run_test -- --nocapture` により 18 件全 pass を確認した。
+- さらに `cargo test -p boardflow-api -- --nocapture` でも 45 件全 pass を確認し、worklog 記載の総テスト結果は再現できた。
+- ただし Import API には並行実行時の read-check-update 競合が残っており、異なる bundle 情報が同一 run へ同時投入された場合に `artifact_bundles` と `github_jobs.payload_json` の整合が崩れるため、現時点では PR ready 判定は出せない。
+
+### 確認できた修正
+1. Import API は `pool.begin()` を使って bundle 更新、run status 更新、job enqueue を同一 transaction にまとめている。
+2. `staging_object_key` の順次競合チェックが追加され、同一 run に別 key / sha256 を順次送った場合は `409 conflict` になる。
+3. Fail API で `status != "failed"` を `400 validation_failed` として拒否している。
+4. create/import の object key は `staging/runs/br_{uuid}/bundle.zip` 形式に揃っている。
+5. 追加テスト6件はすべて存在し、実行も成功した。
+
+### 重大指摘
+1. **Import API の競合判定が transaction の外で行われており、並行リクエストで整合が崩れる**
+  - 実装は [crates/api/src/routes/board_run.rs](crates/api/src/routes/board_run.rs#L512) で `find_existing_for_run` を transaction 開始前に実行し、その後 [crates/api/src/routes/board_run.rs](crates/api/src/routes/board_run.rs#L527) で transaction を開始している。
+  - そのため、`sha256 IS NULL` の staging bundle を持つ初期状態で異なる2リクエストが同時に入ると、両方とも conflict check を通過し、それぞれが [crates/api/src/routes/board_run.rs](crates/api/src/routes/board_run.rs#L543) / [crates/api/src/routes/board_run.rs](crates/api/src/routes/board_run.rs#L568) の `update_for_import` を実行できる。
+  - `update_for_import` は [crates/db/src/queries/artifact_bundle.rs](crates/db/src/queries/artifact_bundle.rs#L37) の通り条件付き更新ではなく、`sha256` と `size_bytes` を無条件に上書きする。さらに job enqueue は [crates/api/src/routes/board_run.rs](crates/api/src/routes/board_run.rs#L599) で `ON CONFLICT` により既存 job を再利用するため、先着リクエストの `payload_json` と後着リクエストで上書きされた `artifact_bundles` の値が食い違う可能性がある。
+  - 外部調査でも、job enqueue は transaction 化だけでなく read-modify-write の競合を避ける設計が前提とされており、[docs/external/postgresql-job-queue-enqueue.md](docs/external/postgresql-job-queue-enqueue.md#L130) でも transaction 内一括処理を採用方針にしている。一般的にも `SELECT FOR UPDATE` などで read-check-update の競合を防ぐべきという指針と一致する。
+
+### 必須修正
+1. Import API の conflict 判定と bundle 取得を transaction 内へ移し、対象 bundle または board_run を行ロックしたうえで判定すること。
+2. `artifact_bundles.update_for_import` を条件付き更新にするか、`sha256 IS NULL` かつ `staging_object_key` 一致時のみ更新できるようにして、後着リクエストが先着内容を上書きできないようにすること。
+3. 並行 import を再現するテスト、または少なくとも上書き防止を保証する DB 条件付き更新のテストを追加すること。
+
+### 任意改善
+- `github_jobs` の `ON CONFLICT DO UPDATE` で `updated_at` のみ更新しているため、将来 retry / dedupe 方針を明確にしないと payload 差し替えの有無が曖昧になる。今回の必須修正に合わせて意図をコメントまたは query 名で明確にした方がよい。
+
+### テスト結果
+- `cargo test -p boardflow-api --test board_run_test -- --nocapture` → 18 passed, 0 failed
+- `cargo test -p boardflow-api -- --nocapture` → 45 passed, 0 failed
+
+### ドキュメント確認
+- [docs/backend/api.md](docs/backend/api.md#L298) [docs/backend/api.md](docs/backend/api.md#L300) の順次 idempotency / conflict 要件には概ね一致した。
+- ただし current worklog の「異なる staging_object_key / sha256 のリクエストを正しく拒否」との記述は、順次実行では正しい一方で、並行実行時の競合まで満たしているとは言えないため補足が必要。
+
+### PR/完了結果
+- `pr_ready: false`
+
+### 残リスク
+- 並行 import が発生すると `artifact_bundles` と `github_jobs.payload_json` の整合が崩れ、worker が想定外の bundle 情報で動く可能性がある。
+- 現状のテストは順次実行のみを確認しており、race condition の不在までは証明できていない。
+
+### 更新した作業ログパス
+- `docs/logs/5/worklog.md`
+
+---
+
 ## レビュー指摘修正フェーズ (2026-05-01)
 
 ### 修正内容

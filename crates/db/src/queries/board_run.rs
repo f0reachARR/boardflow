@@ -12,6 +12,17 @@ pub async fn find_by_id(
         .await
 }
 
+/// Find a BoardRun by its ID with FOR UPDATE lock
+pub async fn find_by_id_for_update(
+    executor: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
+    id: Uuid,
+) -> Result<Option<BoardRun>, sqlx::Error> {
+    sqlx::query_as::<_, BoardRun>("SELECT * FROM board_runs WHERE id = $1 FOR UPDATE")
+        .bind(id)
+        .fetch_optional(executor)
+        .await
+}
+
 /// Find a BoardRun by idempotency key
 pub async fn find_by_idempotency_key(
     executor: impl sqlx::Executor<'_, Database = sqlx::Postgres>,

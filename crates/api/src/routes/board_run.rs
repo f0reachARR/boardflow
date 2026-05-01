@@ -433,18 +433,25 @@ pub async fn import_artifact_bundle(
     let board_run_id = parse_board_run_id(&board_run_id_str)
         .ok_or_else(|| AppError::validation_failed("invalid board_run_id format", rid))?;
 
-    // 2. Find board_run
-    let board_run = boardflow_db::queries::board_run::find_by_id(&pool, board_run_id)
-        .await
-        .map_err(|e| {
-            tracing::error!("board_run lookup failed: {e}");
-            AppError::internal_error("database error", rid)
-        })?
-        .ok_or_else(|| AppError::not_found("board run not found", rid))?;
+    // 2. Begin transaction BEFORE any DB reads
+    let mut tx = pool.begin().await.map_err(|e| {
+        tracing::error!("transaction begin failed: {e}");
+        AppError::internal_error("database error", rid)
+    })?;
 
-    // 3. Verify ownership via board_project
+    // 3. Find board_run with FOR UPDATE lock
+    let board_run =
+        boardflow_db::queries::board_run::find_by_id_for_update(&mut *tx, board_run_id)
+            .await
+            .map_err(|e| {
+                tracing::error!("board_run lookup failed: {e}");
+                AppError::internal_error("database error", rid)
+            })?
+            .ok_or_else(|| AppError::not_found("board run not found", rid))?;
+
+    // 4. Verify ownership via board_project
     let board_project =
-        boardflow_db::queries::board_project::find_by_id(&pool, board_run.board_project_id)
+        boardflow_db::queries::board_project::find_by_id(&mut *tx, board_run.board_project_id)
             .await
             .map_err(|e| {
                 tracing::error!("board_project lookup failed: {e}");
@@ -459,24 +466,28 @@ pub async fn import_artifact_bundle(
         ));
     }
 
-    // 4. Check run status
+    // 5. Check run status
     match board_run.status {
         BoardRunStatus::Failed | BoardRunStatus::TimedOut => {
-            return Err(AppError::gone(
-                "board run is no longer active",
-                rid,
-            ));
+            return Err(AppError::gone("board run is no longer active", rid));
         }
         BoardRunStatus::Completed => {
             // Return existing bundle info
             if let Some(bundle) =
-                boardflow_db::queries::artifact_bundle::find_by_board_run_id(&pool, board_run_id)
-                    .await
-                    .map_err(|e| {
-                        tracing::error!("artifact_bundle lookup failed: {e}");
-                        AppError::internal_error("database error", rid)
-                    })?
+                boardflow_db::queries::artifact_bundle::find_by_board_run_id(
+                    &mut *tx,
+                    board_run_id,
+                )
+                .await
+                .map_err(|e| {
+                    tracing::error!("artifact_bundle lookup failed: {e}");
+                    AppError::internal_error("database error", rid)
+                })?
             {
+                tx.commit().await.map_err(|e| {
+                    tracing::error!("transaction commit failed: {e}");
+                    AppError::internal_error("database error", rid)
+                })?;
                 return Ok(Json(ImportArtifactBundleResponse {
                     bundle_id: format_bundle_id(bundle.id),
                     status: "completed".to_string(),
@@ -490,9 +501,9 @@ pub async fn import_artifact_bundle(
         _ => {}
     }
 
-    // 5. Idempotency check: same key + sha256
+    // 6. Idempotency check: same key + sha256 (within tx)
     if let Some(existing) = boardflow_db::queries::artifact_bundle::find_by_import_key(
-        &pool,
+        &mut *tx,
         board_run_id,
         &req.staging_object_key,
         &req.bundle_sha256,
@@ -502,34 +513,32 @@ pub async fn import_artifact_bundle(
         tracing::error!("idempotency check failed: {e}");
         AppError::internal_error("database error", rid)
     })? {
+        tx.commit().await.map_err(|e| {
+            tracing::error!("transaction commit failed: {e}");
+            AppError::internal_error("database error", rid)
+        })?;
         return Ok(Json(ImportArtifactBundleResponse {
             bundle_id: format_bundle_id(existing.id),
             status: "queued".to_string(),
         }));
     }
 
-    // 6. Conflict check: different staging_object_key or sha256 for same run
-    if let Some(_existing) = boardflow_db::queries::artifact_bundle::find_existing_for_run(
-        &pool, board_run_id,
-    )
-    .await
-    .map_err(|e| {
-        tracing::error!("conflict check failed: {e}");
-        AppError::internal_error("database error", rid)
-    })? {
+    // 7. Conflict check: different staging_object_key or sha256 for same run (within tx)
+    if let Some(_existing) =
+        boardflow_db::queries::artifact_bundle::find_existing_for_run(&mut *tx, board_run_id)
+            .await
+            .map_err(|e| {
+                tracing::error!("conflict check failed: {e}");
+                AppError::internal_error("database error", rid)
+            })?
+    {
         return Err(AppError::conflict(
             "different bundle already submitted for this run",
             rid,
         ));
     }
 
-    // 7. Begin transaction for bundle update + mark_importing + enqueue
-    let mut tx = pool.begin().await.map_err(|e| {
-        tracing::error!("transaction begin failed: {e}");
-        AppError::internal_error("database error", rid)
-    })?;
-
-    // 7a. Find or create ArtifactBundle and update for import
+    // 8. Find or create ArtifactBundle and update for import
     let bundle = match boardflow_db::queries::artifact_bundle::find_by_board_run_id(
         &mut *tx,
         board_run_id,
@@ -539,22 +548,10 @@ pub async fn import_artifact_bundle(
         tracing::error!("artifact_bundle lookup failed: {e}");
         AppError::internal_error("database error", rid)
     })? {
-        Some(existing_bundle) => {
-            boardflow_db::queries::artifact_bundle::update_for_import(
-                &mut *tx,
-                existing_bundle.id,
-                &req.bundle_sha256,
-                req.bundle_size_bytes,
-            )
-            .await
-            .map_err(|e| {
-                tracing::error!("artifact_bundle update failed: {e}");
-                AppError::internal_error("database error", rid)
-            })?
-        }
+        Some(existing_bundle) => existing_bundle,
         None => {
             let bundle_id = Uuid::now_v7();
-            let bundle = boardflow_db::queries::artifact_bundle::insert_staging(
+            boardflow_db::queries::artifact_bundle::insert_staging(
                 &mut *tx,
                 bundle_id,
                 board_run_id,
@@ -564,22 +561,34 @@ pub async fn import_artifact_bundle(
             .map_err(|e| {
                 tracing::error!("artifact_bundle insert failed: {e}");
                 AppError::internal_error("database error", rid)
-            })?;
-            boardflow_db::queries::artifact_bundle::update_for_import(
-                &mut *tx,
-                bundle.id,
-                &req.bundle_sha256,
-                req.bundle_size_bytes,
-            )
-            .await
-            .map_err(|e| {
-                tracing::error!("artifact_bundle update failed: {e}");
-                AppError::internal_error("database error", rid)
             })?
         }
     };
 
-    // 7b. Mark run as importing
+    let updated = boardflow_db::queries::artifact_bundle::update_for_import(
+        &mut *tx,
+        bundle.id,
+        &req.staging_object_key,
+        &req.bundle_sha256,
+        req.bundle_size_bytes,
+    )
+    .await
+    .map_err(|e| {
+        tracing::error!("artifact_bundle update failed: {e}");
+        AppError::internal_error("database error", rid)
+    })?;
+
+    let bundle = match updated {
+        Some(b) => b,
+        None => {
+            return Err(AppError::conflict(
+                "bundle was concurrently modified",
+                rid,
+            ));
+        }
+    };
+
+    // 9. Mark run as importing
     boardflow_db::queries::board_run::mark_importing(&mut *tx, board_run_id)
         .await
         .map_err(|e| {
@@ -587,7 +596,7 @@ pub async fn import_artifact_bundle(
             AppError::internal_error("database error", rid)
         })?;
 
-    // 7c. Enqueue import job
+    // 10. Enqueue import job
     let job_id = Uuid::now_v7();
     let payload_json = serde_json::json!({
         "bundle_id": bundle.id.to_string(),
@@ -611,7 +620,7 @@ pub async fn import_artifact_bundle(
         AppError::internal_error("database error", rid)
     })?;
 
-    // 7d. Commit transaction
+    // 11. Commit transaction
     tx.commit().await.map_err(|e| {
         tracing::error!("transaction commit failed: {e}");
         AppError::internal_error("database error", rid)

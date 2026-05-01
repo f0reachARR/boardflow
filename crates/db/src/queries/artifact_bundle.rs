@@ -33,21 +33,26 @@ pub async fn insert_staging(
     .await
 }
 
-/// Update ArtifactBundle with sha256 and size_bytes, set status to 'pending' (import queued)
+/// Update ArtifactBundle with sha256 and size_bytes, set status to 'pending' (import queued).
+/// Only updates if sha256 is currently NULL and staging_object_key matches.
+/// Returns None if conditions not met (another request already set sha256).
 pub async fn update_for_import(
     executor: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
     id: Uuid,
+    staging_object_key: &str,
     sha256: &str,
     size_bytes: i64,
-) -> Result<ArtifactBundle, sqlx::Error> {
+) -> Result<Option<ArtifactBundle>, sqlx::Error> {
     sqlx::query_as::<_, ArtifactBundle>(
-        r#"UPDATE artifact_bundles SET sha256 = $2, size_bytes = $3, status = 'pending'
-        WHERE id = $1 RETURNING *"#,
+        r#"UPDATE artifact_bundles SET sha256 = $3, size_bytes = $4, status = 'pending'
+        WHERE id = $1 AND staging_object_key = $2 AND sha256 IS NULL
+        RETURNING *"#,
     )
     .bind(id)
+    .bind(staging_object_key)
     .bind(sha256)
     .bind(size_bytes)
-    .fetch_one(executor)
+    .fetch_optional(executor)
     .await
 }
 

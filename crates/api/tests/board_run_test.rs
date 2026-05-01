@@ -955,3 +955,90 @@ async fn test_import_artifact_bundle_not_found() {
 
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
 }
+
+/// Race condition: 先着リクエスト成功後、後着が異なる sha256 で 409 になることを確認
+/// (トランザクション内で conflict 判定が行われることを順次実行で擬似テスト)
+#[tokio::test]
+async fn test_import_artifact_bundle_update_conflict() {
+    let pool = match setup_pool().await {
+        Some(p) => p,
+        None => return,
+    };
+
+    let github_repo_id = rand_i64();
+    let installation_id: i64 = 2019;
+    let repo_id = create_test_repository(&pool, github_repo_id, installation_id).await;
+    let token = create_test_token(&pool, repo_id, installation_id).await;
+    let bp_id = create_test_board_project(&pool, repo_id).await;
+    let br_id = create_test_board_run(&pool, bp_id, "created").await;
+
+    // Create an artifact_bundle for this run (sha256 is NULL initially)
+    let bundle_id = Uuid::now_v7();
+    let object_key = format!("staging/runs/br_{}/bundle.zip", br_id);
+    sqlx::query(
+        "INSERT INTO artifact_bundles (id, board_run_id, intake_mode, staging_object_key, status, received_at) \
+         VALUES ($1, $2, 'staging_s3', $3, 'pending', NOW())",
+    )
+    .bind(bundle_id)
+    .bind(br_id)
+    .bind(&object_key)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    // First request: import succeeds with sha256_a
+    let app = create_app(pool.clone(), None);
+    let body1 = serde_json::json!({
+        "staging_object_key": object_key,
+        "bundle_sha256": "aaaa1234567890abcdef1234567890abcdef1234567890abcdef1234567890aa",
+        "bundle_size_bytes": 10000
+    });
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!(
+                    "/api/v1/board-runs/br_{}/artifact-bundles/import",
+                    br_id
+                ))
+                .header("content-type", "application/json")
+                .header("authorization", format!("Bearer {}", token))
+                .body(Body::from(serde_json::to_vec(&body1).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body_bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+    assert_eq!(json["status"], "queued");
+
+    // Second request: different sha256 → should get 409 Conflict
+    // (The bundle already has sha256 set from the first request)
+    let app = create_app(pool.clone(), None);
+    let body2 = serde_json::json!({
+        "staging_object_key": object_key,
+        "bundle_sha256": "bbbb1234567890abcdef1234567890abcdef1234567890abcdef1234567890bb",
+        "bundle_size_bytes": 20000
+    });
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!(
+                    "/api/v1/board-runs/br_{}/artifact-bundles/import",
+                    br_id
+                ))
+                .header("content-type", "application/json")
+                .header("authorization", format!("Bearer {}", token))
+                .body(Body::from(serde_json::to_vec(&body2).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::CONFLICT);
+}
