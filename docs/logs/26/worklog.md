@@ -258,6 +258,65 @@ Worker内で `create_issue`, `create_dashboard_comment`, `update_dashboard_comme
 - 並列数制御（installation_id/repository_id単位のスロットリング）→ MVP単一workerの逐次処理で暗黙的に満たす
 - Dashboardコメント更新のdebounce（enqueue側のON CONFLICT既存で簡易対応済み）→ 高度なdebounceは後続Issue
 - `create_label`, `update_issue_body` ジョブ → 本Issueのスコープ外
+
+---
+
+## 最終レビュー (2026-05-02)
+
+### 対象Issue
+
+- Issue ID: #26
+- 判定: `pr_ready: false`
+
+### レビュー結果
+
+前回レビューで必須としていた以下3点は、今回の修正でコード上確認できた。
+
+1. closed Issue 再作成前の `tree_hash` 変化判定
+    - `handlers/mod.rs` の `tree_hash_changed()` 追加
+    - `create_dashboard_comment` / `update_dashboard_comment` / `create_run_result_comment` で closed Issue 時に `tree_hash` 不変なら更新停止
+2. Dashboard update の `latest_completed_run_id` ベース化
+    - `update_dashboard_comment` で `bp.latest_completed_run_id.unwrap_or(board_run_id)` を使って本文生成
+3. RateLimited の `retry_after_secs` 利用
+    - `crates/github/src/error.rs` で 403/429 に `Some(60)` を設定
+    - 各 GitHub handler で `retry_after_secs` を `reschedule` に反映
+
+### 重大度順の指摘
+
+1. **create_dashboard_comment が古い run を参照しうるため、Dashboard が最新状態で作成されない経路が残っている**
+    - import 完了時、`dashboard_comment_id` が未設定なら常に `create_dashboard_comment` を enqueue する。
+    - その後 Issue 作成が遅延して複数 run が完了した場合、古い `create_dashboard_comment` ジョブが後から実行されても、ハンドラは `job.board_run_id` をそのまま読んで本文を作る。
+    - `update_dashboard_comment` は `latest_completed_run_id` を使うよう修正済みだが、`create_dashboard_comment` 側は未対応のため、Issue 作成直後の初回 Dashboard コメントが stale な run を指す可能性がある。
+    - これは spec 12.1 / 13.1 / 13.3 の「常に最新状態へ編集更新」に対して不十分。
+
+### 必須修正
+
+1. `create_dashboard_comment` でも `board_run_id` 固定ではなく `bp.latest_completed_run_id` を優先して本文を生成する。
+2. もしくは、Issue 未作成期間中に積まれた `create_dashboard_comment` を 1 件に畳み込む仕組みを入れ、Issue 作成後に必ず最新 run の内容で初回コメントを作る。
+
+### 任意改善
+
+1. handler 単体テストを追加し、「Issue 作成遅延中に複数 run が完了した場合でも Dashboard コメントが最新 run を指す」ケースを固定化する。
+2. `create_dashboard_comment` と `update_dashboard_comment` の本文生成 run 選択ロジックを共通化し、再発を防ぐ。
+
+### テスト不足
+
+- `mise exec -- cargo test -p boardflow-worker` は 12 件成功したが、すべて `comment_body` の単体テスト。
+- dispatcher / handler / DB クエリ連携を検証するテストがなく、今回の stale Dashboard 経路は自動検出されない。
+
+### ドキュメント確認
+
+- spec 11.7 / 12.3 / 13.1 / 13.4 に対する前回指摘3点は今回の実装で概ね整合した。
+- ただし spec 12.1 / 13.3 の「Dashboard は最新状態を表す」に対して、初回作成経路だけ不整合が残る。
+
+### PR/完了結果
+
+- `pr_ready: false`
+- 理由: create 経路に stale Dashboard コメントの残リスクがあるため。
+
+### 残リスク
+
+- Issue 作成が遅れたリポジトリで、古い run を指す Dashboard コメントが作られ、その後 update ジョブが残っていなければ最新状態へ収束しない可能性がある。
 - Web UIのIssue同期状態表示 → 別Issue
 
 ### 受け入れ条件

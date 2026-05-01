@@ -138,12 +138,14 @@ pub async fn handle(
         }
     }
 
-    // Fetch the board run for comment content
-    let run = match board_run::find_by_id(pool, board_run_id).await {
+    // Use latest_completed_run_id to always produce the most up-to-date comment,
+    // even if this job was enqueued by an earlier run (debounce / stale job).
+    let run_id = bp.latest_completed_run_id.unwrap_or(board_run_id);
+    let run = match board_run::find_by_id(pool, run_id).await {
         Ok(Some(r)) => r,
         Ok(None) => {
             return HandlerResult::Failed {
-                reason: format!("board_run {board_run_id} not found"),
+                reason: format!("board_run {run_id} not found"),
             };
         }
         Err(e) => {
