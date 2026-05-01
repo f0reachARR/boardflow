@@ -385,3 +385,58 @@ LIMIT $5
 - DB insert query: `crates/db/src/queries/run_check_finding.rs`
 - API 仕様: `docs/backend/api.md` L838-841
 - findings フォーマット調査: `docs/external/kicad-erc-drc-findings.md`
+
+---
+
+## 実装結果 (2026-05-01)
+
+### 実装内容
+
+Issue #36 の findings read API を TDD で実装完了。
+
+#### 変更ファイル
+
+| ファイル | 変更内容 |
+|---|---|
+| `crates/domain/src/models/run_check.rs` | `RunCheckFindingListRow` struct 追加 |
+| `crates/db/src/queries/run_check.rs` | `find_by_board_run_and_kind` クエリ追加 |
+| `crates/db/src/queries/run_check_finding.rs` | `list_by_run_check_id` paginated クエリ追加 |
+| `crates/api/src/routes/read.rs` | `list_findings` handler、`FindingsQueryParams`、`FindingListItem`、`CoordinateMmResponse`、findings cursor helpers 追加 |
+| `crates/api/src/lib.rs` | `.routes(routes!(routes::read::list_findings))` 追加 |
+| `crates/api/tests/read_api_test.rs` | 11 テスト追加 |
+| `docs/backend/api.md` | セクション 3.10 追加、セクション 5 注記更新 |
+
+#### 実装詳細
+
+- **エンドポイント**: `GET /api/v1/board-runs/{board_run_id}/checks/{check_kind}/findings`
+- **Cursor pagination**: `(sort_index, id)` ペアで base64url エンコードした opaque cursor
+- **Severity filter**: クエリパラメータ `?severity=error|warning|notice`
+- **pos_mm 変換**: `x_um / 1000.0`, `y_um / 1000.0` で µm → mm
+- **帯域節約**: `raw_payload_json` と `bbox_json` は DB クエリレベルで除外
+- **認可**: 既存パターン踏襲 (`find_repository_by_board_run_id` → `check_access`)
+- **run_check 不在時**: 空リスト返却 (404 ではない)
+
+### テスト結果
+
+全 11 テスト合格:
+1. `test_list_findings_success` — 正常系: findings取得、pos_mm変換確認
+2. `test_list_findings_empty` — 空リスト (run_checkはあるがfindingsなし)
+3. `test_list_findings_no_run_check_returns_empty` — run_check不在時の空リスト
+4. `test_list_findings_severity_filter` — severity=error で1件のみ取得
+5. `test_list_findings_pagination` — limit=2 で has_more=true、cursor で次ページ
+6. `test_list_findings_invalid_check_kind` — 不正check_kindで400
+7. `test_list_findings_invalid_board_run_id` — 不正board_run_idで400
+8. `test_list_findings_invalid_severity` — 不正severityで400
+9. `test_list_findings_unauthenticated` — 未認証で401
+10. `test_list_findings_access_denied` — アクセス拒否で404
+11. `test_list_findings_board_run_not_found` — 存在しないboard_runで404
+
+全ワークスペーステスト: 133 passed, 0 failed
+
+### 更新ドキュメント
+
+- `docs/backend/api.md`: セクション 3.10 (Findings 一覧) 追加、セクション 5 注記を「実装済み」に更新
+
+### 残リスク
+
+- なし。既存パターンに完全準拠しており、全テスト合格。
