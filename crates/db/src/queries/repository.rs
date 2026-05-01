@@ -40,10 +40,10 @@ pub async fn find_by_github_id(
 pub async fn list_with_stats(
     executor: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
     limit: i64,
-    cursor: Option<(DateTime<Utc>, Uuid)>,
+    cursor: Option<(DateTime<Utc>, i64)>,
 ) -> Result<Vec<RepositoryWithStats>, sqlx::Error> {
     match cursor {
-        Some((ts, id)) => {
+        Some((ts, gid)) => {
             sqlx::query_as::<_, RepositoryWithStats>(
                 r#"SELECT r.*,
                     (SELECT COUNT(*) FROM board_projects bp WHERE bp.repository_id = r.id) AS board_project_count,
@@ -52,12 +52,12 @@ pub async fn list_with_stats(
                      WHERE bp.repository_id = r.id
                      ORDER BY br.created_at DESC LIMIT 1) AS latest_run_status
                 FROM repositories r
-                WHERE (r.updated_at, r.id) < ($1, $2)
-                ORDER BY r.updated_at DESC, r.id DESC
+                WHERE (r.updated_at, r.github_repository_id) < ($1, $2)
+                ORDER BY r.updated_at DESC, r.github_repository_id DESC
                 LIMIT $3"#,
             )
             .bind(ts)
-            .bind(id)
+            .bind(gid)
             .bind(limit)
             .fetch_all(executor)
             .await
@@ -71,7 +71,7 @@ pub async fn list_with_stats(
                      WHERE bp.repository_id = r.id
                      ORDER BY br.created_at DESC LIMIT 1) AS latest_run_status
                 FROM repositories r
-                ORDER BY r.updated_at DESC, r.id DESC
+                ORDER BY r.updated_at DESC, r.github_repository_id DESC
                 LIMIT $1"#,
             )
             .bind(limit)

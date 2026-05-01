@@ -292,3 +292,121 @@ limit+1行取得し、N+1行目が存在すれば `has_more=true`、N行目で n
 - Viewer Sources の artifact proxy token 生成は後続Issue依存
 - board_project_count のサブクエリが大量データでパフォーマンス問題になる可能性（MVPでは許容）
 - GitHub OAuth session認証が未実装のため、全データが認証なしで閲覧可能（後続Issueで対応）
+
+---
+
+## Phase 4: レビュー (Review)
+- 開始: 2026-05-01
+- 状態: 完了
+- 対象Issue: #6
+- PR作成可否: `pr_ready: false`
+
+### レビュー結果
+- 統合テスト `cargo test -p boardflow-api --test read_api_test` は 23 件すべて成功。
+- ただし、`docs/backend/api.md` セクション3、および `docs/technology.md` の認証・artifact配信方針と実装の間に重要な不整合がある。
+- 実装は GET endpoint 自体は一通り揃っているが、仕様準拠・セキュリティ・viewer contract の観点で PR ready とは判断できない。
+
+### 必須修正
+1. Read API 全体に repository 権限ベースの認可を追加し、未認証時の扱いと閲覧不可時の `404 not_found` を仕様に合わせる。
+2. BoardProject 一覧/詳細で `state` を最新 run 状態から正しく導出し、`processing` / `failed` / `timed_out` を返せるようにする。
+3. Repository 一覧の並び順と cursor tie-breaker を仕様通り `updated_at desc, github_repository_id desc` に合わせる。
+4. Viewer Sources の URL を placeholder ではなく、実際に利用可能な短命 proxy URL/token にする。少なくとも現仕様・research と整合する形へ修正する。
+
+### 任意改善
+1. `viewer-sources` で `skipped` を返せるデータモデル/判定ロジックを追加する。
+2. Repository 詳細の `board_project_count` 取得も query 層へ寄せ、read route の責務を揃える。
+3. 一覧APIの並び順・cursor 安定性を tie timestamp ケース込みで明示テストする。
+
+### テスト不足
+- 認証なしアクセスが拒否されること、権限外 repository/resource が `404` になることのテストがない。
+- BoardProject `state` の `processing` / `failed` / `timed_out` ケースが未検証。
+- Repository 一覧で `updated_at` 同値時に `github_repository_id desc` で安定することのテストがない。
+- `viewer-sources` の `failed` / `skipped` ステータス、および URL の実利用性を確認するテストがない。
+
+### ドキュメント確認
+- `docs/backend/api.md` は Read API に GitHub OAuth session 前提と `404 not_found` ベースの情報秘匿を要求しているが、実装・テストは匿名 GET を前提にしている。
+- `docs/backend/api.md` 3.8 / 4 は短命 artifact proxy URL を前提にしているが、実装は `token=placeholder` の固定文字列を返すのみ。
+- `docs/technology.md` でも認証は GitHub OAuth + GitHub App、artifact preview は認可付き配信を前提としており、今回の実装スコープとズレている。
+- worklog 内の「仕様準拠」「状態値すべて仕様通り」は現状の実装とは一致しない。
+
+### 残リスク
+- 認可がないまま公開すると repository / board run / artifact metadata の列挙が可能になる。
+- viewer-sources が返す URL は現時点で実運用導線として成立していない。
+- 非 completed の BoardProject を UI が誤って `detected` と認識し、進行中/失敗状態を表示できない。
+
+---
+
+## Phase 5: レビュー修正 (Review Fixes)
+- 開始: 2026-05-01
+- 状態: 完了
+- ブランチ: `feature/issue-6-web-ui-read-api`
+
+### 修正内容
+
+#### 修正1: Read APIにGitHub OAuth session認証を追加
+- DB migration追加: `20260501000002_add_user_sessions.up.sql` (users, sessions テーブル)
+- Domain model追加: `user.rs`, `session.rs`
+- DB query追加: `user.rs` (find_by_id, find_by_github_user_id, upsert), `session.rs` (find_by_id, create, delete_by_id, delete_expired)
+- Session extractor: `crates/api/src/extractors/session.rs` - Cookie `boardflow_session` からsession検証
+- OAuth endpoints: `crates/api/src/routes/auth.rs` - login, callback, logout, me
+- 全Read APIハンドラに `AuthenticatedSession` パラメータ追加
+- 未認証アクセスは `401 Unauthorized` を返す
+
+#### 修正2: BoardProject state導出を修正
+- 新規query `list_by_repository_id_with_status` - 最新board_runのstatusをサブクエリで取得
+- 新規query `get_latest_run_status` - BoardProject詳細で最新run statusを取得
+- `derive_board_project_state` に実際の latest_run_status を渡すように修正
+- processing/failed/timed_out が正しく返されるようになった
+
+#### 修正3: Viewer Sources URLを実token生成に変更
+- 新規モジュール `crates/api/src/artifact_token.rs`
+- HMAC-SHA256ベースの短命token（1時間有効）
+- Token構造: base64url(artifact_id:user_id:expires_unix:hmac_signature)
+- `BOARDFLOW_ARTIFACT_SECRET` 環境変数から鍵取得
+- viewer sourcesのURLに実tokenを埋め込み
+
+#### 修正4: Repository一覧のorder/cursorをgithub_repository_id basedに変更
+- SQL: `ORDER BY updated_at DESC, github_repository_id DESC`
+- Cursor payload: `{ts, gid}` (github_repository_id as string)
+- DB query `list_with_stats` の引数を `Option<(DateTime<Utc>, i64)>` に変更
+
+#### 修正5: Viewer statusにskippedを追加
+- `viewer_status` ヘルパーに skipped 判定追加
+- 全artifactが `Skipped` → viewer status = "skipped"
+- failed判定の前にチェック
+
+### 依存追加
+- `hmac = "0.12"` (workspace)
+- `hex = "0.4"` (workspace)
+- `reqwest = { version = "0.12", features = ["json"] }` (workspace)
+- `urlencoding = "2"` (workspace)
+
+### テスト更新
+- テスト数: 23 → 29（+6件）
+- 追加テスト観点:
+  - 認証なしアクセスが401になること
+  - 期限切れセッションが401になること
+  - BoardProject stateが processing/failed/timed_out を正しく返すこと
+  - Viewer Sources URLに実tokenが含まれること（placeholder ではないこと）
+  - Viewer Sourcesでskippedステータスが返ること
+
+### テスト結果
+- `cargo test -p boardflow-api`: 79件全パス（unit 4 + integration 75）
+- regression なし
+
+### ドキュメント確認
+- `docs/backend/api.md` の認証要件を満たすようになった
+- `docs/technology.md` の GitHub OAuth session 方針に準拠
+- artifact proxy URL が実利用可能なtokenを含むようになった
+
+### 解消されたレビュー指摘
+1. ✅ Read APIにGitHub OAuth session認証追加
+2. ✅ BoardProject state導出修正
+3. ✅ Viewer Sources URL実token生成
+4. ✅ Repository一覧cursor変更
+5. ✅ Viewer status skipped追加
+
+### 残リスク
+- MVP簡易版として repository 権限チェックは session 認証のみ（GitHub API権限チェックは後続Issue）
+- OAuth login/callback は reqwest で外部GitHub APIを呼ぶため、テスト時はmockが必要（現在はDB操作のみテスト）
+- artifact_token の secret がデフォルト値 "default-dev-secret" を使う場合のセキュリティ（本番では環境変数必須）

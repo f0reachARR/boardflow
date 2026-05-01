@@ -11,6 +11,8 @@ use uuid::Uuid;
 use boardflow_domain::models::artifact::ArtifactStatus;
 
 use crate::error::{AppError, RequestId};
+use crate::extractors::AuthenticatedSession;
+use crate::ArtifactSecret;
 
 // ─── ID prefix helpers ───────────────────────────────────────────────────────
 
@@ -59,6 +61,30 @@ fn decode_cursor(cursor: &str) -> Option<(DateTime<Utc>, Uuid)> {
     Some((ts, id))
 }
 
+// Repository cursor uses github_repository_id as tie-breaker
+#[derive(Debug, Serialize, Deserialize)]
+struct RepositoryCursorPayload {
+    ts: String,
+    gid: String,
+}
+
+fn encode_repository_cursor(ts: &DateTime<Utc>, github_repository_id: i64) -> String {
+    let payload = RepositoryCursorPayload {
+        ts: ts.to_rfc3339(),
+        gid: github_repository_id.to_string(),
+    };
+    let json = serde_json::to_string(&payload).unwrap();
+    URL_SAFE_NO_PAD.encode(json.as_bytes())
+}
+
+fn decode_repository_cursor(cursor: &str) -> Option<(DateTime<Utc>, i64)> {
+    let bytes = URL_SAFE_NO_PAD.decode(cursor).ok()?;
+    let payload: RepositoryCursorPayload = serde_json::from_slice(&bytes).ok()?;
+    let ts = DateTime::parse_from_rfc3339(&payload.ts).ok()?.to_utc();
+    let gid: i64 = payload.gid.parse().ok()?;
+    Some((ts, gid))
+}
+
 // ─── Query parameters ────────────────────────────────────────────────────────
 
 #[derive(Debug, Deserialize, IntoParams)]
@@ -77,6 +103,15 @@ impl PaginationParams {
         match &self.cursor {
             None => Ok(None),
             Some(c) => decode_cursor(c)
+                .map(Some)
+                .ok_or_else(|| AppError::validation_failed("invalid cursor", request_id)),
+        }
+    }
+
+    fn decoded_repository_cursor(&self, request_id: &str) -> Result<Option<(DateTime<Utc>, i64)>, AppError> {
+        match &self.cursor {
+            None => Ok(None),
+            Some(c) => decode_repository_cursor(c)
                 .map(Some)
                 .ok_or_else(|| AppError::validation_failed("invalid cursor", request_id)),
         }
@@ -321,15 +356,17 @@ fn derive_board_project_state(
     responses(
         (status = 200, description = "Repository list", body = PaginatedResponse<RepositoryListItem>),
         (status = 400, description = "Validation error", body = crate::error::ErrorResponse),
+        (status = 401, description = "Unauthorized", body = crate::error::ErrorResponse),
     )
 )]
 pub async fn list_repositories(
+    _session: AuthenticatedSession,
     Extension(RequestId(request_id)): Extension<RequestId>,
     State(pool): State<PgPool>,
     Query(params): Query<PaginationParams>,
 ) -> Result<Json<PaginatedResponse<RepositoryListItem>>, AppError> {
     let limit = params.effective_limit();
-    let cursor = params.decoded_cursor(&request_id)?;
+    let cursor = params.decoded_repository_cursor(&request_id)?;
 
     let rows = boardflow_db::queries::repository::list_with_stats(&pool, limit + 1, cursor)
         .await
@@ -356,7 +393,7 @@ pub async fn list_repositories(
     let next_cursor = if has_more {
         items.last().map(|_| {
             let last = &rows[limit as usize - 1];
-            encode_cursor(&last.updated_at, &last.id)
+            encode_repository_cursor(&last.updated_at, last.github_repository_id)
         })
     } else {
         None
@@ -377,10 +414,12 @@ pub async fn list_repositories(
     params(("github_repository_id" = i64, Path, description = "GitHub repository ID")),
     responses(
         (status = 200, description = "Repository detail", body = RepositoryDetailResponse),
+        (status = 401, description = "Unauthorized", body = crate::error::ErrorResponse),
         (status = 404, description = "Not found", body = crate::error::ErrorResponse),
     )
 )]
 pub async fn get_repository(
+    _session: AuthenticatedSession,
     Extension(RequestId(request_id)): Extension<RequestId>,
     State(pool): State<PgPool>,
     Path(github_repository_id): Path<i64>,
@@ -428,10 +467,12 @@ pub async fn get_repository(
     ),
     responses(
         (status = 200, description = "BoardProject list", body = PaginatedResponse<BoardProjectListItem>),
+        (status = 401, description = "Unauthorized", body = crate::error::ErrorResponse),
         (status = 404, description = "Not found", body = crate::error::ErrorResponse),
     )
 )]
 pub async fn list_board_projects(
+    _session: AuthenticatedSession,
     Extension(RequestId(request_id)): Extension<RequestId>,
     State(pool): State<PgPool>,
     Path(github_repository_id): Path<i64>,
@@ -449,7 +490,7 @@ pub async fn list_board_projects(
     let cursor = params.decoded_cursor(&request_id)?;
 
     let rows =
-        boardflow_db::queries::board_project::list_by_repository_id(&pool, repo.id, limit + 1, cursor)
+        boardflow_db::queries::board_project::list_by_repository_id_with_status(&pool, repo.id, limit + 1, cursor)
             .await
             .map_err(|e| {
                 tracing::error!("list_board_projects failed: {e}");
@@ -461,7 +502,7 @@ pub async fn list_board_projects(
         .iter()
         .take(limit as usize)
         .map(|bp| {
-            let state = derive_board_project_state(bp.latest_completed_run_id, None);
+            let state = derive_board_project_state(bp.latest_completed_run_id, bp.latest_run_status.as_deref());
             BoardProjectListItem {
                 board_project_id: format_board_project_id(bp.id),
                 project_path: bp.project_path.clone(),
@@ -500,10 +541,12 @@ pub async fn list_board_projects(
     params(("board_project_id" = String, Path, description = "BoardProject ID (bp_ prefix)")),
     responses(
         (status = 200, description = "BoardProject detail", body = BoardProjectDetailResponse),
+        (status = 401, description = "Unauthorized", body = crate::error::ErrorResponse),
         (status = 404, description = "Not found", body = crate::error::ErrorResponse),
     )
 )]
 pub async fn get_board_project(
+    _session: AuthenticatedSession,
     Extension(RequestId(request_id)): Extension<RequestId>,
     State(pool): State<PgPool>,
     Path(board_project_id): Path<String>,
@@ -519,7 +562,15 @@ pub async fn get_board_project(
         })?
         .ok_or_else(|| AppError::not_found("board project not found", &request_id))?;
 
-    let state = derive_board_project_state(row.latest_completed_run_id, None);
+    // Get latest run status for state derivation
+    let latest_run_status = boardflow_db::queries::board_project::get_latest_run_status(&pool, id)
+        .await
+        .map_err(|e| {
+            tracing::error!("get_board_project latest status failed: {e}");
+            AppError::internal_error("database error", &request_id)
+        })?;
+
+    let state = derive_board_project_state(row.latest_completed_run_id, latest_run_status.as_deref());
 
     Ok(Json(BoardProjectDetailResponse {
         board_project_id: format_board_project_id(row.id),
@@ -553,10 +604,12 @@ pub async fn get_board_project(
     ),
     responses(
         (status = 200, description = "BoardRun list", body = PaginatedResponse<BoardRunListItem>),
+        (status = 401, description = "Unauthorized", body = crate::error::ErrorResponse),
         (status = 404, description = "Not found", body = crate::error::ErrorResponse),
     )
 )]
 pub async fn list_board_runs(
+    _session: AuthenticatedSession,
     Extension(RequestId(request_id)): Extension<RequestId>,
     State(pool): State<PgPool>,
     Path(board_project_id): Path<String>,
@@ -633,10 +686,12 @@ pub async fn list_board_runs(
     params(("board_run_id" = String, Path, description = "BoardRun ID (br_ prefix)")),
     responses(
         (status = 200, description = "BoardRun detail", body = BoardRunDetailResponse),
+        (status = 401, description = "Unauthorized", body = crate::error::ErrorResponse),
         (status = 404, description = "Not found", body = crate::error::ErrorResponse),
     )
 )]
 pub async fn get_board_run(
+    _session: AuthenticatedSession,
     Extension(RequestId(request_id)): Extension<RequestId>,
     State(pool): State<PgPool>,
     Path(board_run_id): Path<String>,
@@ -714,10 +769,12 @@ pub struct ArtifactListResponse {
     params(("board_run_id" = String, Path, description = "BoardRun ID (br_ prefix)")),
     responses(
         (status = 200, description = "Artifact list", body = ArtifactListResponse),
+        (status = 401, description = "Unauthorized", body = crate::error::ErrorResponse),
         (status = 404, description = "Not found", body = crate::error::ErrorResponse),
     )
 )]
 pub async fn list_artifacts(
+    _session: AuthenticatedSession,
     Extension(RequestId(request_id)): Extension<RequestId>,
     State(pool): State<PgPool>,
     Path(board_run_id): Path<String>,
@@ -772,11 +829,14 @@ pub async fn list_artifacts(
     params(("board_run_id" = String, Path, description = "BoardRun ID (br_ prefix)")),
     responses(
         (status = 200, description = "Viewer sources", body = ViewerSourcesResponse),
+        (status = 401, description = "Unauthorized", body = crate::error::ErrorResponse),
         (status = 404, description = "Not found", body = crate::error::ErrorResponse),
     )
 )]
 pub async fn get_viewer_sources(
+    session: AuthenticatedSession,
     Extension(RequestId(request_id)): Extension<RequestId>,
+    Extension(artifact_secret): Extension<ArtifactSecret>,
     State(pool): State<PgPool>,
     Path(board_run_id): Path<String>,
 ) -> Result<Json<ViewerSourcesResponse>, AppError> {
@@ -806,10 +866,14 @@ pub async fn get_viewer_sources(
         artifacts.iter().find(|a| a.r#type == artifact_type)
     };
 
+    let user_id = session.user.id;
+    let secret = &artifact_secret.0;
     let proxy_url = |a: &boardflow_domain::models::artifact::Artifact| -> String {
+        let token = crate::artifact_token::generate_artifact_token(a.id, user_id, secret);
         format!(
-            "/proxy/artifacts/{}?token=placeholder",
-            format_artifact_id(a.id)
+            "/proxy/artifacts/{}?token={}",
+            format_artifact_id(a.id),
+            token
         )
     };
 
@@ -1097,6 +1161,13 @@ fn viewer_status(
     } else if available_count > 0 {
         "partial".to_string()
     } else {
+        // Check if all are skipped
+        let all_skipped = artifacts.iter().all(|a| {
+            a.map_or(false, |art| art.status == ArtifactStatus::Skipped)
+        });
+        if all_skipped && artifacts.iter().any(|a| a.is_some()) {
+            return "skipped".to_string();
+        }
         // Check if any are failed
         let has_failed = artifacts.iter().any(|a| {
             a.map_or(false, |art| art.status == ArtifactStatus::Failed)

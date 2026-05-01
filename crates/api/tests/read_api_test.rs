@@ -25,6 +25,53 @@ fn rand_i64() -> i64 {
     i64::from_be_bytes(bytes[0..8].try_into().unwrap()).abs()
 }
 
+async fn create_test_user(pool: &PgPool) -> Uuid {
+    let id = Uuid::now_v7();
+    let github_user_id = rand_i64();
+    sqlx::query(
+        "INSERT INTO users (id, github_user_id, github_login, github_avatar_url, github_access_token, created_at, updated_at) \
+         VALUES ($1, $2, 'testuser', 'https://avatar.example.com/test', 'gho_testtoken', NOW(), NOW())",
+    )
+    .bind(id)
+    .bind(github_user_id)
+    .execute(pool)
+    .await
+    .unwrap();
+    id
+}
+
+async fn create_test_session(pool: &PgPool, user_id: Uuid) -> Uuid {
+    let id = Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO sessions (id, user_id, expires_at, created_at) \
+         VALUES ($1, $2, NOW() + INTERVAL '7 days', NOW())",
+    )
+    .bind(id)
+    .bind(user_id)
+    .execute(pool)
+    .await
+    .unwrap();
+    id
+}
+
+async fn create_test_expired_session(pool: &PgPool, user_id: Uuid) -> Uuid {
+    let id = Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO sessions (id, user_id, expires_at, created_at) \
+         VALUES ($1, $2, NOW() - INTERVAL '1 hour', NOW())",
+    )
+    .bind(id)
+    .bind(user_id)
+    .execute(pool)
+    .await
+    .unwrap();
+    id
+}
+
+fn session_cookie(session_id: Uuid) -> String {
+    format!("boardflow_session={session_id}")
+}
+
 async fn create_test_repository(pool: &PgPool, github_repository_id: i64) -> Uuid {
     let id = Uuid::now_v7();
     sqlx::query(
@@ -136,6 +183,56 @@ async fn create_test_run_check(
 
 // ─── Repository List Tests ───────────────────────────────────────────────────
 
+/// 認証系: セッションなしで401が返る
+#[tokio::test]
+async fn test_list_repositories_unauthenticated() {
+    let pool = match setup_pool().await {
+        Some(p) => p,
+        None => return,
+    };
+
+    let app = create_app(pool, None);
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/api/v1/repositories")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+}
+
+/// 認証系: 期限切れセッションで401が返る
+#[tokio::test]
+async fn test_list_repositories_expired_session() {
+    let pool = match setup_pool().await {
+        Some(p) => p,
+        None => return,
+    };
+
+    let user_id = create_test_user(&pool).await;
+    let session_id = create_test_expired_session(&pool, user_id).await;
+
+    let app = create_app(pool, None);
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/api/v1/repositories")
+                .header("cookie", session_cookie(session_id))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+}
+
 /// 正常系: リポジトリ一覧を取得できる
 #[tokio::test]
 async fn test_list_repositories_success() {
@@ -144,6 +241,8 @@ async fn test_list_repositories_success() {
         None => return,
     };
 
+    let user_id = create_test_user(&pool).await;
+    let session_id = create_test_session(&pool, user_id).await;
     let github_repo_id = rand_i64();
     create_test_repository(&pool, github_repo_id).await;
 
@@ -153,6 +252,7 @@ async fn test_list_repositories_success() {
             Request::builder()
                 .method("GET")
                 .uri("/api/v1/repositories")
+                .header("cookie", session_cookie(session_id))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -175,6 +275,9 @@ async fn test_list_repositories_with_limit() {
         None => return,
     };
 
+    let user_id = create_test_user(&pool).await;
+    let session_id = create_test_session(&pool, user_id).await;
+
     // 3件作成
     for _ in 0..3 {
         create_test_repository(&pool, rand_i64()).await;
@@ -186,6 +289,7 @@ async fn test_list_repositories_with_limit() {
             Request::builder()
                 .method("GET")
                 .uri("/api/v1/repositories?limit=2")
+                .header("cookie", session_cookie(session_id))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -209,6 +313,8 @@ async fn test_list_repositories_limit_zero_clamped() {
         None => return,
     };
 
+    let user_id = create_test_user(&pool).await;
+    let session_id = create_test_session(&pool, user_id).await;
     create_test_repository(&pool, rand_i64()).await;
 
     let app = create_app(pool, None);
@@ -217,6 +323,7 @@ async fn test_list_repositories_limit_zero_clamped() {
             Request::builder()
                 .method("GET")
                 .uri("/api/v1/repositories?limit=0")
+                .header("cookie", session_cookie(session_id))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -238,12 +345,16 @@ async fn test_list_repositories_invalid_cursor() {
         None => return,
     };
 
+    let user_id = create_test_user(&pool).await;
+    let session_id = create_test_session(&pool, user_id).await;
+
     let app = create_app(pool, None);
     let response = app
         .oneshot(
             Request::builder()
                 .method("GET")
                 .uri("/api/v1/repositories?cursor=invalid_base64_cursor")
+                .header("cookie", session_cookie(session_id))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -266,6 +377,8 @@ async fn test_get_repository_success() {
         None => return,
     };
 
+    let user_id = create_test_user(&pool).await;
+    let session_id = create_test_session(&pool, user_id).await;
     let github_repo_id = rand_i64();
     create_test_repository(&pool, github_repo_id).await;
 
@@ -275,6 +388,7 @@ async fn test_get_repository_success() {
             Request::builder()
                 .method("GET")
                 .uri(&format!("/api/v1/repositories/{github_repo_id}"))
+                .header("cookie", session_cookie(session_id))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -301,12 +415,16 @@ async fn test_get_repository_not_found() {
         None => return,
     };
 
+    let user_id = create_test_user(&pool).await;
+    let session_id = create_test_session(&pool, user_id).await;
+
     let app = create_app(pool, None);
     let response = app
         .oneshot(
             Request::builder()
                 .method("GET")
                 .uri("/api/v1/repositories/999999999")
+                .header("cookie", session_cookie(session_id))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -326,6 +444,8 @@ async fn test_list_board_projects_success() {
         None => return,
     };
 
+    let user_id = create_test_user(&pool).await;
+    let session_id = create_test_session(&pool, user_id).await;
     let github_repo_id = rand_i64();
     let repo_id = create_test_repository(&pool, github_repo_id).await;
     create_test_board_project(&pool, repo_id).await;
@@ -338,6 +458,7 @@ async fn test_list_board_projects_success() {
                 .uri(&format!(
                     "/api/v1/repositories/{github_repo_id}/board-projects"
                 ))
+                .header("cookie", session_cookie(session_id))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -363,12 +484,16 @@ async fn test_list_board_projects_repo_not_found() {
         None => return,
     };
 
+    let user_id = create_test_user(&pool).await;
+    let session_id = create_test_session(&pool, user_id).await;
+
     let app = create_app(pool, None);
     let response = app
         .oneshot(
             Request::builder()
                 .method("GET")
                 .uri("/api/v1/repositories/999999999/board-projects")
+                .header("cookie", session_cookie(session_id))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -388,6 +513,8 @@ async fn test_get_board_project_success() {
         None => return,
     };
 
+    let user_id = create_test_user(&pool).await;
+    let session_id = create_test_session(&pool, user_id).await;
     let github_repo_id = rand_i64();
     let repo_id = create_test_repository(&pool, github_repo_id).await;
     let bp_id = create_test_board_project(&pool, repo_id).await;
@@ -398,6 +525,7 @@ async fn test_get_board_project_success() {
             Request::builder()
                 .method("GET")
                 .uri(&format!("/api/v1/board-projects/bp_{bp_id}"))
+                .header("cookie", session_cookie(session_id))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -415,6 +543,108 @@ async fn test_get_board_project_success() {
     assert!(json["state"].is_string());
 }
 
+/// 正常系: BoardProject state がprocessing (最新runがcreated)
+#[tokio::test]
+async fn test_get_board_project_state_processing() {
+    let pool = match setup_pool().await {
+        Some(p) => p,
+        None => return,
+    };
+
+    let user_id = create_test_user(&pool).await;
+    let session_id = create_test_session(&pool, user_id).await;
+    let github_repo_id = rand_i64();
+    let repo_id = create_test_repository(&pool, github_repo_id).await;
+    let bp_id = create_test_board_project(&pool, repo_id).await;
+    create_test_board_run(&pool, bp_id, "created").await;
+
+    let app = create_app(pool, None);
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(&format!("/api/v1/board-projects/bp_{bp_id}"))
+                .header("cookie", session_cookie(session_id))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body_bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+    assert_eq!(json["state"], "processing");
+}
+
+/// 正常系: BoardProject state がfailed (最新runがfailed)
+#[tokio::test]
+async fn test_get_board_project_state_failed() {
+    let pool = match setup_pool().await {
+        Some(p) => p,
+        None => return,
+    };
+
+    let user_id = create_test_user(&pool).await;
+    let session_id = create_test_session(&pool, user_id).await;
+    let github_repo_id = rand_i64();
+    let repo_id = create_test_repository(&pool, github_repo_id).await;
+    let bp_id = create_test_board_project(&pool, repo_id).await;
+    create_test_board_run(&pool, bp_id, "failed").await;
+
+    let app = create_app(pool, None);
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(&format!("/api/v1/board-projects/bp_{bp_id}"))
+                .header("cookie", session_cookie(session_id))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body_bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+    assert_eq!(json["state"], "failed");
+}
+
+/// 正常系: BoardProject state がtimed_out
+#[tokio::test]
+async fn test_get_board_project_state_timed_out() {
+    let pool = match setup_pool().await {
+        Some(p) => p,
+        None => return,
+    };
+
+    let user_id = create_test_user(&pool).await;
+    let session_id = create_test_session(&pool, user_id).await;
+    let github_repo_id = rand_i64();
+    let repo_id = create_test_repository(&pool, github_repo_id).await;
+    let bp_id = create_test_board_project(&pool, repo_id).await;
+    create_test_board_run(&pool, bp_id, "timed_out").await;
+
+    let app = create_app(pool, None);
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(&format!("/api/v1/board-projects/bp_{bp_id}"))
+                .header("cookie", session_cookie(session_id))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body_bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+    assert_eq!(json["state"], "timed_out");
+}
+
 /// エラー系: 不正なBoardProject IDフォーマット
 #[tokio::test]
 async fn test_get_board_project_invalid_id() {
@@ -423,12 +653,16 @@ async fn test_get_board_project_invalid_id() {
         None => return,
     };
 
+    let user_id = create_test_user(&pool).await;
+    let session_id = create_test_session(&pool, user_id).await;
+
     let app = create_app(pool, None);
     let response = app
         .oneshot(
             Request::builder()
                 .method("GET")
                 .uri("/api/v1/board-projects/invalid_id")
+                .header("cookie", session_cookie(session_id))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -446,13 +680,17 @@ async fn test_get_board_project_not_found() {
         None => return,
     };
 
+    let user_id = create_test_user(&pool).await;
+    let session_id = create_test_session(&pool, user_id).await;
     let fake_id = Uuid::now_v7();
+
     let app = create_app(pool, None);
     let response = app
         .oneshot(
             Request::builder()
                 .method("GET")
                 .uri(&format!("/api/v1/board-projects/bp_{fake_id}"))
+                .header("cookie", session_cookie(session_id))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -472,6 +710,8 @@ async fn test_list_board_runs_success() {
         None => return,
     };
 
+    let user_id = create_test_user(&pool).await;
+    let session_id = create_test_session(&pool, user_id).await;
     let github_repo_id = rand_i64();
     let repo_id = create_test_repository(&pool, github_repo_id).await;
     let bp_id = create_test_board_project(&pool, repo_id).await;
@@ -483,6 +723,7 @@ async fn test_list_board_runs_success() {
             Request::builder()
                 .method("GET")
                 .uri(&format!("/api/v1/board-projects/bp_{bp_id}/board-runs"))
+                .header("cookie", session_cookie(session_id))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -507,13 +748,17 @@ async fn test_list_board_runs_bp_not_found() {
         None => return,
     };
 
+    let user_id = create_test_user(&pool).await;
+    let session_id = create_test_session(&pool, user_id).await;
     let fake_id = Uuid::now_v7();
+
     let app = create_app(pool, None);
     let response = app
         .oneshot(
             Request::builder()
                 .method("GET")
                 .uri(&format!("/api/v1/board-projects/bp_{fake_id}/board-runs"))
+                .header("cookie", session_cookie(session_id))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -533,6 +778,8 @@ async fn test_get_board_run_success() {
         None => return,
     };
 
+    let user_id = create_test_user(&pool).await;
+    let session_id = create_test_session(&pool, user_id).await;
     let github_repo_id = rand_i64();
     let repo_id = create_test_repository(&pool, github_repo_id).await;
     let bp_id = create_test_board_project(&pool, repo_id).await;
@@ -552,6 +799,7 @@ async fn test_get_board_run_success() {
             Request::builder()
                 .method("GET")
                 .uri(&format!("/api/v1/board-runs/br_{br_id}"))
+                .header("cookie", session_cookie(session_id))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -586,12 +834,16 @@ async fn test_get_board_run_invalid_id() {
         None => return,
     };
 
+    let user_id = create_test_user(&pool).await;
+    let session_id = create_test_session(&pool, user_id).await;
+
     let app = create_app(pool, None);
     let response = app
         .oneshot(
             Request::builder()
                 .method("GET")
                 .uri("/api/v1/board-runs/invalid_id")
+                .header("cookie", session_cookie(session_id))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -609,13 +861,17 @@ async fn test_get_board_run_not_found() {
         None => return,
     };
 
+    let user_id = create_test_user(&pool).await;
+    let session_id = create_test_session(&pool, user_id).await;
     let fake_id = Uuid::now_v7();
+
     let app = create_app(pool, None);
     let response = app
         .oneshot(
             Request::builder()
                 .method("GET")
                 .uri(&format!("/api/v1/board-runs/br_{fake_id}"))
+                .header("cookie", session_cookie(session_id))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -635,6 +891,8 @@ async fn test_list_artifacts_success() {
         None => return,
     };
 
+    let user_id = create_test_user(&pool).await;
+    let session_id = create_test_session(&pool, user_id).await;
     let github_repo_id = rand_i64();
     let repo_id = create_test_repository(&pool, github_repo_id).await;
     let bp_id = create_test_board_project(&pool, repo_id).await;
@@ -649,6 +907,7 @@ async fn test_list_artifacts_success() {
             Request::builder()
                 .method("GET")
                 .uri(&format!("/api/v1/board-runs/br_{br_id}/artifacts"))
+                .header("cookie", session_cookie(session_id))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -681,13 +940,17 @@ async fn test_list_artifacts_run_not_found() {
         None => return,
     };
 
+    let user_id = create_test_user(&pool).await;
+    let session_id = create_test_session(&pool, user_id).await;
     let fake_id = Uuid::now_v7();
+
     let app = create_app(pool, None);
     let response = app
         .oneshot(
             Request::builder()
                 .method("GET")
                 .uri(&format!("/api/v1/board-runs/br_{fake_id}/artifacts"))
+                .header("cookie", session_cookie(session_id))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -707,6 +970,8 @@ async fn test_get_viewer_sources_all_available() {
         None => return,
     };
 
+    let user_id = create_test_user(&pool).await;
+    let session_id = create_test_session(&pool, user_id).await;
     let github_repo_id = rand_i64();
     let repo_id = create_test_repository(&pool, github_repo_id).await;
     let bp_id = create_test_board_project(&pool, repo_id).await;
@@ -730,6 +995,7 @@ async fn test_get_viewer_sources_all_available() {
             Request::builder()
                 .method("GET")
                 .uri(&format!("/api/v1/board-runs/br_{br_id}/viewer-sources"))
+                .header("cookie", session_cookie(session_id))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -755,9 +1021,13 @@ async fn test_get_viewer_sources_all_available() {
     let kicanvas_sources = viewers["kicanvas"]["sources"].as_array().unwrap();
     assert_eq!(kicanvas_sources.len(), 3);
 
-    // Each source should have a URL with proxy path
+    // Each source should have a URL with proxy path and a real token
     for src in kicanvas_sources {
-        assert!(src["url"].as_str().unwrap().contains("/proxy/artifacts/"));
+        let url = src["url"].as_str().unwrap();
+        assert!(url.contains("/proxy/artifacts/"));
+        assert!(url.contains("?token="));
+        // Token should not be "placeholder"
+        assert!(!url.contains("token=placeholder"));
     }
 }
 
@@ -769,6 +1039,8 @@ async fn test_get_viewer_sources_partial() {
         None => return,
     };
 
+    let user_id = create_test_user(&pool).await;
+    let session_id = create_test_session(&pool, user_id).await;
     let github_repo_id = rand_i64();
     let repo_id = create_test_repository(&pool, github_repo_id).await;
     let bp_id = create_test_board_project(&pool, repo_id).await;
@@ -784,6 +1056,7 @@ async fn test_get_viewer_sources_partial() {
             Request::builder()
                 .method("GET")
                 .uri(&format!("/api/v1/board-runs/br_{br_id}/viewer-sources"))
+                .header("cookie", session_cookie(session_id))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -805,6 +1078,8 @@ async fn test_get_viewer_sources_missing() {
         None => return,
     };
 
+    let user_id = create_test_user(&pool).await;
+    let session_id = create_test_session(&pool, user_id).await;
     let github_repo_id = rand_i64();
     let repo_id = create_test_repository(&pool, github_repo_id).await;
     let bp_id = create_test_board_project(&pool, repo_id).await;
@@ -817,6 +1092,7 @@ async fn test_get_viewer_sources_missing() {
             Request::builder()
                 .method("GET")
                 .uri(&format!("/api/v1/board-runs/br_{br_id}/viewer-sources"))
+                .header("cookie", session_cookie(session_id))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -832,6 +1108,45 @@ async fn test_get_viewer_sources_missing() {
     assert_eq!(json["viewers"]["fabrication"]["status"], "missing");
 }
 
+/// 正常系: 全artifactが skipped の場合は skipped
+#[tokio::test]
+async fn test_get_viewer_sources_skipped() {
+    let pool = match setup_pool().await {
+        Some(p) => p,
+        None => return,
+    };
+
+    let user_id = create_test_user(&pool).await;
+    let session_id = create_test_session(&pool, user_id).await;
+    let github_repo_id = rand_i64();
+    let repo_id = create_test_repository(&pool, github_repo_id).await;
+    let bp_id = create_test_board_project(&pool, repo_id).await;
+    let br_id = create_test_board_run(&pool, bp_id, "completed").await;
+
+    // All fabrication artifacts are skipped
+    create_test_artifact(&pool, br_id, "gerber_zip", "skipped").await;
+    create_test_artifact(&pool, br_id, "drill_zip", "skipped").await;
+
+    let app = create_app(pool, None);
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(&format!("/api/v1/board-runs/br_{br_id}/viewer-sources"))
+                .header("cookie", session_cookie(session_id))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body_bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+
+    assert_eq!(json["viewers"]["fabrication"]["status"], "skipped");
+}
+
 /// エラー系: 存在しないBoardRunのViewer Sources
 #[tokio::test]
 async fn test_get_viewer_sources_run_not_found() {
@@ -840,13 +1155,17 @@ async fn test_get_viewer_sources_run_not_found() {
         None => return,
     };
 
+    let user_id = create_test_user(&pool).await;
+    let session_id = create_test_session(&pool, user_id).await;
     let fake_id = Uuid::now_v7();
+
     let app = create_app(pool, None);
     let response = app
         .oneshot(
             Request::builder()
                 .method("GET")
                 .uri(&format!("/api/v1/board-runs/br_{fake_id}/viewer-sources"))
+                .header("cookie", session_cookie(session_id))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -866,6 +1185,8 @@ async fn test_pagination_cursor_traversal() {
         None => return,
     };
 
+    let user_id = create_test_user(&pool).await;
+    let session_id = create_test_session(&pool, user_id).await;
     let github_repo_id = rand_i64();
     let repo_id = create_test_repository(&pool, github_repo_id).await;
     let bp_id = create_test_board_project(&pool, repo_id).await;
@@ -886,6 +1207,7 @@ async fn test_pagination_cursor_traversal() {
                 .uri(&format!(
                     "/api/v1/board-projects/bp_{bp_id}/board-runs?limit=2"
                 ))
+                .header("cookie", session_cookie(session_id))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -909,6 +1231,7 @@ async fn test_pagination_cursor_traversal() {
                 .uri(&format!(
                     "/api/v1/board-projects/bp_{bp_id}/board-runs?limit=2&cursor={next_cursor}"
                 ))
+                .header("cookie", session_cookie(session_id))
                 .body(Body::empty())
                 .unwrap(),
         )

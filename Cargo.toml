@@ -24,6 +24,8 @@ thiserror = "2"
 uuid = { version = "1", features = ["v7", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 sha2 = "0.10"
+hmac = "0.12"
+hex = "0.4"
 tower-http = { version = "0.6", features = ["request-id", "util"] }
 tower = "0.5"
 http = "1"
@@ -31,3 +33,5 @@ aws-config = { version = "1", features = ["behavior-version-latest"] }
 aws-sdk-s3 = { version = "1", features = ["behavior-version-latest"] }
 base64 = "0.22"
 zip = "2"
+reqwest = { version = "0.12", features = ["json"] }
+urlencoding = "2"

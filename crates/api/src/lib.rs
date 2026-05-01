@@ -1,3 +1,4 @@
+pub mod artifact_token;
 pub mod config;
 pub mod error;
 pub mod extractors;
@@ -11,7 +12,18 @@ use utoipa::{Modify, OpenApi};
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
+use routes::auth::OAuthConfig;
+
 pub fn create_app(pool: PgPool, s3_client: Option<aws_sdk_s3::Client>) -> Router {
+    create_app_with_config(pool, s3_client, None, None)
+}
+
+pub fn create_app_with_config(
+    pool: PgPool,
+    s3_client: Option<aws_sdk_s3::Client>,
+    oauth_config: Option<OAuthConfig>,
+    artifact_secret: Option<Vec<u8>>,
+) -> Router {
     let (router, api) = OpenApiRouter::with_openapi(ApiDoc::openapi())
         .routes(routes!(routes::health::healthz))
         .routes(routes!(routes::plan::plan_run))
@@ -26,7 +38,22 @@ pub fn create_app(pool: PgPool, s3_client: Option<aws_sdk_s3::Client>) -> Router
         .routes(routes!(routes::read::get_board_run))
         .routes(routes!(routes::read::list_artifacts))
         .routes(routes!(routes::read::get_viewer_sources))
+        .routes(routes!(routes::auth::login))
+        .routes(routes!(routes::auth::callback))
+        .routes(routes!(routes::auth::logout))
+        .routes(routes!(routes::auth::me))
         .split_for_parts();
+
+    let oauth = oauth_config.unwrap_or_else(|| OAuthConfig {
+        client_id: std::env::var("GITHUB_CLIENT_ID").unwrap_or_default(),
+        client_secret: std::env::var("GITHUB_CLIENT_SECRET").unwrap_or_default(),
+    });
+
+    let secret = artifact_secret.unwrap_or_else(|| {
+        std::env::var("BOARDFLOW_ARTIFACT_SECRET")
+            .unwrap_or_else(|_| "default-dev-secret".to_string())
+            .into_bytes()
+    });
 
     router
         .route(
@@ -37,11 +64,16 @@ pub fn create_app(pool: PgPool, s3_client: Option<aws_sdk_s3::Client>) -> Router
             }),
         )
         .layer(Extension(s3_client))
+        .layer(Extension(oauth))
+        .layer(Extension(ArtifactSecret(secret)))
         .layer(axum::middleware::from_fn(
             middleware::request_id::request_id_middleware,
         ))
         .with_state(pool)
 }
+
+#[derive(Clone)]
+pub struct ArtifactSecret(pub Vec<u8>);
 
 #[derive(OpenApi)]
 #[openapi(

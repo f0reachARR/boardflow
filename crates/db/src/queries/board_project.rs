@@ -136,3 +136,76 @@ pub async fn update_latest_completed_run(
     .await?;
     Ok(())
 }
+
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct BoardProjectWithLatestRunStatus {
+    pub id: Uuid,
+    pub repository_id: Uuid,
+    pub project_path: String,
+    pub project_dir: String,
+    pub display_name: String,
+    pub issue_url: Option<String>,
+    pub latest_tree_hash: Option<String>,
+    pub latest_completed_run_id: Option<Uuid>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+    pub latest_run_status: Option<String>,
+}
+
+pub async fn list_by_repository_id_with_status(
+    executor: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
+    repository_id: Uuid,
+    limit: i64,
+    cursor: Option<(DateTime<Utc>, Uuid)>,
+) -> Result<Vec<BoardProjectWithLatestRunStatus>, sqlx::Error> {
+    match cursor {
+        Some((ts, id)) => {
+            sqlx::query_as::<_, BoardProjectWithLatestRunStatus>(
+                r#"SELECT bp.id, bp.repository_id, bp.project_path, bp.project_dir, bp.display_name,
+                    bp.issue_url, bp.latest_tree_hash, bp.latest_completed_run_id,
+                    bp.created_at, bp.updated_at,
+                    (SELECT br.status FROM board_runs br WHERE br.board_project_id = bp.id
+                     ORDER BY br.created_at DESC LIMIT 1) AS latest_run_status
+                FROM board_projects bp
+                WHERE bp.repository_id = $1 AND (bp.updated_at, bp.id) < ($2, $3)
+                ORDER BY bp.updated_at DESC, bp.id DESC
+                LIMIT $4"#,
+            )
+            .bind(repository_id)
+            .bind(ts)
+            .bind(id)
+            .bind(limit)
+            .fetch_all(executor)
+            .await
+        }
+        None => {
+            sqlx::query_as::<_, BoardProjectWithLatestRunStatus>(
+                r#"SELECT bp.id, bp.repository_id, bp.project_path, bp.project_dir, bp.display_name,
+                    bp.issue_url, bp.latest_tree_hash, bp.latest_completed_run_id,
+                    bp.created_at, bp.updated_at,
+                    (SELECT br.status FROM board_runs br WHERE br.board_project_id = bp.id
+                     ORDER BY br.created_at DESC LIMIT 1) AS latest_run_status
+                FROM board_projects bp
+                WHERE bp.repository_id = $1
+                ORDER BY bp.updated_at DESC, bp.id DESC
+                LIMIT $2"#,
+            )
+            .bind(repository_id)
+            .bind(limit)
+            .fetch_all(executor)
+            .await
+        }
+    }
+}
+
+pub async fn get_latest_run_status(
+    executor: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
+    board_project_id: Uuid,
+) -> Result<Option<String>, sqlx::Error> {
+    sqlx::query_scalar(
+        "SELECT br.status FROM board_runs br WHERE br.board_project_id = $1 ORDER BY br.created_at DESC LIMIT 1",
+    )
+    .bind(board_project_id)
+    .fetch_optional(executor)
+    .await
+}

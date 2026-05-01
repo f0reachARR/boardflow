@@ -1,3 +1,4 @@
+pub mod auth;
 pub mod board_run;
 pub mod health;
 pub mod plan;
