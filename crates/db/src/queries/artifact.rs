@@ -1,6 +1,18 @@
 use boardflow_domain::models::artifact::Artifact;
 use uuid::Uuid;
 
+pub async fn list_by_board_run(
+    executor: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
+    board_run_id: Uuid,
+) -> Result<Vec<Artifact>, sqlx::Error> {
+    sqlx::query_as::<_, Artifact>(
+        "SELECT * FROM artifacts WHERE board_run_id = $1 ORDER BY type, created_at",
+    )
+    .bind(board_run_id)
+    .fetch_all(executor)
+    .await
+}
+
 pub async fn insert(
     executor: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
     id: Uuid,

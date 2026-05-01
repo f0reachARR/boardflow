@@ -1,4 +1,5 @@
 use boardflow_domain::models::board_run::BoardRun;
+use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
 /// Find a BoardRun by its ID
@@ -120,4 +121,41 @@ pub async fn mark_completed(
     .bind(drc_warnings)
     .fetch_one(executor)
     .await
+}
+
+/// List BoardRuns by board_project_id with cursor pagination
+pub async fn list_by_board_project(
+    executor: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
+    board_project_id: Uuid,
+    limit: i64,
+    cursor: Option<(DateTime<Utc>, Uuid)>,
+) -> Result<Vec<BoardRun>, sqlx::Error> {
+    match cursor {
+        Some((ts, id)) => {
+            sqlx::query_as::<_, BoardRun>(
+                r#"SELECT * FROM board_runs
+                WHERE board_project_id = $1 AND (created_at, id) < ($2, $3)
+                ORDER BY created_at DESC, id DESC
+                LIMIT $4"#,
+            )
+            .bind(board_project_id)
+            .bind(ts)
+            .bind(id)
+            .bind(limit)
+            .fetch_all(executor)
+            .await
+        }
+        None => {
+            sqlx::query_as::<_, BoardRun>(
+                r#"SELECT * FROM board_runs
+                WHERE board_project_id = $1
+                ORDER BY created_at DESC, id DESC
+                LIMIT $2"#,
+            )
+            .bind(board_project_id)
+            .bind(limit)
+            .fetch_all(executor)
+            .await
+        }
+    }
 }

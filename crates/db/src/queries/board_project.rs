@@ -1,5 +1,32 @@
 use boardflow_domain::models::board_project::BoardProject;
+use chrono::{DateTime, Utc};
 use uuid::Uuid;
+
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct BoardProjectWithRepository {
+    // BoardProject fields
+    pub id: Uuid,
+    pub repository_id: Uuid,
+    pub project_path: String,
+    pub project_dir: String,
+    pub display_name: String,
+    pub issue_number: Option<i32>,
+    pub issue_node_id: Option<String>,
+    pub issue_url: Option<String>,
+    pub issue_sync_status: boardflow_domain::models::board_project::IssueSyncStatus,
+    pub dashboard_comment_id: Option<i64>,
+    pub recreate_issue_on_update: bool,
+    pub latest_tree_hash: Option<String>,
+    pub latest_completed_run_id: Option<Uuid>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+    // Repository fields (prefixed)
+    pub repo_id: Uuid,
+    pub github_repository_id: i64,
+    pub repo_owner: String,
+    pub repo_name: String,
+    pub repo_installation_id: i64,
+}
 
 pub async fn find_by_id(
     executor: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
@@ -9,6 +36,63 @@ pub async fn find_by_id(
         .bind(id)
         .fetch_optional(executor)
         .await
+}
+
+pub async fn find_by_id_with_repository(
+    executor: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
+    id: Uuid,
+) -> Result<Option<BoardProjectWithRepository>, sqlx::Error> {
+    sqlx::query_as::<_, BoardProjectWithRepository>(
+        r#"SELECT
+            bp.id, bp.repository_id, bp.project_path, bp.project_dir, bp.display_name,
+            bp.issue_number, bp.issue_node_id, bp.issue_url, bp.issue_sync_status,
+            bp.dashboard_comment_id, bp.recreate_issue_on_update, bp.latest_tree_hash,
+            bp.latest_completed_run_id, bp.created_at, bp.updated_at,
+            r.id AS repo_id, r.github_repository_id, r.owner AS repo_owner,
+            r.name AS repo_name, r.installation_id AS repo_installation_id
+        FROM board_projects bp
+        JOIN repositories r ON r.id = bp.repository_id
+        WHERE bp.id = $1"#,
+    )
+    .bind(id)
+    .fetch_optional(executor)
+    .await
+}
+
+pub async fn list_by_repository_id(
+    executor: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
+    repository_id: Uuid,
+    limit: i64,
+    cursor: Option<(DateTime<Utc>, Uuid)>,
+) -> Result<Vec<BoardProject>, sqlx::Error> {
+    match cursor {
+        Some((ts, id)) => {
+            sqlx::query_as::<_, BoardProject>(
+                r#"SELECT * FROM board_projects
+                WHERE repository_id = $1 AND (updated_at, id) < ($2, $3)
+                ORDER BY updated_at DESC, id DESC
+                LIMIT $4"#,
+            )
+            .bind(repository_id)
+            .bind(ts)
+            .bind(id)
+            .bind(limit)
+            .fetch_all(executor)
+            .await
+        }
+        None => {
+            sqlx::query_as::<_, BoardProject>(
+                r#"SELECT * FROM board_projects
+                WHERE repository_id = $1
+                ORDER BY updated_at DESC, id DESC
+                LIMIT $2"#,
+            )
+            .bind(repository_id)
+            .bind(limit)
+            .fetch_all(executor)
+            .await
+        }
+    }
 }
 
 pub async fn upsert(

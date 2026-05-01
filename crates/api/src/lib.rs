@@ -18,6 +18,14 @@ pub fn create_app(pool: PgPool, s3_client: Option<aws_sdk_s3::Client>) -> Router
         .routes(routes!(routes::board_run::create_board_run))
         .routes(routes!(routes::board_run::fail_board_run))
         .routes(routes!(routes::board_run::import_artifact_bundle))
+        .routes(routes!(routes::read::list_repositories))
+        .routes(routes!(routes::read::get_repository))
+        .routes(routes!(routes::read::list_board_projects))
+        .routes(routes!(routes::read::get_board_project))
+        .routes(routes!(routes::read::list_board_runs))
+        .routes(routes!(routes::read::get_board_run))
+        .routes(routes!(routes::read::list_artifacts))
+        .routes(routes!(routes::read::get_viewer_sources))
         .split_for_parts();
 
     router
