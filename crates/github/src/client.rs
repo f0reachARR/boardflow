@@ -1,4 +1,4 @@
-use secrecy::ExposeSecret;
+use secrecy::{ExposeSecret, SecretString};
 
 use crate::config::GitHubAppConfig;
 use crate::error::GitHubClientError;
@@ -12,7 +12,7 @@ pub trait GitHubAppClient: Send + Sync {
     async fn get_installation_token(
         &self,
         installation_id: u64,
-    ) -> Result<String, GitHubClientError>;
+    ) -> Result<SecretString, GitHubClientError>;
 
     /// Create a new issue in the specified repository.
     async fn create_issue(
@@ -87,14 +87,14 @@ impl GitHubAppClient for OctocrabGitHubAppClient {
     async fn get_installation_token(
         &self,
         installation_id: u64,
-    ) -> Result<String, GitHubClientError> {
+    ) -> Result<SecretString, GitHubClientError> {
         let (_crab, token) = self
             .octocrab
             .installation_and_token(octocrab::models::InstallationId(installation_id))
             .await
             .map_err(GitHubClientError::from)?;
 
-        Ok(token.expose_secret().to_string())
+        Ok(token)
     }
 
     async fn create_issue(
@@ -200,5 +200,37 @@ impl GitHubAppClient for OctocrabGitHubAppClient {
             .map_err(GitHubClientError::from)?;
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::GitHubAppConfig;
+
+    /// Verify that `GitHubAppClient` is object-safe and can be used as `Arc<dyn GitHubAppClient>`.
+    fn _assert_object_safe(_: &dyn GitHubAppClient) {}
+
+    #[test]
+    fn trait_is_object_safe() {
+        // Compilation of _assert_object_safe is sufficient proof.
+        // This test exists to prevent accidental breakage.
+    }
+
+    #[test]
+    fn new_with_invalid_pem_returns_auth_error() {
+        let config = GitHubAppConfig {
+            app_id: 12345,
+            private_key_pem: secrecy::SecretString::from("not-a-valid-pem"),
+        };
+
+        let result = OctocrabGitHubAppClient::new(&config);
+        match result {
+            Err(GitHubClientError::Auth(msg)) => {
+                assert!(msg.contains("invalid RSA private key"));
+            }
+            Err(other) => panic!("expected Auth error, got: {other}"),
+            Ok(_) => panic!("expected error, got Ok"),
+        }
     }
 }

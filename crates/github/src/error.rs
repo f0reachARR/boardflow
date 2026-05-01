@@ -3,8 +3,12 @@ pub enum GitHubClientError {
     #[error("GitHub API authentication failed: {0}")]
     Auth(String),
 
-    #[error("GitHub API rate limited")]
-    RateLimited,
+    #[error("GitHub API rate limited (retry after {retry_after_secs:?}s)")]
+    RateLimited {
+        /// Seconds until rate limit resets (from Retry-After or x-ratelimit-reset header).
+        /// None if the information is unavailable.
+        retry_after_secs: Option<u64>,
+    },
 
     #[error("GitHub resource not found: {0}")]
     NotFound(String),
@@ -21,14 +25,14 @@ fn map_status_to_error(status: u16, message: String) -> GitHubClientError {
         401 => GitHubClientError::Auth(message),
         403 => {
             if message.to_lowercase().contains("rate limit") {
-                GitHubClientError::RateLimited
+                GitHubClientError::RateLimited { retry_after_secs: None }
             } else {
                 GitHubClientError::Auth(message)
             }
         }
         404 => GitHubClientError::NotFound(message),
         422 => GitHubClientError::Validation(message),
-        429 => GitHubClientError::RateLimited,
+        429 => GitHubClientError::RateLimited { retry_after_secs: None },
         _ => GitHubClientError::Api(message),
     }
 }
@@ -57,7 +61,7 @@ mod tests {
     #[test]
     fn test_403_rate_limit_maps_to_rate_limited() {
         let err = map_status_to_error(403, "API rate limit exceeded".to_string());
-        assert!(matches!(err, GitHubClientError::RateLimited));
+        assert!(matches!(err, GitHubClientError::RateLimited { retry_after_secs: None }));
     }
 
     #[test]
@@ -81,7 +85,7 @@ mod tests {
     #[test]
     fn test_429_maps_to_rate_limited() {
         let err = map_status_to_error(429, "rate limited".to_string());
-        assert!(matches!(err, GitHubClientError::RateLimited));
+        assert!(matches!(err, GitHubClientError::RateLimited { retry_after_secs: None }));
     }
 
     #[test]
@@ -102,6 +106,6 @@ mod tests {
             403,
             "You have exceeded a secondary rate limit".to_string(),
         );
-        assert!(matches!(err, GitHubClientError::RateLimited));
+        assert!(matches!(err, GitHubClientError::RateLimited { retry_after_secs: None }));
     }
 }
