@@ -408,3 +408,63 @@ pub async fn revoke(pool, id, repository_id) -> Result<Option<BoardflowApiToken>
 ### コミット
 
 - `a7bf1a0` feat(#27): implement API token management endpoints
+
+---
+
+## レビューフェーズ（2026-05-01）
+
+### レビュー結果
+
+Issue #27 の実装差分、`docs/spec.md`、`docs/backend/api.md`、既存 read/auth パターン、関連テストを確認した。
+
+追加で以下を確認した:
+
+- 実装対象ブランチ: `feat/27-api-token-management`
+- 対象コミット: `a7bf1a0`（実装）、`4c2d05b`（worklog更新）
+- 実行確認: `mise exec rust@nightly -- cargo test -p boardflow-api --test api_token_test` → 10/10 pass
+- Web 調査: token は hash 保存・平文は初回のみ返却・revoke は冪等、という方針は一般的な API key 管理ベストプラクティスと整合
+
+### 指摘事項
+
+#### Medium: create API の malformed JSON 時に `request_id` が空になる
+
+- `crates/api/src/routes/api_token.rs` の `create_api_token` は `Json<CreateApiTokenRequest>` を直接 extractor として受けている
+- `crates/api/src/error.rs` の `impl From<JsonRejection> for AppError` は `request_id` に空文字を設定する
+- そのため create API に不正 JSON を送った場合、仕様書の共通エラー形式が要求する `request_id` を満たさない可能性が高い
+- 既存の `plan_run` は `payload: Result<Json<_>, JsonRejection>` を受けて handler 内で `request_id` を付与しており、この新規実装とはパターンが異なる
+
+#### Medium: backend API 仕様書に token 管理 API の契約が未反映
+
+- `docs/spec.md` には token の最小ライフサイクル管理要件がある一方で、`docs/backend/api.md` には `POST/GET /api/v1/repositories/{github_repository_id}/api-tokens` と `POST /api/v1/repositories/{github_repository_id}/api-tokens/{token_id}/revoke` の契約記載がない
+- Issue の完了条件には docs 以下の仕様との整合確認が含まれており、API 実装だけ先行して契約ドキュメントが欠けた状態になっている
+
+### テスト不足
+
+- list API の cursor pagination の挙動確認がない（`limit`、`next_cursor`、`has_more`、2ページ目取得、invalid cursor）
+- list / revoke の access denied → 404 の確認がない
+- create API の malformed JSON → `validation_failed` と `request_id` 付与の確認がない
+
+### ドキュメント確認
+
+- `docs/spec.md`: token 平文は作成時のみ表示、DB には hash のみ保存、revoke 済み token は認可不可、`last_used_at` は成功認証時のみ更新、という仕様は実装と概ね整合
+- `docs/backend/api.md`: token 管理 API の endpoint / request / response / error 契約が未記載
+- `README.md`: Rust stable と記載があるが、現行 workspace は `edition = "2024"` かつ `mise.toml` で nightly 指定。Issue #27 固有ではないため今回は参考情報に留める
+
+### PR/完了結果
+
+- `pr_ready: false`
+
+### 必須修正
+
+1. create API の JSON parse error を handler 内で `request_id` 付きの `AppError::validation_failed` に変換する
+2. `docs/backend/api.md` に token 管理 API の request / response / auth / error / pagination 契約を追記する
+
+### 任意改善
+
+1. token 管理 API でも既存 read API と同様の pagination helper を共通化して重複を減らす
+2. session 認証系 endpoint の OpenAPI 上の auth 表現を整理する
+
+### 残リスク
+
+- malformed JSON 時の error contract 逸脱が残る限り、クライアント側の request tracing が不安定
+- pagination の未検証分岐に将来の回帰余地がある

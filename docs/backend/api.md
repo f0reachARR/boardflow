@@ -412,6 +412,127 @@ Response:
 
 未認証の場合は `401 unauthorized` を返す。
 
+## 3.0.5 Token Management API
+
+Token 管理 API は GitHub OAuth session を前提にし、repository へのアクセス権を確認する。
+トークンの作成、一覧取得、失効（revoke）の3つのエンドポイントを提供する。
+
+### 3.0.5.1 Token 作成
+
+```http
+POST /api/v1/repositories/{github_repository_id}/api-tokens
+```
+
+認証: GitHub OAuth session (cookie)
+
+Request:
+
+```json
+{
+  "name": "CI token"
+}
+```
+
+- `name`: 1〜100 文字（前後空白は trim）。空白のみは不可。
+
+Response (201):
+
+```json
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "name": "CI token",
+  "token": "bft_0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+  "created_at": "2026-05-01T00:00:00+00:00"
+}
+```
+
+- `token`: 平文のトークン。`bft_` プレフィックス + 64 hex 文字。**この一回のみ表示**。DB には SHA-256 hash のみ保存。
+
+エラーケース:
+
+| status | code | 条件 |
+|--------|------|------|
+| 400 | `validation_failed` | request body が不正な JSON、name が空白のみ、name が 100 文字超 |
+| 401 | `unauthorized` | session がない、または無効 |
+| 404 | `not_found` | repository が存在しない、またはアクセス権がない（情報隠蔽） |
+
+### 3.0.5.2 Token 一覧
+
+```http
+GET /api/v1/repositories/{github_repository_id}/api-tokens?limit=50&cursor=...
+```
+
+認証: GitHub OAuth session (cookie)
+
+Query parameters:
+
+| name | type | default | 説明 |
+|------|------|---------|------|
+| `limit` | integer | 50 | 1〜100 |
+| `cursor` | string | - | opaque cursor（次ページ取得用） |
+
+Response (200):
+
+```json
+{
+  "items": [
+    {
+      "id": "550e8400-e29b-41d4-a716-446655440000",
+      "name": "CI token",
+      "created_at": "2026-05-01T00:00:00+00:00",
+      "last_used_at": "2026-05-01T12:00:00+00:00",
+      "revoked_at": null
+    }
+  ],
+  "next_cursor": "eyJ0cyI6...",
+  "has_more": true
+}
+```
+
+- `token_hash` や平文は返さない。
+- revoke 済み token も含めて返す（UI で状態表示に使う）。
+- 並び順: `created_at DESC, id DESC`。
+
+エラーケース:
+
+| status | code | 条件 |
+|--------|------|------|
+| 400 | `validation_failed` | cursor の形式不正 |
+| 401 | `unauthorized` | session がない、または無効 |
+| 404 | `not_found` | repository が存在しない、またはアクセス権がない（情報隠蔽） |
+
+### 3.0.5.3 Token 失効（Revoke）
+
+```http
+POST /api/v1/repositories/{github_repository_id}/api-tokens/{token_id}/revoke
+```
+
+認証: GitHub OAuth session (cookie)
+
+Request body: なし
+
+Response (200):
+
+```json
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "name": "CI token",
+  "created_at": "2026-05-01T00:00:00+00:00",
+  "last_used_at": "2026-05-01T12:00:00+00:00",
+  "revoked_at": "2026-05-01T13:00:00+00:00"
+}
+```
+
+- 冪等: 既に revoke 済みの場合は既存の `revoked_at` を保持して返す。
+- token が指定 repository に属さない場合は 404 を返す。
+
+エラーケース:
+
+| status | code | 条件 |
+|--------|------|------|
+| 401 | `unauthorized` | session がない、または無効 |
+| 404 | `not_found` | repository が存在しない、アクセス権がない、または token が存在しない/別 repository に属する |
+
 ## 3.1 Web UI Read API
 
 Web UI read API は GitHub OAuth session を前提にし、backend が repository 権限を確認する。

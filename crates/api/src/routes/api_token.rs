@@ -1,3 +1,4 @@
+use axum::extract::rejection::JsonRejection;
 use axum::extract::{Path, Query, State};
 use axum::{Extension, Json};
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
@@ -122,8 +123,10 @@ pub async fn create_api_token(
     Extension(access_checker): Extension<DynGithubAccessChecker>,
     State(pool): State<PgPool>,
     Path(github_repository_id): Path<i64>,
-    Json(body): Json<CreateApiTokenRequest>,
+    payload: Result<Json<CreateApiTokenRequest>, JsonRejection>,
 ) -> Result<(axum::http::StatusCode, Json<CreateApiTokenResponse>), AppError> {
+    let Json(body) = payload.map_err(|e| AppError::validation_failed(e.body_text(), &request_id))?;
+
     // Validate name
     let name = body.name.trim();
     if name.is_empty() || name.len() > 100 {

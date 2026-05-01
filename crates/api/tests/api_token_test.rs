@@ -446,3 +446,170 @@ async fn test_revoke_token_wrong_repo() {
     let resp = app.oneshot(req).await.unwrap();
     assert_eq!(resp.status(), StatusCode::NOT_FOUND);
 }
+
+// ─── Test: cursor pagination (multi-page) ────────────────────────────────────
+
+#[tokio::test]
+async fn test_list_api_tokens_cursor_pagination() {
+    let Some(pool) = setup_pool().await else { return };
+
+    let user_id = create_test_user(&pool).await;
+    let session_id = create_test_session(&pool, user_id).await;
+    let github_repo_id = rand_i64();
+    let repo_id = create_test_repository(&pool, github_repo_id).await;
+
+    // Insert 3 tokens with distinct created_at
+    for i in 0..3 {
+        let token_id = Uuid::now_v7();
+        sqlx::query(
+            "INSERT INTO boardflow_api_tokens (id, installation_id, repository_id, name, token_hash, created_at) \
+             VALUES ($1, 1001, $2, $3, $4, NOW() + make_interval(secs => $5))",
+        )
+        .bind(token_id)
+        .bind(repo_id)
+        .bind(format!("Token {i}"))
+        .bind(format!("hash_{i}"))
+        .bind(i as f64)
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+
+    // Page 1: limit=2
+    let app = create_test_app(pool.clone());
+    let req = Request::builder()
+        .method("GET")
+        .uri(format!(
+            "/api/v1/repositories/{github_repo_id}/api-tokens?limit=2"
+        ))
+        .header("Cookie", session_cookie(session_id))
+        .body(Body::empty())
+        .unwrap();
+
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    let body_bytes = resp.into_body().collect().await.unwrap().to_bytes();
+    let json: Value = serde_json::from_slice(&body_bytes).unwrap();
+
+    let items = json["items"].as_array().unwrap();
+    assert_eq!(items.len(), 2);
+    assert_eq!(json["has_more"], true);
+    let next_cursor = json["next_cursor"].as_str().unwrap();
+    assert!(!next_cursor.is_empty());
+
+    // Page 2: use cursor
+    let app = create_test_app(pool.clone());
+    let req = Request::builder()
+        .method("GET")
+        .uri(format!(
+            "/api/v1/repositories/{github_repo_id}/api-tokens?limit=2&cursor={next_cursor}"
+        ))
+        .header("Cookie", session_cookie(session_id))
+        .body(Body::empty())
+        .unwrap();
+
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    let body_bytes = resp.into_body().collect().await.unwrap().to_bytes();
+    let json: Value = serde_json::from_slice(&body_bytes).unwrap();
+
+    let items = json["items"].as_array().unwrap();
+    assert_eq!(items.len(), 1);
+    assert_eq!(json["has_more"], false);
+    assert!(json["next_cursor"].is_null());
+}
+
+// ─── Test: list access denied returns 404 ────────────────────────────────────
+
+#[tokio::test]
+async fn test_list_api_tokens_access_denied() {
+    let Some(pool) = setup_pool().await else { return };
+    let app = create_deny_app(pool.clone());
+
+    let user_id = create_test_user(&pool).await;
+    let session_id = create_test_session(&pool, user_id).await;
+    let github_repo_id = rand_i64();
+    create_test_repository(&pool, github_repo_id).await;
+
+    let req = Request::builder()
+        .method("GET")
+        .uri(format!("/api/v1/repositories/{github_repo_id}/api-tokens"))
+        .header("Cookie", session_cookie(session_id))
+        .body(Body::empty())
+        .unwrap();
+
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+}
+
+// ─── Test: revoke access denied returns 404 ──────────────────────────────────
+
+#[tokio::test]
+async fn test_revoke_api_token_access_denied() {
+    let Some(pool) = setup_pool().await else { return };
+    let app = create_deny_app(pool.clone());
+
+    let user_id = create_test_user(&pool).await;
+    let session_id = create_test_session(&pool, user_id).await;
+    let github_repo_id = rand_i64();
+    let repo_id = create_test_repository(&pool, github_repo_id).await;
+
+    let token_id = Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO boardflow_api_tokens (id, installation_id, repository_id, name, token_hash, created_at) \
+         VALUES ($1, 1001, $2, 'Deny Revoke', 'hash_deny', NOW())",
+    )
+    .bind(token_id)
+    .bind(repo_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let req = Request::builder()
+        .method("POST")
+        .uri(format!(
+            "/api/v1/repositories/{github_repo_id}/api-tokens/{token_id}/revoke"
+        ))
+        .header("Cookie", session_cookie(session_id))
+        .body(Body::empty())
+        .unwrap();
+
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+}
+
+// ─── Test: create with malformed JSON returns validation_failed + request_id ─
+
+#[tokio::test]
+async fn test_create_api_token_malformed_json() {
+    let Some(pool) = setup_pool().await else { return };
+    let app = create_test_app(pool.clone());
+
+    let user_id = create_test_user(&pool).await;
+    let session_id = create_test_session(&pool, user_id).await;
+    let github_repo_id = rand_i64();
+    create_test_repository(&pool, github_repo_id).await;
+
+    // Send invalid JSON body
+    let req = Request::builder()
+        .method("POST")
+        .uri(format!("/api/v1/repositories/{github_repo_id}/api-tokens"))
+        .header("Content-Type", "application/json")
+        .header("Cookie", session_cookie(session_id))
+        .body(Body::from(b"{ not valid json".to_vec()))
+        .unwrap();
+
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+
+    let body_bytes = resp.into_body().collect().await.unwrap().to_bytes();
+    let json: Value = serde_json::from_slice(&body_bytes).unwrap();
+
+    // Verify error structure
+    assert_eq!(json["error"]["code"], "validation_failed");
+    // request_id must be non-empty (proves handler-level conversion is working)
+    let request_id = json["error"]["request_id"].as_str().unwrap();
+    assert!(!request_id.is_empty(), "request_id must not be empty for malformed JSON");
+}
