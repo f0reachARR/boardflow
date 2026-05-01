@@ -81,7 +81,7 @@ pub struct ManifestCheck {
     #[serde(default)]
     pub raw_summary: Option<serde_json::Value>,
     #[serde(default)]
-    pub findings: Vec<ManifestFinding>,
+    pub findings: Vec<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

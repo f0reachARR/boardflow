@@ -267,57 +267,94 @@ async fn process_import_job(
         .map_err(|e| ArtifactError::S3(e.to_string()))?;
 
         // Insert findings for this check
-        for (idx, finding) in check.findings.iter().enumerate() {
-            let x_um = finding.pos_mm.as_ref().map(|p| (p.x * 1000.0) as i32);
-            let y_um = finding.pos_mm.as_ref().map(|p| (p.y * 1000.0) as i32);
-
-            if let Err(e) = run_check_finding::insert(
-                &mut *tx,
-                Uuid::now_v7(),
-                check_id,
-                &finding.severity,
-                Some(&finding.rule_code),
-                Some(&finding.title),
-                finding.message.as_deref(),
-                finding.subject_kind.as_deref(),
-                finding.subject_ref.as_deref(),
-                finding.sheet_path.as_deref(),
-                finding.pcb_layer.as_deref(),
-                x_um,
-                y_um,
-                None,
-                finding.raw.as_ref(),
-                idx as i32,
-            )
-            .await
+        for (idx, raw_finding) in check.findings.iter().enumerate() {
+            // Try to parse the finding
+            match serde_json::from_value::<boardflow_artifact::ManifestFinding>(raw_finding.clone())
             {
-                tracing::warn!(
-                    check_id = %check_id,
-                    sort_index = idx,
-                    error = %e,
-                    "Failed to insert finding, storing raw payload"
-                );
-                let raw_fallback = serde_json::to_value(finding).ok();
-                let _ = run_check_finding::insert(
-                    &mut *tx,
-                    Uuid::now_v7(),
-                    check_id,
-                    &finding.severity,
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                    raw_fallback.as_ref(),
-                    idx as i32,
-                )
-                .await
-                .ok();
+                Ok(finding) => {
+                    let x_um =
+                        finding.pos_mm.as_ref().map(|p| (p.x * 1000.0).round() as i32);
+                    let y_um =
+                        finding.pos_mm.as_ref().map(|p| (p.y * 1000.0).round() as i32);
+
+                    if let Err(e) = run_check_finding::insert(
+                        &mut *tx,
+                        Uuid::now_v7(),
+                        check_id,
+                        &finding.severity,
+                        Some(&finding.rule_code),
+                        Some(&finding.title),
+                        finding.message.as_deref(),
+                        finding.subject_kind.as_deref(),
+                        finding.subject_ref.as_deref(),
+                        finding.sheet_path.as_deref(),
+                        finding.pcb_layer.as_deref(),
+                        x_um,
+                        y_um,
+                        None,
+                        finding.raw.as_ref(),
+                        idx as i32,
+                    )
+                    .await
+                    {
+                        tracing::warn!(
+                            check_id = %check_id,
+                            sort_index = idx,
+                            error = %e,
+                            "Failed to insert parsed finding, falling back to raw"
+                        );
+                        // Fallback: store raw with safe severity
+                        let _ = run_check_finding::insert(
+                            &mut *tx,
+                            Uuid::now_v7(),
+                            check_id,
+                            "notice",
+                            None,
+                            None,
+                            None,
+                            None,
+                            None,
+                            None,
+                            None,
+                            None,
+                            None,
+                            None,
+                            Some(raw_finding),
+                            idx as i32,
+                        )
+                        .await
+                        .ok();
+                    }
+                }
+                Err(e) => {
+                    // Parse failed: store raw finding with safe defaults
+                    tracing::warn!(
+                        check_id = %check_id,
+                        sort_index = idx,
+                        error = %e,
+                        "Failed to parse finding, storing raw payload"
+                    );
+                    let _ = run_check_finding::insert(
+                        &mut *tx,
+                        Uuid::now_v7(),
+                        check_id,
+                        "notice",
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        Some(raw_finding),
+                        idx as i32,
+                    )
+                    .await
+                    .ok();
+                }
             }
         }
 

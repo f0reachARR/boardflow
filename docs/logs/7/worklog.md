@@ -1634,3 +1634,154 @@ for (idx, finding) in check.findings.iter().enumerate() {
 - `run_check_findings` テーブルの DB統合テストはローカルDB依存のため本PRでは未実施 (既存の `board_run_test.rs` が同様にCI/DBに依存)
 - `test_fail_board_run_idempotent` はDBフィクスチャの既存不具合 (本変更とは無関係)
 - Worker の findings INSERT は `tracing::warn` + フォールバックで処理続行するため、パース不一致時にデータ欠損の可能性あり (設計通り)
+
+---
+
+## レビューフェーズ: run_check_findings 追加実装 (2026-05-01)
+
+### 経緯
+
+- 対象Issue: #7 (追加実装)
+- 対象ブランチ: `feature/issue-7-run-check-findings-insert`
+- 対象コミット: `4732e69`
+- レビュー対象: ERC/DRC findings の `run_checks` / `run_check_findings` 保存追加
+
+### ユーザー要望
+
+- `docs/spec.md` 10.7 と research 成果物に沿って、Import Worker が findings を保存できること
+- パース失敗時は `raw_payload_json` にフォールバックして処理継続すること
+- `findings` 未指定の旧 manifest.json でも既存動作を壊さないこと
+
+### 調査結果
+
+- 仕様確認: `run_check_findings` は UI 直接利用の明細テーブルであり、parser が取りこぼしたくない項目は `raw_payload_json` に保持する方針
+- research 確認: `docs/external/kicad-erc-drc-findings.md` では `x_um` / `y_um` を `round()` で変換する前提
+- 実装確認: `ManifestFinding` は `severity` / `rule_code` / `title` を必須フィールドとして `BundleManifest` 全体の `serde_json::from_slice` で一括デシリアライズしている
+- 実装確認: Worker の findings 保存は逐次 INSERT。1回目の INSERT 失敗時のみ簡易フォールバック INSERT を試みるが、失敗時は握りつぶして継続する
+- テスト確認: `cargo test -p boardflow-artifact` は 21 件成功、`cargo test -p boardflow-db -p boardflow-worker` は成功。ただし findings 保存そのものを検証する DB/worker テストは今回追加されていない
+
+### レビュー結果
+
+**pr_ready: false**
+
+#### 重大度順の指摘
+
+1. `ManifestFinding` の個別パース失敗を吸収できず、manifest 全体の import が失敗する
+  - `crates/artifact/src/lib.rs` で `ManifestFinding.severity` / `rule_code` / `title` が必須 (`String`) のまま定義され、`extract_bundle` で manifest 全体を一括デシリアライズしている
+  - このため 1 件でも findings の型不一致や必須フィールド欠落があると、Issue本文・計画にある「パース失敗時は raw_payload_json に保存して継続」を満たせない
+  - 現状の worker 側フォールバックは DB INSERT 失敗時しか効かず、JSON パース失敗時には到達しない
+
+2. mm→µm 変換が `round()` ではなく切り捨てになっており、research / 計画と不一致
+  - Worker 実装は `(p.x * 1000.0) as i32` / `(p.y * 1000.0) as i32` を使っている
+  - research 成果物と worklog 計画では `round()` 前提になっているため、0.0006 mm のような値が 1 µm ではなく 0 µm になりうる
+  - 小さい座標で UI 上の位置ズレや再現性低下を招く
+
+3. フォールバック INSERT は保存保証になっておらず、特定の不正値で findings が無音で欠落する
+  - `run_check_findings.severity` には CHECK 制約があり、worker のフォールバック INSERT でも元の `finding.severity` をそのまま再利用している
+  - そのため severity が不正値なら 1 回目も 2 回目も失敗し、2 回目は `.ok()` で握りつぶされる
+  - `raw_payload_json` に保存して継続、というレビュー観点に対して保証が不足している
+
+### 必須修正
+
+- findings の個別パース失敗を manifest 全体失敗にしない構造へ変更すること
+- 座標変換を `round()` に合わせて実装し、research / 計画 / 実装を一致させること
+- フォールバック保存が必ず成功するよう、少なくとも invalid severity を安全な値へ正規化するか、失敗を明示的に error として扱うこと
+
+### 任意改善
+
+- findings が多いケースに備え、将来的には multi-row INSERT または COPY 相当のバルク化を検討してよい
+- フォールバック時に「どの理由で正規列を落として raw のみにしたか」を `raw_payload_json` またはログ構造に残すと運用しやすい
+
+### テスト不足
+
+- malformed finding を含む manifest でも import 継続できることのテストがない
+- invalid severity / invalid subject_kind で raw フォールバック保存になることのテストがない
+- worker 経由で `run_check_findings.sort_index`, `x_um`, `y_um`, `raw_payload_json` が期待どおり保存される統合テストがない
+
+### ドキュメント確認
+
+- `docs/spec.md` 10.7 のテーブル設計とは大きな齟齬はない
+- `docs/external/kicad-erc-drc-findings.md` と今回実装には、座標変換 (`round()`) とフォールバック期待値に不一致がある
+- `docs/logs/7/worklog.md` の計画では findings INSERT の正常系・異常系テストまで受け入れ条件に入っているが、実装では未充足
+
+### plan / research / docs との不整合
+
+- plan では「パース失敗時は `raw_payload_json` に保存して継続」としているが、現実装は JSON デシリアライズ段階で bundle 全体が失敗しうる
+- research では `round()` を使う設計だが、worker 実装は切り捨て
+- 計画のテスト観点にある findings INSERT の正常系・異常系検証が未実装
+
+### PR/完了結果
+
+- 判定: `pr_ready: false`
+- 追加実装の方向性自体は仕様に沿っているが、フォールバックの中心要件と座標変換の整合が未達のため、このままのPR化は避けるべき
+
+### 残リスク
+
+- 逐次 INSERT 自体は MVP では許容範囲だが、finding 数が増えると worker のトランザクション時間が伸びる
+- raw フォールバック設計を明確にしないまま Action 側フォーマットが進化すると、silent drop が再発しやすい
+
+### 更新した作業ログパス
+
+- `docs/logs/7/worklog.md`
+
+---
+
+## レビューブロッカー修正フェーズ (2026-05-01)
+
+### 経緯
+
+レビューで3件のブロッカーが検出された:
+1. findings の個別パース失敗を吸収できない (1件の malformed finding で全 manifest デシリアライズ失敗)
+2. 座標変換が `.round()` なしの切り捨て
+3. フォールバック INSERT が元の severity をそのまま使い、不正値で DB CHECK 制約違反
+
+### 修正内容
+
+#### ブロッカー1: findings フィールドを `Vec<serde_json::Value>` に変更
+
+- `crates/artifact/src/lib.rs`: `ManifestCheck.findings` の型を `Vec<ManifestFinding>` → `Vec<serde_json::Value>` に変更
+- `crates/worker/src/main.rs`: Step 5 で `serde_json::from_value::<ManifestFinding>()` による個別デシリアライズに変更
+  - 成功時: 構造化データとして INSERT
+  - パース失敗時: `raw_payload_json` に生 JSON を保存、severity は `"notice"` (DB CHECK 制約安全値)
+  - INSERT 失敗時のフォールバックでも同様に `"notice"` + raw 保存
+
+#### ブロッカー2: 座標変換に `.round()` 追加
+
+- `crates/worker/src/main.rs`: `(p.x * 1000.0).round() as i32` に変更
+- `crates/artifact/tests/extract_test.rs`: 既存テストも `.round()` 使用に更新
+
+#### ブロッカー3: フォールバック severity を `"notice"` に固定
+
+- Worker のフォールバックパス(パース失敗/INSERT失敗)で severity に `"notice"` を使用
+- DB CHECK 制約 `('error', 'warning', 'notice')` を確実にパス
+
+### テスト追加
+
+| テスト名 | 観点 |
+|---|---|
+| `test_manifest_findings_malformed_individual_parsing` | malformed finding を含む JSON 配列でも ManifestCheck 全体のデシリアライズが成功し、個別パースで valid/invalid を正しく判別 |
+| `test_coordinate_mm_to_um_rounding` | 0.0006mm → 1µm、0.0004mm → 0µm、0.0005mm → 1µm、負値の丸め、truncation vs round の比較 |
+
+### テスト結果
+
+```
+cargo test -p boardflow-artifact: 23 passed, 0 failed
+cargo build --workspace: success (no warnings)
+```
+
+### 変更ファイル
+
+| ファイル | 変更概要 |
+|---|---|
+| `crates/artifact/src/lib.rs` | `ManifestCheck.findings` を `Vec<serde_json::Value>` に変更 |
+| `crates/worker/src/main.rs` | Step 5 を個別デシリアライズ + raw フォールバック方式に全面書き換え |
+| `crates/artifact/tests/extract_test.rs` | 既存テスト更新 + 2件のテスト追加 |
+
+### 残リスク
+
+- raw フォールバックで保存された finding は severity="notice" 固定のため、本来の severity 情報が失われる
+- 大量の malformed findings があると raw_payload_json だけが大量に蓄積される (閲覧UI側での対応が必要)
+
+### 更新した作業ログパス
+
+- `docs/logs/7/worklog.md`

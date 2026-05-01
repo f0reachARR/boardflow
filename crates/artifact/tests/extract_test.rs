@@ -1,6 +1,6 @@
 use boardflow_artifact::{
     extract_bundle, verify_sha256, ArtifactError, BundleManifest, CoordinateMm, ManifestArtifact,
-    ManifestCheck, ManifestFile, MAX_BUNDLE_SIZE,
+    ManifestCheck, ManifestFile, ManifestFinding, MAX_BUNDLE_SIZE,
 };
 use sha2::{Digest, Sha256};
 use std::io::Write;
@@ -366,7 +366,8 @@ fn test_manifest_check_findings_deserialization() {
     assert_eq!(check.error_count, 2);
     assert_eq!(check.findings.len(), 2);
 
-    let f0 = &check.findings[0];
+    // Individually parse findings from serde_json::Value
+    let f0: ManifestFinding = serde_json::from_value(check.findings[0].clone()).unwrap();
     assert_eq!(f0.severity, "error");
     assert_eq!(f0.rule_code, "E001");
     assert_eq!(f0.title, "Unconnected pin");
@@ -380,7 +381,7 @@ fn test_manifest_check_findings_deserialization() {
     assert!((pos.y - 50.25).abs() < f64::EPSILON);
     assert!(f0.raw.is_none());
 
-    let f1 = &check.findings[1];
+    let f1: ManifestFinding = serde_json::from_value(check.findings[1].clone()).unwrap();
     assert_eq!(f1.severity, "warning");
     assert_eq!(f1.rule_code, "W003");
     assert!(f1.message.is_none());
@@ -411,23 +412,23 @@ fn test_coordinate_mm_to_um_conversion() {
         x: 100.5,
         y: -25.75,
     };
-    let x_um = (coord.x * 1000.0) as i32;
-    let y_um = (coord.y * 1000.0) as i32;
+    let x_um = (coord.x * 1000.0).round() as i32;
+    let y_um = (coord.y * 1000.0).round() as i32;
     assert_eq!(x_um, 100500);
     assert_eq!(y_um, -25750);
 
     // Zero coordinate
     let zero = CoordinateMm { x: 0.0, y: 0.0 };
-    assert_eq!((zero.x * 1000.0) as i32, 0);
-    assert_eq!((zero.y * 1000.0) as i32, 0);
+    assert_eq!((zero.x * 1000.0).round() as i32, 0);
+    assert_eq!((zero.y * 1000.0).round() as i32, 0);
 
     // Small values
     let small = CoordinateMm {
         x: 0.001,
         y: 0.999,
     };
-    assert_eq!((small.x * 1000.0) as i32, 1);
-    assert_eq!((small.y * 1000.0) as i32, 999);
+    assert_eq!((small.x * 1000.0).round() as i32, 1);
+    assert_eq!((small.y * 1000.0).round() as i32, 999);
 }
 
 #[test]
@@ -586,4 +587,91 @@ fn test_extract_bundle_rejects_unlisted_entry() {
         }
         other => panic!("unexpected error: {other:?}"),
     }
+}
+
+#[test]
+fn test_manifest_findings_malformed_individual_parsing() {
+    // ManifestCheck.findings is Vec<serde_json::Value>, so malformed entries
+    // don't prevent the overall ManifestCheck from deserializing.
+    // Individual parsing with serde_json::from_value::<ManifestFinding> should
+    // succeed for valid entries and fail for malformed ones.
+    let json = serde_json::json!({
+        "kind": "erc",
+        "status": "failed",
+        "error_count": 1,
+        "warning_count": 0,
+        "notice_count": 0,
+        "findings": [
+            {
+                "severity": "error",
+                "rule_code": "E001",
+                "title": "Valid finding"
+            },
+            {
+                "some_unknown_field": "garbage",
+                "no_severity": true
+            },
+            "this is not even an object",
+            {
+                "severity": "warning",
+                "rule_code": "W002",
+                "title": "Another valid finding"
+            }
+        ]
+    });
+
+    // ManifestCheck deserializes successfully (findings are raw Values)
+    let check: ManifestCheck = serde_json::from_value(json).unwrap();
+    assert_eq!(check.findings.len(), 4);
+
+    // First finding: valid, parses successfully
+    let r0 = serde_json::from_value::<ManifestFinding>(check.findings[0].clone());
+    assert!(r0.is_ok());
+    assert_eq!(r0.unwrap().severity, "error");
+
+    // Second finding: malformed (missing required fields), parse fails
+    let r1 = serde_json::from_value::<ManifestFinding>(check.findings[1].clone());
+    assert!(r1.is_err());
+
+    // Third finding: not even an object, parse fails
+    let r2 = serde_json::from_value::<ManifestFinding>(check.findings[2].clone());
+    assert!(r2.is_err());
+
+    // Fourth finding: valid, parses successfully
+    let r3 = serde_json::from_value::<ManifestFinding>(check.findings[3].clone());
+    assert!(r3.is_ok());
+    assert_eq!(r3.unwrap().rule_code, "W002");
+}
+
+#[test]
+fn test_coordinate_mm_to_um_rounding() {
+    // 0.0006mm should round to 1µm (0.0006 * 1000 = 0.6, rounds to 1)
+    let coord = CoordinateMm { x: 0.0006, y: 0.0 };
+    let x_um = (coord.x * 1000.0).round() as i32;
+    assert_eq!(x_um, 1);
+
+    // 0.0004mm should round to 0µm (0.0004 * 1000 = 0.4, rounds to 0)
+    let coord2 = CoordinateMm { x: 0.0004, y: 0.0 };
+    let x_um2 = (coord2.x * 1000.0).round() as i32;
+    assert_eq!(x_um2, 0);
+
+    // 0.0005mm should round to 1µm (0.0005 * 1000 = 0.5, rounds to 1 — banker's rounding not used by f64::round)
+    let coord3 = CoordinateMm { x: 0.0005, y: 0.0 };
+    let x_um3 = (coord3.x * 1000.0).round() as i32;
+    assert_eq!(x_um3, 1);
+
+    // Negative: -0.0006mm should round to -1µm
+    let coord4 = CoordinateMm {
+        x: -0.0006,
+        y: 0.0,
+    };
+    let x_um4 = (coord4.x * 1000.0).round() as i32;
+    assert_eq!(x_um4, -1);
+
+    // Without .round(), 0.0006 * 1000.0 = 0.6 would truncate to 0 with `as i32`
+    // This confirms .round() is required for correct µm conversion
+    let truncated = (0.0006_f64 * 1000.0) as i32;
+    assert_eq!(truncated, 0); // truncation gives wrong result
+    let rounded = (0.0006_f64 * 1000.0).round() as i32;
+    assert_eq!(rounded, 1); // rounding gives correct result
 }
