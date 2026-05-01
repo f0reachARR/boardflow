@@ -663,3 +663,94 @@ S3 upload 成功後に DB コミット失敗した場合、orphaned objects が�
 ### 更新した作業ログパス
 
 `docs/logs/7/worklog.md`
+
+---
+
+## 実装フェーズ (2026-05-01)
+
+### 実装完了
+
+ブランチ: `feat/import-worker` (commit: `1cc086d`)
+
+### 変更したファイル一覧
+
+#### 新規作成
+| ファイル | 概要 |
+|---|---|
+| `crates/artifact/tests/extract_test.rs` | ZIP展開・SHA256検証のユニットテスト (13件) |
+| `crates/db/migrations/20260501000001_add_dequeue_index.up.sql` | pending jobポーリング用部分インデックス |
+| `crates/db/migrations/20260501000001_add_dequeue_index.down.sql` | rollback |
+| `crates/db/src/queries/artifact.rs` | artifacts INSERT クエリ |
+| `crates/db/src/queries/diff.rs` | board_run_diff_metadata + board_run_diffs INSERT |
+| `crates/db/src/queries/run_check.rs` | run_checks INSERT |
+| `crates/db/src/queries/snapshot.rs` | board_project_snapshots INSERT |
+| `crates/worker/src/config.rs` | WorkerConfig (環境変数からの設定読み込み) |
+
+#### 修正
+| ファイル | 概要 |
+|---|---|
+| `Cargo.toml` (workspace) | `zip = "2"` 追加 |
+| `crates/artifact/Cargo.toml` | 全依存追加 |
+| `crates/artifact/src/lib.rs` | S3ダウンロード、SHA256検証、ZIP展開、manifest解析、S3アップロード |
+| `crates/jobs/Cargo.toml` | 全依存追加 |
+| `crates/jobs/src/lib.rs` | dequeue/ack/nack 実装 |
+| `crates/worker/Cargo.toml` | 全依存追加 (sqlx含む) |
+| `crates/worker/src/main.rs` | Worker loop + import job処理パイプライン全体 |
+| `crates/db/src/queries/mod.rs` | artifact/diff/run_check/snapshot モジュール追加 |
+| `crates/db/src/queries/github_job.rs` | dequeue/mark_completed/mark_failed/reschedule 追加 |
+| `crates/db/src/queries/board_run.rs` | mark_completed 追加 |
+| `crates/db/src/queries/artifact_bundle.rs` | mark_importing/mark_completed/mark_failed 追加 |
+| `crates/db/src/queries/board_project.rs` | update_latest_completed_run 追加 |
+
+### 実装の概要
+
+1. **ジョブポーリング基盤 (`crates/jobs/`)**: CTE + FOR UPDATE SKIP LOCKED による安全なジョブ取得、指数バックオフリトライ (10s × 3^attempts)、MAX_ATTEMPTS=5 での永続的失敗
+2. **アーティファクト処理 (`crates/artifact/`)**: S3ダウンロード、SHA256ハッシュ検証、ZIP展開 (manifest.json v1パース)、パストラバーサル防御、500MBサイズ上限、S3アップロード
+3. **DBクエリ群 (`crates/db/`)**: github_job/artifact_bundle/board_run/board_project のステータス遷移、snapshot/artifact/run_check/diff の INSERT
+4. **Workerメインループ (`crates/worker/`)**: tokio::select! による graceful shutdown、ポーリング間隔設定可能、12ステップのインポートパイプライン (ダウンロード→検証→展開→アップロード→永続化→完了)
+
+### テスト結果
+
+```
+running 13 tests
+test test_extract_bundle_too_large ... ok
+test test_extract_bundle_missing_manifest ... ok
+test test_verify_sha256_mismatch ... ok
+test test_extract_bundle_invalid_manifest_json ... ok
+test test_verify_sha256_valid ... ok
+test test_extract_bundle_artifact_not_found_in_zip ... ok
+test test_extract_bundle_available_artifact_no_source_path ... ok
+test test_extract_bundle_path_traversal_absolute ... ok
+test test_extract_bundle_skips_non_available_artifacts ... ok
+test test_extract_bundle_unsupported_version ... ok
+test test_extract_bundle_path_traversal_dotdot ... ok
+test test_extract_bundle_multiple_artifacts ... ok
+test test_extract_bundle_valid ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+```
+
+テスト観点:
+- **正常系**: 有効なZIP展開、複数アーティファクト展開、SHA256検証成功
+- **境界値**: サイズ上限定数確認
+- **エラー系**: manifest.json不在、不正JSON、未対応バージョン、source_path未設定
+- **セキュリティ**: パストラバーサル(..攻撃)、絶対パス拒否
+- **スキップ系**: non-available アーティファクトのスキップ確認
+
+### ビルド結果
+
+```
+cargo build → Finished `dev` profile [unoptimized + debuginfo] target(s)
+```
+
+警告なし、エラーなし。
+
+### 残リスク
+
+| リスク | 詳細 |
+|---|---|
+| 統合テスト未実施 | DB + S3 (MinIO) を使った end-to-end テストは未実装。CI環境のdocker-compose設定が必要 |
+| Worker クラッシュ回復 | running状態で放置されたジョブの定期検出バッチは未実装 (MVP後) |
+| delete_after 設定 | staging bundle の TTL 設定は未実装 |
+| diff baseline 解決 | board_project.latest_completed_run_id からの baseline 取得は "no_baseline" 固定 (MVP) |
+| メモリ使用量 | 500MB bundle の全量メモリ展開。大規模プロジェクトではストリーミング展開が必要な可能性 |
