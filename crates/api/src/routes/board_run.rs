@@ -6,6 +6,7 @@ use sqlx::PgPool;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
+use boardflow_domain::models::artifact_bundle::ArtifactBundleStatus;
 use boardflow_domain::models::board_run::BoardRunStatus;
 
 use crate::error::{AppError, RequestId};
@@ -27,6 +28,16 @@ fn format_board_run_id(id: Uuid) -> String {
 
 fn format_bundle_id(id: Uuid) -> String {
     format!("ab_{id}")
+}
+
+fn bundle_status_str(status: ArtifactBundleStatus) -> &'static str {
+    match status {
+        ArtifactBundleStatus::Pending => "queued",
+        ArtifactBundleStatus::Validating => "running",
+        ArtifactBundleStatus::Importing => "running",
+        ArtifactBundleStatus::Completed => "completed",
+        ArtifactBundleStatus::Failed => "failed",
+    }
 }
 
 // ─── Request/Response types ──────────────────────────────────────────────────
@@ -490,7 +501,7 @@ pub async fn import_artifact_bundle(
                 })?;
                 return Ok(Json(ImportArtifactBundleResponse {
                     bundle_id: format_bundle_id(bundle.id),
-                    status: "completed".to_string(),
+                    status: bundle_status_str(bundle.status).to_string(),
                 }));
             }
             return Err(AppError::internal_error(
@@ -519,7 +530,7 @@ pub async fn import_artifact_bundle(
         })?;
         return Ok(Json(ImportArtifactBundleResponse {
             bundle_id: format_bundle_id(existing.id),
-            status: "queued".to_string(),
+            status: bundle_status_str(existing.status).to_string(),
         }));
     }
 
