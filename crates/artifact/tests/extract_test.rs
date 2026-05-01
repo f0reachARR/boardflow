@@ -447,3 +447,41 @@ fn test_extract_bundle_size_verification_fail() {
         other => panic!("unexpected error: {other:?}"),
     }
 }
+
+#[test]
+fn test_extract_bundle_rejects_unlisted_entry() {
+    let artifact_data = b"fake gerber content";
+    let manifest = make_manifest(vec![ManifestArtifact {
+        r#type: "gerber".to_string(),
+        filename: "output.gbr".to_string(),
+        content_type: "application/octet-stream".to_string(),
+        status: "available".to_string(),
+        source_path: Some("artifacts/output.gbr".to_string()),
+        logical_name: None,
+        status_reason: None,
+        sha256: None,
+        size_bytes: None,
+    }]);
+
+    // Include an extra file "extra.txt" not declared in manifest
+    let zip_data = create_test_zip(
+        &manifest,
+        &[
+            ("artifacts/output.gbr", artifact_data),
+            ("extra.txt", b"unexpected file"),
+        ],
+    );
+
+    let result = extract_bundle(&zip_data);
+    assert!(result.is_err());
+    match result.unwrap_err() {
+        ArtifactError::Manifest(msg) => {
+            assert!(
+                msg.contains("not declared in manifest"),
+                "unexpected message: {msg}"
+            );
+            assert!(msg.contains("extra.txt"), "should mention the file name: {msg}");
+        }
+        other => panic!("unexpected error: {other:?}"),
+    }
+}

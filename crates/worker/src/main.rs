@@ -392,27 +392,55 @@ async fn process_import_job(
         .map_err(|e| ArtifactError::S3(e.to_string()))?;
 
     // Step 13: Enqueue follow-up jobs
-    github_job::enqueue(
+
+    // 1. Issue sync: if board_project has no issue_number, enqueue create_issue
+    let bp_for_jobs = board_project::find_by_id(&mut *tx, board_project_id)
+        .await
+        .map_err(|e| ArtifactError::S3(e.to_string()))?;
+
+    if bp_for_jobs.as_ref().and_then(|bp| bp.issue_number).is_none() {
+        let _ = github_job::enqueue(
+            &mut *tx,
+            Uuid::now_v7(),
+            job.installation_id,
+            job.repository_id,
+            Some(board_project_id),
+            Some(board_run_id),
+            "create_issue",
+            &serde_json::json!({}),
+        )
+        .await
+        .map_err(|e| ArtifactError::S3(e.to_string()))?;
+    }
+
+    // 2. Dashboard comment: create or update based on board_project.dashboard_comment_id
+    let dashboard_job_type = if bp_for_jobs.as_ref().and_then(|bp| bp.dashboard_comment_id).is_some() {
+        "update_dashboard_comment"
+    } else {
+        "create_dashboard_comment"
+    };
+    let _ = github_job::enqueue(
         &mut *tx,
         Uuid::now_v7(),
         job.installation_id,
         job.repository_id,
         Some(board_project_id),
         Some(board_run_id),
-        "issue_sync",
+        dashboard_job_type,
         &serde_json::json!({}),
     )
     .await
     .map_err(|e| ArtifactError::S3(e.to_string()))?;
 
-    github_job::enqueue(
+    // 3. Run result comment
+    let _ = github_job::enqueue(
         &mut *tx,
         Uuid::now_v7(),
         job.installation_id,
         job.repository_id,
         Some(board_project_id),
         Some(board_run_id),
-        "run_result_comment",
+        "create_run_result_comment",
         &serde_json::json!({}),
     )
     .await

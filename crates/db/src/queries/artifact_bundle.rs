@@ -104,7 +104,7 @@ pub async fn mark_completed(
     id: Uuid,
 ) -> Result<(), sqlx::Error> {
     sqlx::query(
-        "UPDATE artifact_bundles SET status = 'completed', validated_at = NOW(), delete_after = NOW() + INTERVAL '7 days' WHERE id = $1",
+        "UPDATE artifact_bundles SET status = 'completed', validated_at = NOW(), delete_after = NOW() + INTERVAL '24 hours' WHERE id = $1",
     )
     .bind(id)
     .execute(executor)

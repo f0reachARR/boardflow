@@ -107,7 +107,7 @@ pub async fn enqueue(
     board_run_id: Option<Uuid>,
     job_type: &str,
     payload: &serde_json::Value,
-) -> Result<GithubJob, sqlx::Error> {
+) -> Result<Option<GithubJob>, sqlx::Error> {
     sqlx::query_as::<_, GithubJob>(
         r#"INSERT INTO github_jobs (id, installation_id, repository_id, board_project_id, board_run_id, type, payload_json, status, attempts, run_after, created_at, updated_at)
         VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending', 0, NOW(), NOW(), NOW())
@@ -121,6 +121,6 @@ pub async fn enqueue(
     .bind(board_run_id)
     .bind(job_type)
     .bind(payload)
-    .fetch_one(executor)
+    .fetch_optional(executor)
     .await
 }

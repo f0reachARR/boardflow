@@ -225,18 +225,26 @@ pub fn extract_bundle(
         });
     }
 
-    // Warn about entries not in manifest
-    let manifest_paths: std::collections::HashSet<&str> = manifest
-        .artifacts
-        .iter()
-        .filter_map(|a| a.source_path.as_deref())
-        .collect();
+    // Reject zip entries not declared in manifest
+    let mut allowed_paths: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    allowed_paths.insert("manifest.json");
+    for entry in &manifest.artifacts {
+        if let Some(ref sp) = entry.source_path {
+            allowed_paths.insert(sp.as_str());
+        }
+    }
+
     for i in 0..archive.len() {
-        if let Ok(file) = archive.by_index(i) {
-            let name = file.name().to_string();
-            if name != "manifest.json" && !manifest_paths.contains(name.as_str()) {
-                tracing::warn!(path = %name, "zip contains entry not listed in manifest");
-            }
+        let file = archive.by_index(i)?;
+        let name = file.name().to_string();
+        if file.is_dir() {
+            continue;
+        }
+        if !allowed_paths.contains(name.as_str()) {
+            return Err(ArtifactError::Manifest(format!(
+                "zip contains entry not declared in manifest: {}",
+                name
+            )));
         }
     }
 

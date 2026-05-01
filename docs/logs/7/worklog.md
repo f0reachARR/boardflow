@@ -922,3 +922,101 @@ test result: ok. 63 passed; 0 failed; 0 ignored
 - `github_job::enqueue` は `ON CONFLICT DO NOTHING` + `RETURNING *` のため、conflict時に `RowNotFound` エラーとなる。MVP では同一ジョブが二重enqueueされる可能性は低いが、将来的に `fetch_optional` への変更を検討。
 - diff summary は現在ファイル数のみ。ファイルレベルの added/removed/changed 計算は baseline snapshot との比較が必要で、別途実装予定。
 - S3アップロード後にトランザクションが失敗すると孤立オブジェクトが残る。staging bucket の TTL (delete_after) で自然回収される想定。
+
+---
+
+## レビュー再確認フェーズ (2026-05-01)
+
+### 再確認結果
+
+**pr_ready: false**
+
+総評:
+- 前回の6件のうち、トランザクション化、baseline取得、manifestの sha256 / size_bytes 検証、MinIO系 env 名統一、retryable failure 時の bundle failed 抑止は実装に反映されている。
+- ただし、後続ジョブ enqueue と bundle/manifest の仕様整合は再レビュー時点でも未充足が残る。加えて、成功時の staging bundle TTL が仕様の24時間ではなく7日になっている。
+- `cargo test --workspace` はこのワークスペースでは 1 件失敗し、報告されていた「63テストすべて成功」は再現できなかった。
+
+### 前回6件の必須修正の再評価
+
+1. **DB書き込みのトランザクション化**
+  - 対応あり。worker は artifact / run_check / snapshot / diff / board_run / board_project / artifact_bundle / github_job 更新を1トランザクションにまとめている。
+  - 確認箇所: `crates/worker/src/main.rs`
+
+2. **Baseline解決**
+  - 対応あり。`board_project::find_by_id` で `latest_completed_run_id` を取得し、baseline の有無で `ready` / `no_baseline` を切り替えている。
+  - 確認箇所: `crates/worker/src/main.rs`
+
+3. **後続ジョブ enqueue**
+  - 部分対応に留まる。`issue_sync` と `run_result_comment` の enqueue は追加されたが、仕様が要求する job type は `create_issue` / `create_dashboard_comment` / `update_dashboard_comment` / `create_run_result_comment` であり、Dashboard コメント系が未実装。
+  - さらに generic enqueue は conflict 時に `RETURNING *` が0行になるため、冪等 enqueue としては不完全。
+
+4. **ZIP / manifest 検証強化**
+  - 部分対応。artifact entry の sha256 / size_bytes 検証は追加された。
+  - ただし manifest 未記載 entry は reject ではなく warning のみで、仕様の「原則拒否」を満たしていない。
+
+5. **Worker env 名統一**
+  - 対応あり。`MINIO_ENDPOINT` / `MINIO_ACCESS_KEY` / `MINIO_SECRET_KEY` / `MINIO_BUCKET_STAGING` / `MINIO_BUCKET_FINAL` を参照し、明示的 credentials provider も使っている。
+
+6. **Bundle status / delete_after 修正**
+  - 部分対応。retryable failure では bundle を failed にせず、terminal failure のみ failed にする挙動は反映されている。
+  - ただし成功時 `delete_after` が 7 日になっており、仕様の 24 時間と不一致。
+
+### 重大度順の指摘
+
+1. **成功時の後続ジョブが仕様と不整合で、必要な GitHub 連携を満たしていない**
+  - worker は `issue_sync` と `run_result_comment` を enqueue しているが、仕様の job type は `create_issue` / `create_dashboard_comment` / `update_dashboard_comment` / `create_run_result_comment`。
+  - Dashboard コメント更新系が enqueue されておらず、Issue 未作成時の create_issue 依存関係も未実装。
+
+2. **staging bundle の成功時 TTL が仕様違反**
+  - 成功時 `delete_after = NOW() + INTERVAL '7 days'` になっているが、仕様は 24 時間以内の削除対象を要求している。
+
+3. **manifest 未記載 zip entry を reject せず warning で通している**
+  - 仕様では「manifest未記載のzip entryは原則拒否」だが、現実装は warning ログのみで import を継続する。
+
+4. **ワークスペース全体テストが再現時点で green ではない**
+  - `cargo test --workspace` 実行時に `crates/api/tests/board_run_test.rs` の `test_fail_board_run_conflict` が失敗した。
+  - 失敗内容は `boardflow_api_tokens.repository_id` の外部キー違反で、Import Worker の変更点とは直接関係しない可能性が高いが、現時点で「全テスト成功」とは判定できない。
+
+### 必須修正
+
+- 後続ジョブ enqueue を `docs/spec.md` の job type と整合させ、少なくとも Issue 作成系と Dashboard コメント系の分岐を実装する。
+- `artifact_bundles.mark_completed` の `delete_after` を成功時24時間に修正する。
+- manifest 未記載 zip entry を warning ではなく reject に変更する。
+- `cargo test --workspace` が通る状態を再現し、63テスト成功報告との差分を解消する。
+
+### 任意改善
+
+- `github_job::enqueue` は conflict を正常系として扱えるように `fetch_optional` + 既存行取得、または `ON CONFLICT DO UPDATE ... RETURNING *` に寄せた方がよい。
+- 孤立 final bucket object の回収戦略を別ジョブまたは定期クリーンアップとして明文化すると運用が安定する。
+
+### テスト結果
+
+実行コマンド:
+
+```text
+cargo test --workspace
+```
+
+結果:
+
+```text
+board_run_test: 19 tests 中 18 passed, 1 failed
+失敗: test_fail_board_run_conflict
+原因: boardflow_api_tokens.repository_id の外部キー違反
+```
+
+### ドキュメント確認
+
+- `docs/spec.md` の後続 job type 定義、manifest 未記載 entry 拒否、成功 bundle の24時間TTL と現実装に不整合あり。
+- worklog に記載されていた residual risk のうち、`ON CONFLICT DO NOTHING` + `RETURNING *` は low risk 扱いにはできず、冪等 enqueue が必要な箇所では実障害になりうる。
+- 一方で、孤立 S3 オブジェクトは運用リスクではあるが、単独では PR blocker とまでは判定しない。
+
+### PR/完了結果
+
+- 判定: `pr_ready: false`
+- ブロッカーは「後続 job type 不整合」「成功時 TTL 不一致」「manifest 未記載 entry 未拒否」「全体テスト未再現」の4点。
+
+### 残リスク
+
+- `ON CONFLICT DO NOTHING` + `RETURNING *` は conflict 発生時に `RowNotFound` となるため、今後 job dedupe を本格運用すると顕在化する可能性がある。
+- final bucket への upload を DB transaction 外で行う設計上、失敗時に孤立 object は残りうる。ただしこれは cleanup 戦略があれば吸収可能で、今回の blocker ではない。
