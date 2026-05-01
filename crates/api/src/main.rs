@@ -15,7 +15,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let pool = boardflow_db::create_pool(&config.database_url).await?;
     tracing::info!("Database connection established");
 
-    let app = boardflow_api::create_app(pool);
+    let s3_client = if let Some(endpoint) = &config.minio_endpoint {
+        let creds = aws_sdk_s3::config::Credentials::new(
+            config.minio_access_key.as_deref().unwrap_or("minioadmin"),
+            config.minio_secret_key.as_deref().unwrap_or("minioadmin"),
+            None,
+            None,
+            "env",
+        );
+        let s3_config = aws_sdk_s3::Config::builder()
+            .endpoint_url(endpoint)
+            .region(aws_sdk_s3::config::Region::new("us-east-1"))
+            .credentials_provider(creds)
+            .force_path_style(true)
+            .behavior_version_latest()
+            .build();
+        Some(aws_sdk_s3::Client::from_conf(s3_config))
+    } else {
+        None
+    };
+
+    let app = boardflow_api::create_app(pool, s3_client);
 
     let addr = format!("{}:{}", config.api_host, config.api_port);
     let listener = tokio::net::TcpListener::bind(&addr).await?;

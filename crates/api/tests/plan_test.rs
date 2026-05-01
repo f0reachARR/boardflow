@@ -138,7 +138,7 @@ async fn plan_new_project_returns_build_new_project() {
     let repo_id = create_test_repository(&pool, github_repo_id, installation_id).await;
     let token = create_test_token(&pool, repo_id, installation_id).await;
 
-    let app = create_app(pool);
+    let app = create_app(pool, None);
     let body = plan_request_body(&github_repo_id.to_string());
 
     let response = app
@@ -180,7 +180,7 @@ async fn plan_mode_all_returns_build_manual_dispatch() {
     let repo_id = create_test_repository(&pool, github_repo_id, installation_id).await;
     let token = create_test_token(&pool, repo_id, installation_id).await;
 
-    let app = create_app(pool);
+    let app = create_app(pool, None);
     let mut body = plan_request_body(&github_repo_id.to_string());
     body["mode"] = serde_json::json!("all");
 
@@ -214,7 +214,7 @@ async fn plan_without_auth_returns_401() {
         None => return,
     };
 
-    let app = create_app(pool);
+    let app = create_app(pool, None);
     let body = plan_request_body("12345");
 
     let response = app
@@ -249,7 +249,7 @@ async fn plan_wrong_repository_returns_403() {
     let token = create_test_token(&pool, different_repo_id, installation_id).await;
 
     // The request targets github_repo_id, but the token belongs to different_github_repo_id → 403
-    let app = create_app(pool);
+    let app = create_app(pool, None);
     let body = plan_request_body(&github_repo_id.to_string());
 
     let response = app
@@ -285,7 +285,7 @@ async fn plan_invalid_github_repository_id_returns_400() {
     let repo_id = create_test_repository(&pool, github_repo_id, installation_id).await;
     let token = create_test_token(&pool, repo_id, installation_id).await;
 
-    let app = create_app(pool);
+    let app = create_app(pool, None);
     let body = plan_request_body("not_a_number");
 
     let response = app
@@ -321,7 +321,7 @@ async fn plan_invalid_json_returns_400() {
     let repo_id = create_test_repository(&pool, github_repo_id, installation_id).await;
     let token = create_test_token(&pool, repo_id, installation_id).await;
 
-    let app = create_app(pool);
+    let app = create_app(pool, None);
 
     let response = app
         .oneshot(
@@ -358,7 +358,7 @@ async fn plan_duplicate_project_path_returns_error() {
     let repo_id = create_test_repository(&pool, github_repo_id, installation_id).await;
     let token = create_test_token(&pool, repo_id, installation_id).await;
 
-    let app = create_app(pool);
+    let app = create_app(pool, None);
     let body = serde_json::json!({
         "repository": {
             "github_repository_id": github_repo_id.to_string(),
@@ -432,7 +432,7 @@ async fn plan_empty_project_path_returns_error() {
     let repo_id = create_test_repository(&pool, github_repo_id, installation_id).await;
     let token = create_test_token(&pool, repo_id, installation_id).await;
 
-    let app = create_app(pool);
+    let app = create_app(pool, None);
     let body = serde_json::json!({
         "repository": {
             "github_repository_id": github_repo_id.to_string(),
@@ -495,7 +495,7 @@ async fn plan_invalid_project_path_extension_returns_error() {
     let repo_id = create_test_repository(&pool, github_repo_id, installation_id).await;
     let token = create_test_token(&pool, repo_id, installation_id).await;
 
-    let app = create_app(pool);
+    let app = create_app(pool, None);
     let body = serde_json::json!({
         "repository": {
             "github_repository_id": github_repo_id.to_string(),
@@ -558,7 +558,7 @@ async fn plan_path_traversal_project_path_returns_error() {
     let repo_id = create_test_repository(&pool, github_repo_id, installation_id).await;
     let token = create_test_token(&pool, repo_id, installation_id).await;
 
-    let app = create_app(pool);
+    let app = create_app(pool, None);
     let body = serde_json::json!({
         "repository": {
             "github_repository_id": github_repo_id.to_string(),
@@ -621,7 +621,7 @@ async fn plan_path_traversal_config_path_returns_error() {
     let repo_id = create_test_repository(&pool, github_repo_id, installation_id).await;
     let token = create_test_token(&pool, repo_id, installation_id).await;
 
-    let app = create_app(pool);
+    let app = create_app(pool, None);
     let body = serde_json::json!({
         "repository": {
             "github_repository_id": github_repo_id.to_string(),
@@ -684,7 +684,7 @@ async fn plan_empty_tree_hash_returns_error() {
     let repo_id = create_test_repository(&pool, github_repo_id, installation_id).await;
     let token = create_test_token(&pool, repo_id, installation_id).await;
 
-    let app = create_app(pool);
+    let app = create_app(pool, None);
     let body = serde_json::json!({
         "repository": {
             "github_repository_id": github_repo_id.to_string(),
@@ -747,7 +747,7 @@ async fn plan_empty_config_path_returns_error() {
     let repo_id = create_test_repository(&pool, github_repo_id, installation_id).await;
     let token = create_test_token(&pool, repo_id, installation_id).await;
 
-    let app = create_app(pool);
+    let app = create_app(pool, None);
     let body = serde_json::json!({
         "repository": {
             "github_repository_id": github_repo_id.to_string(),
@@ -813,7 +813,7 @@ async fn plan_existing_project_hash_changed() {
     let project_path = "hardware/LightStick.kicad_pro";
     create_existing_board_project(&pool, repo_id, project_path, Some("old_hash_value")).await;
 
-    let app = create_app(pool);
+    let app = create_app(pool, None);
     let mut body = plan_request_body(&github_repo_id.to_string());
     body["projects"][0]["tree_hash"] = serde_json::json!("new_different_hash");
 
@@ -856,7 +856,7 @@ async fn plan_existing_project_unchanged() {
     let tree_hash = "deadbeef1234567890";
     create_existing_board_project(&pool, repo_id, project_path, Some(tree_hash)).await;
 
-    let app = create_app(pool);
+    let app = create_app(pool, None);
     let body = plan_request_body(&github_repo_id.to_string());
     // body's tree_hash is "deadbeef1234567890" by default, matching the stored value
 
@@ -898,7 +898,7 @@ async fn plan_existing_project_no_previous_snapshot() {
     let project_path = "hardware/LightStick.kicad_pro";
     create_existing_board_project(&pool, repo_id, project_path, None).await;
 
-    let app = create_app(pool);
+    let app = create_app(pool, None);
     let body = plan_request_body(&github_repo_id.to_string());
 
     let response = app

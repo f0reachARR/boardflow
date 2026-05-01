@@ -4,17 +4,20 @@ pub mod extractors;
 pub mod middleware;
 pub mod routes;
 
-use axum::{Json, Router};
+use axum::{Extension, Json, Router};
 use sqlx::PgPool;
 use utoipa::openapi::security::{Http, HttpAuthScheme, SecurityScheme};
 use utoipa::{Modify, OpenApi};
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
-pub fn create_app(pool: PgPool) -> Router {
+pub fn create_app(pool: PgPool, s3_client: Option<aws_sdk_s3::Client>) -> Router {
     let (router, api) = OpenApiRouter::with_openapi(ApiDoc::openapi())
         .routes(routes!(routes::health::healthz))
         .routes(routes!(routes::plan::plan_run))
+        .routes(routes!(routes::board_run::create_board_run))
+        .routes(routes!(routes::board_run::fail_board_run))
+        .routes(routes!(routes::board_run::import_artifact_bundle))
         .split_for_parts();
 
     router
@@ -25,6 +28,7 @@ pub fn create_app(pool: PgPool) -> Router {
                 move || async move { Json(api) }
             }),
         )
+        .layer(Extension(s3_client))
         .layer(axum::middleware::from_fn(
             middleware::request_id::request_id_middleware,
         ))

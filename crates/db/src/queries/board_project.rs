@@ -1,6 +1,16 @@
 use boardflow_domain::models::board_project::BoardProject;
 use uuid::Uuid;
 
+pub async fn find_by_id(
+    executor: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
+    id: Uuid,
+) -> Result<Option<BoardProject>, sqlx::Error> {
+    sqlx::query_as::<_, BoardProject>("SELECT * FROM board_projects WHERE id = $1")
+        .bind(id)
+        .fetch_optional(executor)
+        .await
+}
+
 pub async fn upsert(
     executor: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
     repository_id: Uuid,
