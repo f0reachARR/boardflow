@@ -54,6 +54,83 @@ docs 以下の仕様に基づいてアプリケーションを一通り実装す
 
 - [docs/external/github-app-octocrab.md](../../external/github-app-octocrab.md) — 調査メモ（octocrab GitHub App 認証・Issue 操作）
 
+---
+
+## 実装フェーズ（2026-05-01）
+
+### 実装内容
+
+#### 新規ファイル
+
+| ファイル | 説明 |
+|---|---|
+| `crates/github/src/error.rs` | `GitHubClientError` enum + octocrab Error からのステータスコードベース変換 |
+| `crates/github/src/types.rs` | `CreatedIssue`, `IssueInfo`, `IssueState`, `CreatedComment` 戻り値型 |
+| `crates/github/src/config.rs` | `GitHubAppConfig` (app_id + private_key_pem) |
+| `crates/github/src/client.rs` | `GitHubAppClient` トレイト + `OctocrabGitHubAppClient` 実装 |
+
+#### 変更ファイル
+
+| ファイル | 変更内容 |
+|---|---|
+| `Cargo.toml` (workspace) | `octocrab = "0.49"`, `secrecy = "0.10"`, `jsonwebtoken` 追加 |
+| `crates/github/Cargo.toml` | 依存定義追加 |
+| `crates/github/src/lib.rs` | モジュール宣言 + re-export |
+| `crates/worker/Cargo.toml` | `boardflow-github` 依存追加 |
+
+#### トレイトメソッド
+
+- `get_installation_token(installation_id)` — Installation Token 取得
+- `create_issue(installation_id, owner, repo, title, body)` — Issue 作成
+- `get_issue(installation_id, owner, repo, issue_number)` — Issue 取得
+- `create_comment(installation_id, owner, repo, issue_number, body)` — コメント作成
+- `update_comment(installation_id, owner, repo, comment_id, body)` — コメント更新
+
+### テスト結果
+
+```
+running 9 tests
+test error::tests::test_401_maps_to_auth ... ok
+test error::tests::test_403_non_rate_limit_maps_to_auth ... ok
+test error::tests::test_403_rate_limit_maps_to_rate_limited ... ok
+test error::tests::test_403_secondary_rate_limit_maps_to_rate_limited ... ok
+test error::tests::test_404_maps_to_not_found ... ok
+test error::tests::test_422_maps_to_validation ... ok
+test error::tests::test_429_maps_to_rate_limited ... ok
+test error::tests::test_500_maps_to_api ... ok
+test error::tests::test_502_maps_to_api ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+```
+
+### テスト観点
+
+| テスト | 保証する内容 |
+|---|---|
+| `test_401_maps_to_auth` | 認証エラーが Auth にマッピングされること |
+| `test_403_rate_limit_maps_to_rate_limited` | 403 + "rate limit" メッセージが RateLimited にマッピングされること |
+| `test_403_secondary_rate_limit_maps_to_rate_limited` | secondary rate limit も RateLimited にマッピングされること |
+| `test_403_non_rate_limit_maps_to_auth` | 403 で rate limit でない場合は Auth にマッピングされること |
+| `test_404_maps_to_not_found` | 404 が NotFound にマッピングされること |
+| `test_422_maps_to_validation` | 422 が Validation にマッピングされること |
+| `test_429_maps_to_rate_limited` | 429 が RateLimited にマッピングされること |
+| `test_500_maps_to_api` | 5xx が Api にマッピングされること |
+| `test_502_maps_to_api` | 別の 5xx も Api にマッピングされること |
+
+### 設計判断
+
+1. **octocrab の型を外部に漏らさない**: `GitHubAppClient` トレイトの戻り値は自前定義型のみ
+2. **`installation()` は同期メソッド**: octocrab v0.49 では `Result<Octocrab>` を返す（`await` 不要）
+3. **エラーマッピングの抽出**: `map_status_to_error()` 関数に分離し、`#[non_exhaustive]` な octocrab 型を構築せずにテスト可能に
+4. **`node_id` / `html_url`**: octocrab v0.49 では `String` / `Url` 型で直接利用可能（Option ではない）
+5. **統合テストは書かない**: GitHub API への実呼び出しが必要なため、CI では実行不可
+
+### 残リスク
+
+- octocrab のメジャーバージョンアップ時に `IssueState` enum のバリアント追加等で break する可能性あり
+- `get_installation_token` は octocrab の内部キャッシュに依存しているため、大量並行呼び出し時の挙動は未検証
+- GitHub の secondary rate limit (403) のメッセージ文言が GitHub 側で変更された場合、RateLimited 判定が漏れる可能性あり
+
 ### 残リスク
 
 - octocrab の `AppId(u64)` と GitHub 推奨の Client ID（文字列）の差異（MVP では App ID 数値で問題なし）
