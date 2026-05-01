@@ -80,6 +80,35 @@ pub struct ManifestCheck {
     pub tool_version: Option<String>,
     #[serde(default)]
     pub raw_summary: Option<serde_json::Value>,
+    #[serde(default)]
+    pub findings: Vec<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ManifestFinding {
+    pub severity: String,
+    pub rule_code: String,
+    pub title: String,
+    #[serde(default)]
+    pub message: Option<String>,
+    #[serde(default)]
+    pub subject_kind: Option<String>,
+    #[serde(default)]
+    pub subject_ref: Option<String>,
+    #[serde(default)]
+    pub sheet_path: Option<String>,
+    #[serde(default)]
+    pub pcb_layer: Option<String>,
+    #[serde(default)]
+    pub pos_mm: Option<CoordinateMm>,
+    #[serde(default)]
+    pub raw: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CoordinateMm {
+    pub x: f64,
+    pub y: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

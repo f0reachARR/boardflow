@@ -713,6 +713,11 @@ GET /proxy/artifacts/{artifact_id}?token=...
 
 ## 5. 契約テスト観点
 
+> **注記: `run_check_findings` read API について**
+>
+> `run_check_findings` テーブルの read API（個別 finding の一覧取得・詳細取得）は今後の Issue で追加予定であり、現時点では Worker による INSERT のみが実装済みである。
+> BoardRun 詳細 API (3.6) が返す `checks` は集計値（error_count / warning_count / notice_count）のみであり、finding 明細の取得経路は未提供。
+
 MVP では以下を API contract test として優先する。
 
 - Bearer token 認証に成功し、revoke 済み token は `401 unauthorized` になる。
