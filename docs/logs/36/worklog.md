@@ -652,3 +652,84 @@ cursor の decode (`decode_findings_cursor`) と limit の計算を step 3 に�
 ### 残リスク (修正後)
 
 - `test_list_repositories_upstream_error_returns_500` がフレイキー（github_user_id のユニークキー衝突）。別Issue対応推奨。
+
+---
+
+## 最終レビュー結果 (2026-05-01)
+
+### レビュー対象 (docs)
+
+- Issue #36: board_run findings Read API
+- ブランチ: `feat/36-findings-read-api`
+
+### 確認結果
+
+- `list_findings` は `board_run_id` / `check_kind` 検証の直後に cursor を検証しており、`run_check` 不在時の early return より前に `invalid cursor -> 400` を保証している。
+- `test_list_findings_invalid_cursor` は現実装の制御フローと整合し、`400 BAD_REQUEST` を検証している。
+- API 契約は `docs/backend/api.md` セクション 3.10 と実装で整合している。
+  - path: `GET /api/v1/board-runs/{board_run_id}/checks/{check_kind}/findings`
+  - query: `limit`, `cursor`, `severity`
+  - sort/cursor: `sort_index ASC, id ASC` / `(sort_index, id)`
+  - `raw_payload_json`, `bbox_json` はレスポンス除外
+  - `run_check` 不在時は 200 空リスト
+- DB 側は `run_checks(board_run_id, check_kind)` の一意性を migration で補強しており、`find_by_board_run_and_kind` の前提と一致している。
+- findings keyset pagination 用 index も追加されており、外部調査で一般的な PostgreSQL keyset pagination パターンと矛盾しない。
+
+### テスト結果
+
+- `mise exec rust@nightly -- cargo test -p boardflow-api test_list_findings -- --nocapture`
+  - 13 passed / 0 failed
+- `mise exec rust@nightly -- cargo test -p boardflow-api -- --nocapture`
+  - 135 passed / 0 failed
+- ただしこの実行環境では `DATABASE_URL` 未設定のため、DB を実際に使う一部テストは early return で skip されている。
+
+### レビュー結果
+
+- 重大な残存指摘なし
+- `pr_ready: true`
+
+### 任意改善
+
+- CI かローカル review 手順で `DATABASE_URL` を与えた DB 実行つき検証を 1 回通すと、migration/index の実効性まで確認できる。
+
+### 残リスク
+
+- 現環境では migration を伴う DB 実動作確認までは完了していないため、最終的な安心材料としては DB 付き CI 結果に依存する。
+
+## ドキュメント確認結果 (2026-05-01)
+
+### レビュー対象
+
+- Issue #36: board_run findings Read API
+- 対象ドキュメント: `docs/backend/api.md`, `docs/spec.md`, `docs/technology.md`, `docs/backend/summary.md`, `docs/external/kicad-erc-drc-findings.md`
+
+### ドキュメント確認詳細
+
+- `docs/backend/api.md` のセクション 3.10 は、実装の path/query/認可/空リスト返却/ソート順/cursor 仕様と整合している。
+- セクション 5 の注記更新は正しい。`run_check_findings` の一覧 read API は Issue #36 で実装済みで、未実装なのは個別 finding 詳細 API のみ。
+- `docs/backend/api.md` のレスポンス例は、実装が返す `FindingListItem` のフィールド集合 (`id`, `severity`, `rule_code`, `title`, `message`, `subject_kind`, `subject_ref`, `sheet_path`, `pcb_layer`, `pos_mm`) と一致している。
+- `docs/spec.md` は `run_check_findings` を「UI で一覧・フィルタ・詳細表示する行データ」と定義しており、今回の一覧 API 追加と矛盾しない。spec 側に endpoint を列挙していないのも現行ドキュメント構成と整合している。
+- `docs/external/kicad-erc-drc-findings.md` の findings 構造と worker の保存マッピングは、API が返す項目と矛盾していない。
+- `docs/technology.md` と `docs/backend/summary.md` は API 群を高レベルに整理する文書であり、Issue #36 に伴う必須更新はない。
+
+### ドキュメント判定
+
+- `docs_ready: true`
+- ドキュメント観点で PR 作成を止める不整合はなし。
+
+### 必須修正 (docs)
+
+- なし
+
+### 任意改善 (docs)
+
+- `docs/backend/api.md` のセクション 3.10 に、`message` / `subject_ref` は finding の種類によって `null` になり得ることを一文補足すると、レスポンス例の読み手が必須項目と誤解しにくい。
+
+### PR/完了結果 (docs)
+
+- docs review 完了
+- docs_ready: true
+
+### 残リスク (docs)
+
+- この確認は repository 上の実装とテスト定義を根拠にしたドキュメント整合レビューであり、DB 付き実行環境での再検証結果そのものではない。
