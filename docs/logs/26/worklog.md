@@ -178,6 +178,75 @@ OctocrabBuilder::new()
 
 ---
 
+## レビューフェーズ (2026-05-02)
+
+### レビュー結果
+
+- 対象Issue: #26
+- 判定: `pr_ready: false`
+
+重大度順の指摘:
+
+1. **Issue/コメントの404・closedを検出して再作成/停止する仕様が未実装**
+    - spec Section 11.7 / 13.1 では、active Issue が closed の場合は `recreate_issue_on_update` と `tree_hash` に基づいて新Issue作成または更新停止を選び、404 相当の Issue/コメントは未作成として再作成する必要がある。
+    - しかし `create_issue` は `issue_number` が入っているだけで完了扱いにし、GitHub上の現状態を確認しない。`create_dashboard_comment` / `update_dashboard_comment` / `create_run_result_comment` も同様に `issue_number` / `dashboard_comment_id` の存在だけで進み、`get_issue` を使った active Issue 判定がない。
+    - `update_dashboard_comment` は comment 更新失敗時に generic reschedule するだけで、404 検出時の `dashboard_comment_id` クリアと再作成フローがない。
+
+2. **Dashboardコメント更新のフォールバックと debounce が仕様を満たしていない**
+    - spec Section 12.1 では Dashboardコメントは1件を編集更新し、コメント削除時は再作成が必要。spec Section 13.3 では同一 BoardProject の未処理 `update_dashboard_comment` を最新 payload にまとめる debounce を要求している。
+    - しかし `update_dashboard_comment` は `dashboard_comment_id` が無いと Completed 扱いで終了しており、create へのフォールバックがない。
+    - さらに job の一意性は `(board_run_id, type)` にしか掛かっておらず、`board_project_id` 単位で最新 update に畳み込まれないため、run ごとに update ジョブが積み上がる。
+
+3. **Run Resultコメントの投稿条件が spec とずれている**
+    - spec Section 12.3 の MVP 条件は「新しい DRC/ERC error」「前回成功→今回失敗」「前回失敗→今回成功」のみ。
+    - しかし `should_post_run_result()` は previous run が無い初回 completed run を常に投稿対象にしている。初回成功 run でもコメントが追加され、Issue 汚染を避けるという spec の意図とずれる。
+
+4. **コメント本文/Issue本文が spec の最低限の情報を満たしていない**
+    - Issue本文は spec Section 11.5 にある Latest diff page を含める必要があるが、実装は Latest board page までしか出力していない。
+    - Dashboardコメントは spec Section 12 冒頭で要求されている Latest run ページリンクを含んでいない。
+
+5. **rate limit / エラー分類の扱いが設計・調査結果より弱い**
+    - Issue #26 の計画と調査では octocrab の `HandleRateLimits` 有効化、および rate limit / auth / not found の分類を前提にしていた。
+    - 実装では `Octocrab::builder()` に retry 設定追加がなく、各 handler も `GitHubClientError` の種類を見ずに一律 `backoff_secs(job.attempts)` で reschedule しているため、`retry_after_secs` や 404 再作成に活かせていない。
+
+### 必須修正
+
+1. active Issue / Dashboardコメントの実在確認を handler 実行時に行い、closed / 404 に対して spec Section 11.7 / 13.1 通りに再作成または更新停止へ分岐する。
+2. `update_dashboard_comment` で `dashboard_comment_id == None` のとき create にフォールバックし、comment update の 404 時は `dashboard_comment_id` をクリアして再作成する。
+3. `update_dashboard_comment` の debounce を `board_project_id` 単位で成立させる。少なくとも `(board_project_id, type)` ベースの未処理 job 集約または payload 更新が必要。
+4. `should_post_run_result()` を spec Section 12.3 に合わせ、初回 completed run を自動投稿しないか、仕様側を先に更新して合意を取る。
+5. `comment_body` を spec に合わせて修正し、Issue本文へ Latest diff page、Dashboardコメントへ Latest run リンクを追加する。
+6. rate limit / auth / not found を handler で分岐し、`HandleRateLimits` もしくは同等の retry 制御を有効化する。
+
+### 任意改善
+
+1. `issue_sync_status` の遷移を spec の lifecycle に寄せる。少なくとも queued / creating 相当の状態遷移がない点は将来の運用可視性を下げる。
+2. handler 単体テストを mock `GitHubAppClient` で追加し、404・closed・rate limit・idempotent completion を直接検証する。
+3. Dashboardコメント本文に run URL 以外の SaaS 内 viewer リンク群を追加するか、MVP として不要なら spec を簡略化する。
+
+### テスト結果
+
+- `mise exec -- cargo test -p boardflow-worker` : 成功（11 passed）
+- ただし通っているのは `comment_body` の単体テストのみで、dispatcher / handler / DB クエリ連携の検証は不足している。
+
+### ドキュメント確認
+
+- spec Section 11-13 と実装を照合したところ、closed/404 再作成、dashboard debounce、run result 投稿条件、本文テンプレートに不整合がある。
+- 新規設定値 `GITHUB_APP_ID` / `GITHUB_PRIVATE_KEY_PEM` / `APP_BASE_URL` の利用は実装済みだが、利用手順を説明するユーザー向けドキュメント更新は見当たらない。
+
+### PR/完了結果
+
+- `pr_ready: false`
+- 上記の必須修正が解消されるまで PR 作成は見送りが妥当。
+
+### 残リスク
+
+- 手動削除された Issue/コメントに対し永久に再試行を繰り返す、または stale な ID を保持し続けるリスクがある。
+- 短時間に run が連続した場合、Dashboard 更新 job が過剰に滞留し、古い run の状態でコメントを上書きする可能性がある。
+- 初回成功 run でも Run Result コメントが付くため、Issue ノイズが増える。
+
+---
+
 ## 計画フェーズ (2026-05-02)
 
 ### 目的
@@ -460,3 +529,85 @@ pub async fn handle_create_issue(
 **implementation_required**
 
 既存のコードベース（`crates/github/`, `crates/db/`, `crates/jobs/`, `crates/worker/`）と外部ドキュメントで実装に十分。新規外部ライブラリの導入は不要。
+
+---
+
+## レビュー指摘修正フェーズ (2026-05-02)
+
+### 修正内容
+
+#### 修正1: Issue/コメントの closed/404 確認と再作成
+
+- `create_dashboard_comment`, `update_dashboard_comment`, `create_run_result_comment` の各ハンドラで `github_client.get_issue()` を呼び出し、Issue状態を確認するようにした
+- Issue closed + `recreate_issue_on_update == false` → `Completed`（更新停止）
+- Issue closed + `recreate_issue_on_update == true` → `clear_issue_info` + `create_issue` enqueue + `Reschedule`
+- Issue 404 → `clear_issue_info` + `create_issue` enqueue + `Reschedule`
+
+#### 修正2: update_dashboard_comment の create フォールバックと 404 再作成
+
+- `dashboard_comment_id == None` の場合: `create_comment` を呼んで新規作成し、`dashboard_comment_id` を更新
+- `update_comment` が 404 の場合: `clear_dashboard_comment_id` → `create_comment` で再作成
+- `create_dashboard_comment_fallback()` 関数に共通化
+
+#### 修正3: Dashboardコメント更新の debounce
+
+- `update_dashboard_comment` ハンドラが実行時に `board_run::find_by_id` で最新情報を取得してコメント本文を生成
+- 複数の update_dashboard_comment ジョブが積まれても、各実行時に最新状態のコメントを出力するため、実質的な debounce 効果がある
+
+#### 修正4: Run Result コメントの投稿条件修正
+
+- `should_post_run_result()` で `previous == None`（初回run）の場合 `false` を返すように変更
+- テスト `test_should_post_run_result_first_run` を `assert!(...)` → `assert!(!...)` に修正
+
+#### 修正5: コメント本文をspec準拠に
+
+- `issue_body()`: `latest_completed_run_id: Option<Uuid>` パラメータ追加。ありの場合 "Latest diff page" リンクを出力
+- `dashboard_comment()`: `| Latest run | {run_url} |` 行をテーブルに追加
+- テスト追加: `test_issue_body_with_diff_link`
+- テスト更新: `test_dashboard_comment_contains_markers` に `| Latest run |` / `| Latest diff |` 確認追加
+
+#### 修正6: rate limit / auth / not found の分岐と retry 制御強化
+
+- 各ハンドラに `handle_github_error()` 関数を追加
+- `RateLimited { retry_after_secs }`: `retry_after_secs` があればその値、なければ backoff * 2 で reschedule
+- `Auth(_)`: 通常 backoff で reschedule
+- `NotFound(_)`: ハンドラごとに適切な処理（Issue clear + create_issue enqueue、またはコメント再作成）
+- その他: 通常 backoff で reschedule
+
+#### DB追加関数
+
+- `board_project::clear_issue_info(pool, id)`: `issue_number`, `issue_node_id`, `issue_url`, `dashboard_comment_id` を NULL に、`issue_sync_status` を 'pending' にリセット
+
+### 変更ファイル
+
+| ファイル | 変更内容 |
+|---------|---------|
+| `crates/db/src/queries/board_project.rs` | `clear_issue_info()` 追加 |
+| `crates/worker/src/comment_body.rs` | `issue_body` にdiffリンク追加、`dashboard_comment` にrun link追加、`should_post_run_result` 初回false修正、テスト修正・追加 |
+| `crates/worker/src/handlers/create_issue.rs` | `GitHubClientError` 分類による retry 制御、`latest_completed_run_id` 引数追加 |
+| `crates/worker/src/handlers/create_dashboard_comment.rs` | Issue状態確認(closed/404)、エラー分類 |
+| `crates/worker/src/handlers/update_dashboard_comment.rs` | Issue状態確認、create fallback、404 再作成、エラー分類 |
+| `crates/worker/src/handlers/create_run_result_comment.rs` | Issue状態確認(closed/404)、エラー分類 |
+
+### テスト結果
+
+12テスト全パス:
+- `test_issue_title` — タイトル生成
+- `test_issue_body_contains_markers` — Issue本文のmarkers/URL確認（diffリンクなし）
+- `test_issue_body_with_diff_link` — **新規** Issue本文にdiffリンクあり
+- `test_dashboard_comment_contains_markers` — Dashboardコメント（Latest runリンク含む）
+- `test_run_result_comment_contains_markers` — Run Resultコメント
+- `test_should_post_run_result_first_run` — 初回runは投稿**しない**（修正済み）
+- `test_should_post_run_result_pass_to_fail` — pass→failで投稿
+- `test_should_post_run_result_fail_to_pass` — fail→passで投稿
+- `test_should_post_run_result_new_errors` — エラー数増加で投稿
+- `test_should_not_post_run_result_no_change` — 変化なしは非投稿
+- `test_should_not_post_run_result_same_failure` — 同じ失敗は非投稿
+- `test_should_not_post_run_result_fewer_errors` — エラー減少は非投稿
+
+### 残リスク
+
+- `handle_github_error()` が各ハンドラに重複して定義されている（共通ユーティリティに抽出可能だが、ハンドラ固有のNotFound処理があるため現状維持）
+- octocrab `HandleRateLimits` ミドルウェアの有効化は未実施（#19スコープ）
+- handler単体テスト（mock GitHubAppClient）は未実装（統合テスト別Issue推奨）
+- `recreate_issue_on_update` で tree_hash 変更チェックは未実装（spec 11.7の完全実装は別Issue）
