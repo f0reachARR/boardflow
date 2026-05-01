@@ -515,6 +515,15 @@ Plan APIの `decision: error` は、SaaS側が受け取ったproject payloadの�
 | `previous_failed`      | 前回の成果物生成が失敗している           |
 | `no_previous_snapshot` | 比較対象のsnapshotがない          |
 
+`decision: error` の場合の `reason`:
+
+| reason                   | 説明                                 |
+| ------------------------ | ---------------------------------- |
+| `duplicate_project_path` | 同一request内でproject_pathが重複          |
+| `invalid_project_path`   | project_pathが空または形式不正              |
+| `invalid_tree_hash`      | tree_hashが空または形式不正                 |
+| `invalid_config_path`    | config_pathが空または形式不正               |
+
 `previous_failed` は、前回のBoardRunが `failed` または `timed_out` で、比較に使える completed snapshot がない場合などに使う。
 DRC/ERC failed でもBoardRunが `completed` になっている場合は、差分判定上は `latest_tree_hash` の比較対象になり得る。
 

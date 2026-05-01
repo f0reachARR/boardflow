@@ -205,7 +205,13 @@ Response:
 `decision: error` は、同一 request 内の `project_path` 重複、`project_path` / `tree_hash` / `config_path` の形式不正などに限定する。
 Action 側で検出できる `.boardflow.yml` schema 不備、`.kicad_pro` 不在、必須 KiCad ファイル除外などは Plan API へ送らない。
 
+形式不正の判定基準:
+- `project_path`: 空文字、絶対パス（`/` 始まり）、パストラバーサル（`..` を含む）、`.kicad_pro` 拡張子でない場合
+- `tree_hash`: 空文字、空白文字を含む場合
+- `config_path`: 空文字、絶対パス（`/` 始まり）、パストラバーサル（`..` を含む）場合
+
 `reason` は `new_project`、`hash_changed`、`config_changed`、`manual_dispatch`、`unchanged`、`previous_failed`、`no_previous_snapshot` を使う。
+`decision: error` の場合の `reason` は `duplicate_project_path`、`invalid_project_path`、`invalid_tree_hash`、`invalid_config_path` を使う。
 `mode: all` の場合、差分がなくても `decision: build`、`reason: manual_dispatch` としてよい。
 
 ### 2.2 BoardRun 作成 API
