@@ -740,23 +740,11 @@ version = "0.0.1"
 [[package]]
 name = "boardflow-jobs"
 version = "0.0.1"
-dependencies = [
- "boardflow-domain",
- "chrono",
- "serde",
- "serde_json",
- "sqlx",
- "thiserror",
- "tokio",
- "tracing",
- "uuid",
-]
 
 [[package]]
 name = "boardflow-worker"
 version = "0.0.1"
 dependencies = [
- "aws-config",
  "aws-sdk-s3",
  "boardflow-artifact",
  "boardflow-db",

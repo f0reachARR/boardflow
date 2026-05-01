@@ -58,6 +58,8 @@ fn test_extract_bundle_valid() {
         source_path: Some("artifacts/output.gbr".to_string()),
         logical_name: None,
         status_reason: None,
+        sha256: None,
+        size_bytes: None,
     }]);
 
     let zip_data = create_test_zip(&manifest, &[("artifacts/output.gbr", artifact_data)]);
@@ -81,6 +83,8 @@ fn test_extract_bundle_skips_non_available_artifacts() {
         source_path: None,
         logical_name: None,
         status_reason: Some("file not found".to_string()),
+        sha256: None,
+        size_bytes: None,
     }]);
 
     let zip_data = create_test_zip(&manifest, &[]);
@@ -167,6 +171,8 @@ fn test_extract_bundle_path_traversal_dotdot() {
         source_path: Some("../etc/passwd".to_string()),
         logical_name: None,
         status_reason: None,
+        sha256: None,
+        size_bytes: None,
     }]);
 
     let zip_data = create_test_zip(&manifest, &[("../etc/passwd", b"root:x:0:0")]);
@@ -191,6 +197,8 @@ fn test_extract_bundle_path_traversal_absolute() {
         source_path: Some("/etc/passwd".to_string()),
         logical_name: None,
         status_reason: None,
+        sha256: None,
+        size_bytes: None,
     }]);
 
     let zip_data = create_test_zip(&manifest, &[]);
@@ -223,6 +231,8 @@ fn test_extract_bundle_artifact_not_found_in_zip() {
         source_path: Some("artifacts/missing_file.gbr".to_string()),
         logical_name: None,
         status_reason: None,
+        sha256: None,
+        size_bytes: None,
     }]);
 
     // Don't include the file in the zip
@@ -276,6 +286,8 @@ fn test_extract_bundle_multiple_artifacts() {
             source_path: Some("artifacts/front.gbr".to_string()),
             logical_name: Some("F.Cu".to_string()),
             status_reason: None,
+            sha256: None,
+            size_bytes: None,
         },
         ManifestArtifact {
             r#type: "gerber".to_string(),
@@ -285,6 +297,8 @@ fn test_extract_bundle_multiple_artifacts() {
             source_path: Some("artifacts/back.gbr".to_string()),
             logical_name: Some("B.Cu".to_string()),
             status_reason: None,
+            sha256: None,
+            size_bytes: None,
         },
         ManifestArtifact {
             r#type: "bom".to_string(),
@@ -294,6 +308,8 @@ fn test_extract_bundle_multiple_artifacts() {
             source_path: None,
             logical_name: None,
             status_reason: Some("no BOM configured".to_string()),
+            sha256: None,
+            size_bytes: None,
         },
     ]);
 
@@ -322,6 +338,8 @@ fn test_extract_bundle_available_artifact_no_source_path() {
         source_path: None, // Missing source_path for "available" artifact
         logical_name: None,
         status_reason: None,
+        sha256: None,
+        size_bytes: None,
     }]);
 
     let zip_data = create_test_zip(&manifest, &[]);
@@ -331,6 +349,100 @@ fn test_extract_bundle_available_artifact_no_source_path() {
     match result.unwrap_err() {
         ArtifactError::Manifest(msg) => {
             assert!(msg.contains("has no source_path"));
+        }
+        other => panic!("unexpected error: {other:?}"),
+    }
+}
+
+#[test]
+fn test_extract_bundle_sha256_verification_pass() {
+    let artifact_data = b"test content for sha256";
+    let mut hasher = Sha256::new();
+    hasher.update(artifact_data);
+    let expected_sha256 = format!("sha256:{:x}", hasher.finalize());
+
+    let manifest = make_manifest(vec![ManifestArtifact {
+        r#type: "gerber".to_string(),
+        filename: "output.gbr".to_string(),
+        content_type: "application/octet-stream".to_string(),
+        status: "available".to_string(),
+        source_path: Some("artifacts/output.gbr".to_string()),
+        logical_name: None,
+        status_reason: None,
+        sha256: Some(expected_sha256),
+        size_bytes: None,
+    }]);
+
+    let zip_data = create_test_zip(&manifest, &[("artifacts/output.gbr", artifact_data)]);
+    let (_, extracted) = extract_bundle(&zip_data).unwrap();
+    assert_eq!(extracted.len(), 1);
+}
+
+#[test]
+fn test_extract_bundle_sha256_verification_fail() {
+    let artifact_data = b"test content";
+    let manifest = make_manifest(vec![ManifestArtifact {
+        r#type: "gerber".to_string(),
+        filename: "output.gbr".to_string(),
+        content_type: "application/octet-stream".to_string(),
+        status: "available".to_string(),
+        source_path: Some("artifacts/output.gbr".to_string()),
+        logical_name: None,
+        status_reason: None,
+        sha256: Some("sha256:0000000000000000000000000000000000000000000000000000000000000000".to_string()),
+        size_bytes: None,
+    }]);
+
+    let zip_data = create_test_zip(&manifest, &[("artifacts/output.gbr", artifact_data)]);
+    let result = extract_bundle(&zip_data);
+    assert!(result.is_err());
+    match result.unwrap_err() {
+        ArtifactError::Sha256Mismatch { .. } => {}
+        other => panic!("unexpected error: {other:?}"),
+    }
+}
+
+#[test]
+fn test_extract_bundle_size_verification_pass() {
+    let artifact_data = b"exact size content";
+    let manifest = make_manifest(vec![ManifestArtifact {
+        r#type: "gerber".to_string(),
+        filename: "output.gbr".to_string(),
+        content_type: "application/octet-stream".to_string(),
+        status: "available".to_string(),
+        source_path: Some("artifacts/output.gbr".to_string()),
+        logical_name: None,
+        status_reason: None,
+        sha256: None,
+        size_bytes: Some(artifact_data.len() as i64),
+    }]);
+
+    let zip_data = create_test_zip(&manifest, &[("artifacts/output.gbr", artifact_data)]);
+    let (_, extracted) = extract_bundle(&zip_data).unwrap();
+    assert_eq!(extracted.len(), 1);
+}
+
+#[test]
+fn test_extract_bundle_size_verification_fail() {
+    let artifact_data = b"short";
+    let manifest = make_manifest(vec![ManifestArtifact {
+        r#type: "gerber".to_string(),
+        filename: "output.gbr".to_string(),
+        content_type: "application/octet-stream".to_string(),
+        status: "available".to_string(),
+        source_path: Some("artifacts/output.gbr".to_string()),
+        logical_name: None,
+        status_reason: None,
+        sha256: None,
+        size_bytes: Some(9999),
+    }]);
+
+    let zip_data = create_test_zip(&manifest, &[("artifacts/output.gbr", artifact_data)]);
+    let result = extract_bundle(&zip_data);
+    assert!(result.is_err());
+    match result.unwrap_err() {
+        ArtifactError::Manifest(msg) => {
+            assert!(msg.contains("size mismatch"));
         }
         other => panic!("unexpected error: {other:?}"),
     }

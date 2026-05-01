@@ -58,6 +58,10 @@ pub struct ManifestArtifact {
     pub logical_name: Option<String>,
     #[serde(default)]
     pub status_reason: Option<String>,
+    #[serde(default)]
+    pub sha256: Option<String>,
+    #[serde(default)]
+    pub size_bytes: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -195,11 +199,45 @@ pub fn extract_bundle(
         hasher.update(&buf);
         let sha256 = format!("sha256:{:x}", hasher.finalize());
 
+        // Verify sha256 if specified in manifest
+        if let Some(ref expected_sha256) = entry.sha256 {
+            if &sha256 != expected_sha256 {
+                return Err(ArtifactError::Sha256Mismatch {
+                    expected: expected_sha256.clone(),
+                    actual: sha256,
+                });
+            }
+        }
+        // Verify size if specified
+        if let Some(expected_size) = entry.size_bytes {
+            if buf.len() as i64 != expected_size {
+                return Err(ArtifactError::Manifest(format!(
+                    "artifact {} size mismatch: expected {}, got {}",
+                    entry.filename, expected_size, buf.len()
+                )));
+            }
+        }
+
         extracted.push(ExtractedArtifact {
             path: safe_path,
             data: buf,
             sha256,
         });
+    }
+
+    // Warn about entries not in manifest
+    let manifest_paths: std::collections::HashSet<&str> = manifest
+        .artifacts
+        .iter()
+        .filter_map(|a| a.source_path.as_deref())
+        .collect();
+    for i in 0..archive.len() {
+        if let Ok(file) = archive.by_index(i) {
+            let name = file.name().to_string();
+            if name != "manifest.json" && !manifest_paths.contains(name.as_str()) {
+                tracing::warn!(path = %name, "zip contains entry not listed in manifest");
+            }
+        }
     }
 
     Ok((manifest, extracted))

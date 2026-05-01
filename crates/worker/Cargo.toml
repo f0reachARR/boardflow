@@ -8,7 +8,6 @@ boardflow-artifact = { path = "../artifact" }
 boardflow-db = { path = "../db" }
 boardflow-domain = { path = "../domain" }
 boardflow-jobs = { path = "../jobs" }
-aws-config = { workspace = true }
 aws-sdk-s3 = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

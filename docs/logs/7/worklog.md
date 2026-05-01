@@ -754,3 +754,92 @@ cargo build → Finished `dev` profile [unoptimized + debuginfo] target(s)
 | delete_after 設定 | staging bundle の TTL 設定は未実装 |
 | diff baseline 解決 | board_project.latest_completed_run_id からの baseline 取得は "no_baseline" 固定 (MVP) |
 | メモリ使用量 | 500MB bundle の全量メモリ展開。大規模プロジェクトではストリーミング展開が必要な可能性 |
+
+---
+
+## レビューフェーズ (2026-05-01)
+
+### レビュー結果
+
+**pr_ready: false**
+
+総評:
+- `cargo build -p boardflow-worker -p boardflow-db -p boardflow-jobs` と `cargo test -p boardflow-artifact` は成功しており、artifact crate 単体の ZIP/SHA256 実装は最低限成立している。
+- 一方で、Issue #7 の受け入れ条件と `docs/spec.md` に対して、worker 成功時の後続ジョブ enqueue、diff baseline 解決、bundle/manifest 検証、リトライ時の DB 整合性、MinIO 設定読み込みに未充足が残っている。
+- 特に、部分失敗後の再実行で insert が競合しうる点と、成功時に required な後続処理が実装されていない点は PR blocker。
+
+### 重大度順の指摘
+
+1. **部分失敗時に import パイプラインが冪等でなく、再試行で壊れた状態に陥る**
+  - `crates/worker/src/main.rs` はトランザクションを使わずに artifact / run_check / snapshot / diff を順次 insert しており、途中で失敗すると一部だけ永続化された状態で `github_jobs` を再スケジュールする。
+  - `crates/db/migrations/20260430000001_create_schema.up.sql` では `board_run_diff_metadata.board_run_id` と `board_run_diffs.board_run_id` が UNIQUE、`artifacts(board_run_id, type, source_path)` も UNIQUE なので、再試行時に重複 insert で恒久的に失敗しやすい。
+  - 該当: `crates/worker/src/main.rs` の成功パス全体、特に diff 保存から完了遷移 (`diff::insert_diff_metadata`, `diff::insert_diff`, `board_run::mark_completed`)。
+  - 修正方針: import 完了までを DB トランザクションにまとめるか、各 insert を UPSERT / idempotent update に変更し、再試行可能性を保証する。
+
+2. **差分保存が `no_baseline` 固定で、仕様の baseline 解決と summary 作成を満たしていない**
+  - `crates/worker/src/main.rs` で `let diff_status = "no_baseline";` を固定し、`base_board_run_id` も `summary_json` も常に `None`。
+  - `docs/spec.md` では、`latest_completed_run_id` を更新する前に base_run を解決し、比較可能なら `ready` と差分 summary を保存することが要求されている。
+  - この状態だと Issue #7 の受け入れ条件にある `board_run_diff_metadata` / `board_run_diffs` 保存は一部しか満たしていない。
+  - 修正方針: `board_projects.latest_completed_run_id` を事前取得し、baseline ありなら `base_board_run_id` と `summary_json` を保存、比較材料不足なら `unavailable` を保存する。
+
+3. **成功時の後続ジョブ enqueue が未実装で、BoardRun 完了処理が仕様未達**
+  - worker の成功パスは `board_project::update_latest_completed_run`、`artifact_bundle::mark_completed`、`github_job::mark_completed` で終了しており、Issue 作成ジョブ、Dashboard コメント更新ジョブ、Run Result コメントジョブの enqueue がない。
+  - `docs/spec.md` では BoardRun 完了時にこれら後続ジョブの enqueue が required とされている。
+  - 修正方針: successful import の最後で `board_projects.issue_sync_status` や既存 Issue 状態を見て create/update comment 系 job を enqueue する。
+
+4. **bundle / manifest 検証が仕様より大幅に弱く、不正 bundle を受理しうる**
+  - `crates/artifact/src/lib.rs` は `manifest.json` の存在確認、version=1、`available` artifact の `source_path` 存在確認、単純な `..` / absolute path 拒否しかしていない。
+  - `docs/spec.md` が要求する「manifest 未記載 entry 拒否」「entry の展開後サイズ上限」「artifact ごとの `sha256` / `size_bytes` / `content_type` 検証」「diff_metadata 補助ファイル検証」は未実装。
+  - 現行 manifest struct に artifact の `sha256` と `size_bytes` もなく、仕様の完全性と整合していない。
+  - 修正方針: ZIP 全 entry を列挙して manifest と突合し、entry 単位のサイズ・ハッシュ・content type・許可拡張子を検証する。必要なら manifest schema を仕様どおり拡張する。
+
+5. **worker が既存の MinIO 設定体系を読まず、`.env.example` のままでは動作しない**
+  - `crates/worker/src/config.rs` は `STAGING_BUCKET` / `ARTIFACTS_BUCKET` / `S3_ENDPOINT` を読むが、既存設定は `.env.example` と API 側実装の両方で `MINIO_BUCKET_STAGING` / `MINIO_BUCKET_FINAL` / `MINIO_ENDPOINT`。
+  - `crates/worker/src/main.rs` も `aws_config::load_defaults()` のみで、API 側のような MinIO access key / secret key 明示設定をしていない。
+  - このため、既存の開発環境定義では worker だけ別設定を要求し、環境差異で起動失敗する可能性が高い。
+  - 修正方針: API と同じ env 名・認証設定に揃える。少なくとも worker config と `.env.example` を一致させる。
+
+6. **retryable failure でも artifact_bundle を即 `failed` にしており、状態遷移と TTL が不整合**
+  - `handle_job_failure` は再試行予定のケースでも先に `artifact_bundle::mark_failed` を呼ぶ。
+  - さらに `crates/db/src/queries/artifact_bundle.rs` の `mark_completed` / `mark_failed` は `delete_after` を設定しておらず、仕様にある 24h / 7d の cleanup 契約も満たしていない。
+  - 修正方針: retryable failure では bundle を `pending` か `validating/importing` の再実行可能状態に戻し、terminal failure のみ `failed` にする。合わせて `delete_after` を仕様どおり設定する。
+
+### 必須修正
+
+- import パイプラインをトランザクション化または idempotent 化し、再試行で重複 insert しないようにする。
+- baseline 解決と diff summary 作成を実装し、`board_run_diffs` を `no_baseline` 固定にしない。
+- successful import 後の Issue / Dashboard / Run Result 系ジョブ enqueue を実装する。
+- manifest / zip validation を仕様レベルまで引き上げ、entry 単位のサイズ・sha256・content_type 検証を追加する。
+- worker の env 名と MinIO 認証設定を既存 API / `.env.example` に揃える。
+- `artifact_bundles.delete_after` と retryable failure 時の bundle status 遷移を修正する。
+
+### 任意改善
+
+- `crates/jobs/` と `crates/db/src/queries/github_job.rs` で dequeue/ack/nack 相当の責務が二重化しているため、どちらを正本にするか統一した方が保守しやすい。
+- `artifact::upload_artifact` が `Vec<u8>` を受け取って clone を要求するため、大きい artifact ではメモリ効率が悪い。借用や `Bytes` ベースに寄せる余地がある。
+- `artifact_bundles.status` に `validating` があるのに worker が使っていないため、状態の意味をコード上でも揃えた方が追跡しやすい。
+
+### テスト不足
+
+- worker 成功パスの統合テストがなく、DB 状態遷移と S3 upload を通した E2E が未検証。
+- retry path のテストがなく、途中失敗後の再実行・重複 insert・backoff 設定が確認されていない。
+- baseline があるケースの diff 作成テストがない。
+- `.env.example` ベースの worker 設定読み込みテストがない。
+- bundle validation について、manifest 未記載 entry、entry size 上限、sha256/size_bytes mismatch、content_type mismatch の異常系テストがない。
+
+### ドキュメント確認
+
+- `docs/spec.md` の BoardRun 完了処理、bundle validation、diff 作成、staging bundle TTL に対して、実装は未充足が残る。
+- `docs/logs/7/worklog.md` の「残リスク」に delete_after 未実装と diff baseline 未解決が明記されており、実装側も未完を認識している。ただし `pr_ready` の観点では blocker のまま。
+- `Research成果物` にある `zip >= 2.3.0` 採用自体は Cargo.lock 上で満たされている。
+
+### PR/完了結果
+
+- 判定: `pr_ready: false`
+- blocker 解消前に PR 化すると、import worker の主要責務の一部が未達のまま取り込まれるリスクが高い。
+
+### 残リスク
+
+- 部分失敗後の永続状態が壊れた場合、手動 DB 修復が必要になる可能性がある。
+- 現状の ZIP 検証では、仕様上 reject すべき malformed bundle を completed 扱いする可能性がある。
+- 運用環境で worker だけ設定名が異なるため、デプロイ時に設定漏れが起きやすい。
