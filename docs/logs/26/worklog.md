@@ -838,6 +838,35 @@ pub async fn handle_create_issue(
 ### 更新した作業ログパス
 
 `docs/logs/26/worklog.md`
+
+---
+
+## PR作成フェーズ (2026-05-02)
+
+### 確認事項
+
+- 未コミット変更: なし（working tree clean）
+- ブランチ: `feature/issue-26-github-job-dispatcher`
+- mainとの差分コミット: 11件
+- review: `pr_ready: true`（最終再レビュー 2026-05-02）
+- docs: `docs_ready: true`（README環境変数追加、external docs更新済み）
+- `cargo test -p boardflow-worker`: 12 passed
+- `cargo check`: 成功
+
+### PR/完了結果
+
+- **PR #43**: https://github.com/f0reachARR/boardflow/pull/43
+- タイトル: `feat(worker): GitHub APIジョブ汎用ディスパッチャ実装 (#26)`
+- ベースブランチ: `main`
+- Closes #26
+
+### 残リスク
+
+- handler 単体テスト（mock `GitHubAppClient`）は未実装
+- `handle_github_error()` が各ハンドラに重複して定義されている（将来共通化可能）
+- octocrab `HandleRateLimits` ミドルウェア有効化は未実施（#19 スコープ）
+- `retry_after_secs` は固定 60 秒であり、実際の `retry-after` / `x-ratelimit-reset` ヘッダ値には未追従
+
 | `crates/worker/src/handlers/mod.rs` | `tree_hash_changed()` ヘルパー関数追加 |
 | `crates/worker/src/handlers/create_dashboard_comment.rs` | tree_hash 変化判定を closed Issue 分岐に追加 |
 | `crates/worker/src/handlers/update_dashboard_comment.rs` | tree_hash 判定追加、`latest_completed_run_id` 使用に変更 |
