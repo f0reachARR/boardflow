@@ -541,3 +541,114 @@ Issue #36 の findings read API を TDD で実装完了。
 - keyset pagination に必要な複合 index が追加され、SCAN コスト問題が解消
 - `run_checks(board_run_id, check_kind)` UNIQUE 制約により重複行の混入が防止される
 - invalid cursor / sort_index tie-breaker のテストが追加され、契約テストの不足が解消
+
+## 再レビュー結果 (2026-05-01)
+
+### Issueまでの経緯
+
+- Issue #36 の前回レビューで指摘した複合 index 不足、一意性制約不足、テスト不足への対応を再確認した。
+- 今回の再レビュー対象は以下 3 ファイルに限定した。
+  - `crates/db/migrations/20260501000003_add_findings_indexes.up.sql`
+  - `crates/db/migrations/20260501000003_add_findings_indexes.down.sql`
+  - `crates/api/tests/read_api_test.rs`
+
+### ユーザー要望
+
+- 前回指摘が正しく修正されたかを確認すること。
+- migration の正確性、追加テストのカバレッジ、全テスト通過を確認すること。
+
+### 調査結果
+
+- migration では以下 3 点が追加されており、前回指摘した schema 面の不足は埋まっている。
+  - `idx_run_check_findings_keyset (run_check_id, sort_index, id)`
+  - `idx_run_check_findings_severity_keyset (run_check_id, severity, sort_index, id)`
+  - `idx_run_checks_board_run_kind UNIQUE (board_run_id, check_kind)`
+- down migration も上記 3 index を逆順で DROP しており、up/down の対応は取れている。
+- `test_list_findings_sort_index_tie_breaker` は、同一 `sort_index` での `id` tie-break pagination を直接検証しており、前回の観点を適切にカバーしている。
+- しかし `test_list_findings_invalid_cursor` は、`run_check` が存在しないセットアップになっているため、`cursor` の decode より先に handler が空リストを返し、DB あり実行では 400 ではなく 200 になる。
+- 実装上も `list_findings` handler は `run_check` 不在時の early return より後でしか cursor を検証していないため、API 契約 `invalid cursor -> 400` と不整合。
+
+### 計画との差分
+
+- performance と一意性の前回指摘は解消。
+- 追加した invalid cursor テストは、計画上の「不正 cursor で 400」をまだ実証できていない。
+
+### 実装内容レビュー
+
+- 正確性: migration 自体は妥当で、追加 index の列順も keyset pagination の要件と一致する。
+- 完全性: tie-breaker テストは十分だが、invalid cursor の修正確認は未完了。
+- 一貫性: `docs/backend/api.md` の findings 契約では invalid cursor は 400 とされているため、現挙動 200 は不整合。
+
+### テスト結果
+
+- `mise exec -- cargo clean -p boardflow-api`
+- `DATABASE_URL=postgres://boardflow:boardflow@localhost:5432/boardflow mise exec -- cargo test -p boardflow-api --test board_run_test -- --nocapture`
+  - 19 passed, 0 failed
+- `DATABASE_URL=postgres://boardflow:boardflow@localhost:5432/boardflow mise exec -- cargo test -p boardflow-api --test read_api_test -- --nocapture`
+  - 61 passed, 1 failed
+  - failure: `test_list_findings_invalid_cursor`
+- `DATABASE_URL=postgres://boardflow:boardflow@localhost:5432/boardflow mise exec -- cargo test --workspace -- --nocapture`
+  - workspace 全体でも失敗は同じ `test_list_findings_invalid_cursor` のみ
+
+### レビュー結果
+
+- `pr_ready: false`
+
+### 必須修正
+
+1. `crates/api/src/routes/read.rs` の `list_findings` で、`run_check` 存在確認より前に cursor を検証すること。少なくとも `cursor` が不正なら `run_check` の有無に関係なく 400 を返す必要がある。
+2. `test_list_findings_invalid_cursor` は、`run_check` が存在するセットアップにするか、現実装の制御フローに依存しない形で契約を直接検証すること。
+
+### 任意改善
+
+1. findings 系でも既存 `PaginationParams` の decode パターンに寄せると、validation の順序ズレを再発させにくい。
+
+### テスト不足
+
+- 今回追加された invalid cursor テストは存在するが、現在は失敗しており、契約テストとして成立していない。
+
+### ドキュメント確認
+
+- `docs/backend/api.md` の findings 契約に変更はなく、今回の再レビュー範囲では追加のドキュメント更新は不要。
+- ただし現実装は契約と一致していないため、コード修正後に再度テストで裏付ける必要がある。
+
+### PR/完了結果
+
+- 現時点では PR 作成不可。
+
+### 残リスク
+
+- ~~invalid cursor を送っても条件次第で 200 空リストになるため、frontend が paging バグを検知できず、誤った「データなし」表示になる。~~ → 修正済み (2026-05-01)
+
+---
+
+## レビュー指摘修正 (2026-05-01)
+
+### 問題
+
+`list_findings` ハンドラで cursor 検証が run_check 存在確認の **後** に配置されていたため、
+run_check が存在しないケースでは不正 cursor でも 200 空リストが返されていた。
+
+### 修正内容
+
+`crates/api/src/routes/read.rs` の `list_findings` 内の処理順を変更：
+
+- **Before**: board_run_id → check_kind → severity → repo access → run_check確認(早期return) → cursor検証 → DB query
+- **After**: board_run_id → check_kind → **cursor検証** → severity → repo access → run_check確認(早期return) → DB query
+
+cursor の decode (`decode_findings_cursor`) と limit の計算を step 3 に移動し、
+不正 cursor は run_check 存在有無に関わらず常に 400 `validation_failed` を返すようにした。
+
+### テスト結果
+
+- `test_list_findings_invalid_cursor`: **PASS** (400 BAD_REQUEST)
+- findings 関連テスト全件: **PASS**
+- `test_list_repositories_upstream_error_returns_500`: FAILED (既存のテストデータ衝突バグ、本修正と無関係)
+
+### 更新ドキュメント
+
+- `docs/logs/36/worklog.md` (本ファイル)
+
+### 残リスク (修正後)
+
+- `test_list_repositories_upstream_error_returns_500` がフレイキー（github_user_id のユニークキー衝突）。別Issue対応推奨。
