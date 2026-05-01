@@ -1726,6 +1726,69 @@ for (idx, finding) in check.findings.iter().enumerate() {
 
 ---
 
+## ドキュメント再確認フェーズ: run_check_findings 追加実装 2回目再確認 (2026-05-01)
+
+### 対象
+
+- Issue ID: #7
+- タイトル: Import Worker: ERC/DRC結果のrun_checks/run_check_findings保存
+- 再確認対象:
+  - `docs/external/kicad-erc-drc-findings.md`
+  - `docs/backend/api.md`
+  - `docs/spec.md`
+  - `crates/artifact/src/lib.rs`
+  - `crates/worker/src/main.rs`
+
+### ドキュメント確認
+
+- `docs/external/kicad-erc-drc-findings.md` セクション5は現実装と整合している
+  - `ManifestCheck.findings` は `Vec<serde_json::Value>` と記載されており、`crates/artifact/src/lib.rs` と一致
+  - Worker 側の個別デシリアライズ、`severity` / `subject_kind` 正規化、パース失敗時の `raw_payload_json` 保存継続の記述が `crates/worker/src/main.rs` と一致
+  - 正規化で変換された元値が `raw_payload_json` 側にのみ残るという期待値も明記されている
+- `docs/backend/api.md` には `run_check_findings` read API が未実装である旨の注記が追加されており、現状のAPI契約と整合している
+- `docs/spec.md` の `run_check_findings` テーブル定義は現実装と矛盾していない
+
+### 再確認結果
+
+- 前回 docs レビューの必須修正 2 件は解消済み
+- 今回の確認範囲では、Issue #7 の追加実装に対するドキュメント上のブロッカーは解消している
+- `docs/spec.md` の manifest 例には依然として `checks[].findings` の具体例がないが、これは理解補助の不足であり、今回の実装修正内容と矛盾する記述ではない
+
+### 判定
+
+- `docs_ready: true`
+
+### 必須修正
+
+- なし
+
+### 任意改善
+
+1. `docs/spec.md` の manifest 例に `checks[].findings` の例を追加すると、Action / Worker / DB 間の契約を正本仕様から追いやすくなる
+
+### 不整合のあるドキュメント
+
+- なし
+
+### 不足しているドキュメント
+
+- ブロッカーはなし
+- 補足候補: `docs/spec.md` の manifest 例に findings 拡張の具体例
+
+### 外部調査メモに関する指摘
+
+- `docs/external/kicad-erc-drc-findings.md` は、今回の実装判断（生 JSON 保持、Worker 側個別デシリアライズ、正規化、raw 保存継続）を適切に反映できている
+
+### PR/完了結果
+
+- `docs_ready: true`
+
+### 更新した作業ログパス
+
+- `docs/logs/7/worklog.md`
+
+---
+
 ## ドキュメント確認フェーズ: run_check_findings 追加実装 (2026-05-01)
 
 ### 対象
@@ -2094,3 +2157,31 @@ docsレビューで以下の不整合が指摘された:
 ### 更新した作業ログパス
 
 - `docs/logs/7/worklog.md`
+
+---
+
+## PR作成フェーズ: run_check_findings 追加実装 (2026-05-01)
+
+### 前提確認
+
+- ブランチ: `feature/issue-7-run-check-findings-insert`
+- HEAD: `610129e`
+- 未コミット変更: `docs/logs/7/worklog.md` (本エントリ追記後にコミット)
+- `cargo build --workspace`: 成功
+- `cargo test --workspace`: 71 tests passed, 0 failed
+- Review: `pr_ready: true` (3回目レビュー: `101ed2b` commit後)
+- Docs: `docs_ready: true` (ドキュメント再確認フェーズにて確認済み)
+
+### PR作成結果
+
+- **PRリンク**: (作成後に記録)
+- タイトル: `feat(worker): insert run_check_findings from manifest checks`
+- base: `main`, head: `feature/issue-7-run-check-findings-insert`
+- Issue #7 への追加実装 (元実装は PR #15 でマージ済み)
+
+### 残リスク
+
+- Worker 統合テスト (DB + S3 の E2E) は未実装 (MVPスコープ外として許容)
+- 正規化後のINSERT失敗時はその finding がスキップされる (ログに記録)
+- 正規化で severity が `"notice"` に変換された場合、元の severity 情報は raw_payload_json 内にのみ残る
+- run_check_findings の read API は未実装 (今後のIssueで対応予定)
