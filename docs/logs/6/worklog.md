@@ -413,6 +413,46 @@ limit+1行取得し、N+1行目が存在すれば `has_more=true`、N行目で n
 
 ---
 
+## Phase 8: レビュー再確認 2 (Post-fix Review)
+- 開始: 2026-05-01
+- 状態: 完了
+- 対象Issue: #6
+- PR作成可否: `pr_ready: false`
+
+### レビュー結果
+- 前回必須修正3点は、現行コード上では解消を確認した。
+  - OAuth state CSRF: `login` で server-side nonce を生成して cookie 保存し、`callback` で照合している。
+  - Artifact secret 必須化: `create_app_with_config` で `BOARDFLOW_ARTIFACT_SECRET` 未設定時に起動失敗する。
+  - テスト helper FK 修正: `query_scalar(...).fetch_one()` で DB 上の実 ID を返すように変更されている。
+- この環境で `cargo test -p boardflow-api` を再実行し、79件すべて成功を確認した。
+- ただし、Issue #6 を PR ready と判断するには repository 権限ベース認可の未実装が残る。仕様では session 認証に加え repository 権限確認を要求している。
+
+### 重大な指摘
+1. Read API は session 認証までは入っているが、resource ごとの repository 権限確認は未実装。`routes/read.rs` にも post-MVP TODO が残っている。
+2. OAuth 修正の回帰を抑える統合テストがない。`auth_test.rs` は request_id / error response の単体確認のみで、`/api/v1/auth/login` と `/api/v1/auth/callback` の state cookie, 403 mismatch, redirect 固定を検証していない。
+
+### 必須修正
+1. 仕様を満たして Issue #6 を完了扱いにするなら、repository 権限ベース認可を実装し、閲覧不可 resource を `404 not_found` で秘匿するテストまで追加する。
+
+### 任意改善
+1. OAuth login/callback/logout の integration test を追加し、CSRF と open redirect 防止の回帰を自動検出できるようにする。
+2. session / oauth_state cookie に `Secure` を付与する条件分岐を追加し、HTTPS 配備時の cookie transport を強化する。
+
+### テスト不足
+- repository 権限なし user が Read API へアクセスしたときの `404 not_found` が未検証。
+- OAuth callback の state mismatch で `403` になること、state cookie がクリアされること、redirect 先が固定 `"/"` であることが未検証。
+- `BOARDFLOW_ARTIFACT_SECRET` 未設定時に app 起動が失敗することを直接確認するテストが未追加。
+
+### ドキュメント確認
+- `docs/backend/api.md` は Web UI read API に対して「GitHub OAuth session + repository 権限確認」を要求しており、現在の実装は前者のみ充足している。
+- worklog 上の「MVP方針として session認証のみで認可とする」は、backend API 仕様の記述とは整合していない。MVP例外として進めるなら、仕様または Issue 完了条件側へ明示が必要。
+
+### 残リスク
+- session を持つ任意ユーザーが、本来閲覧権限のない repository / board / artifact metadata にアクセスできる可能性がある。
+- OAuth state / redirect 安全性の修正は入ったが、自動テスト不在のため将来の退行を検出しにくい。
+
+---
+
 ## Phase 6: レビュー再確認 (Review Re-check)
 - 開始: 2026-05-01
 - 状態: 完了

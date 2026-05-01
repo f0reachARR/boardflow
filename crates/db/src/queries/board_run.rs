@@ -159,3 +159,19 @@ pub async fn list_by_board_project(
         }
     }
 }
+
+/// Find the repository associated with a board_run (via board_project)
+pub async fn find_repository_by_board_run_id(
+    executor: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
+    board_run_id: Uuid,
+) -> Result<Option<boardflow_domain::models::repository::Repository>, sqlx::Error> {
+    sqlx::query_as::<_, boardflow_domain::models::repository::Repository>(
+        r#"SELECT r.* FROM repositories r
+        JOIN board_projects bp ON bp.repository_id = r.id
+        JOIN board_runs br ON br.board_project_id = bp.id
+        WHERE br.id = $1"#,
+    )
+    .bind(board_run_id)
+    .fetch_optional(executor)
+    .await
+}

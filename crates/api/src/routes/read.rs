@@ -3,6 +3,7 @@ use axum::{Extension, Json};
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use chrono::{DateTime, Utc};
+use futures::future::join_all;
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use utoipa::{IntoParams, ToSchema};
@@ -12,6 +13,7 @@ use boardflow_domain::models::artifact::ArtifactStatus;
 
 use crate::error::{AppError, RequestId};
 use crate::extractors::AuthenticatedSession;
+use crate::github_access::DynGithubAccessChecker;
 use crate::ArtifactSecret;
 
 // ─── ID prefix helpers ───────────────────────────────────────────────────────
@@ -360,8 +362,9 @@ fn derive_board_project_state(
     )
 )]
 pub async fn list_repositories(
-    _session: AuthenticatedSession, // TODO: repository permission check (post-MVP)
+    session: AuthenticatedSession,
     Extension(RequestId(request_id)): Extension<RequestId>,
+    Extension(access_checker): Extension<DynGithubAccessChecker>,
     State(pool): State<PgPool>,
     Query(params): Query<PaginationParams>,
 ) -> Result<Json<PaginatedResponse<RepositoryListItem>>, AppError> {
@@ -375,8 +378,24 @@ pub async fn list_repositories(
             AppError::internal_error("database error", &request_id)
         })?;
 
-    let has_more = rows.len() as i64 > limit;
-    let items: Vec<_> = rows
+    // Filter by repository access in parallel
+    let token = &session.user.github_access_token;
+    let checks = rows.iter().map(|r| {
+        let checker = access_checker.clone();
+        let token = token.clone();
+        let owner = r.owner.clone();
+        let name = r.name.clone();
+        async move { checker.check_access(&token, &owner, &name).await }
+    });
+    let results = join_all(checks).await;
+    let accessible_rows: Vec<_> = rows
+        .into_iter()
+        .zip(results)
+        .filter_map(|(r, ok)| if ok { Some(r) } else { None })
+        .collect();
+
+    let has_more = accessible_rows.len() as i64 > limit;
+    let items: Vec<_> = accessible_rows
         .iter()
         .take(limit as usize)
         .map(|r| RepositoryListItem {
@@ -392,7 +411,7 @@ pub async fn list_repositories(
 
     let next_cursor = if has_more {
         items.last().map(|_| {
-            let last = &rows[limit as usize - 1];
+            let last = &accessible_rows[limit as usize - 1];
             encode_repository_cursor(&last.updated_at, last.github_repository_id)
         })
     } else {
@@ -419,8 +438,9 @@ pub async fn list_repositories(
     )
 )]
 pub async fn get_repository(
-    _session: AuthenticatedSession,
+    session: AuthenticatedSession,
     Extension(RequestId(request_id)): Extension<RequestId>,
+    Extension(access_checker): Extension<DynGithubAccessChecker>,
     State(pool): State<PgPool>,
     Path(github_repository_id): Path<i64>,
 ) -> Result<Json<RepositoryDetailResponse>, AppError> {
@@ -431,6 +451,13 @@ pub async fn get_repository(
             AppError::internal_error("database error", &request_id)
         })?
         .ok_or_else(|| AppError::not_found("repository not found", &request_id))?;
+
+    if !access_checker
+        .check_access(&session.user.github_access_token, &repo.owner, &repo.name)
+        .await
+    {
+        return Err(AppError::not_found("repository not found", &request_id));
+    }
 
     let board_project_count: i64 =
         sqlx::query_scalar("SELECT COUNT(*) FROM board_projects WHERE repository_id = $1")
@@ -472,8 +499,9 @@ pub async fn get_repository(
     )
 )]
 pub async fn list_board_projects(
-    _session: AuthenticatedSession,
+    session: AuthenticatedSession,
     Extension(RequestId(request_id)): Extension<RequestId>,
+    Extension(access_checker): Extension<DynGithubAccessChecker>,
     State(pool): State<PgPool>,
     Path(github_repository_id): Path<i64>,
     Query(params): Query<PaginationParams>,
@@ -485,6 +513,13 @@ pub async fn list_board_projects(
             AppError::internal_error("database error", &request_id)
         })?
         .ok_or_else(|| AppError::not_found("repository not found", &request_id))?;
+
+    if !access_checker
+        .check_access(&session.user.github_access_token, &repo.owner, &repo.name)
+        .await
+    {
+        return Err(AppError::not_found("repository not found", &request_id));
+    }
 
     let limit = params.effective_limit();
     let cursor = params.decoded_cursor(&request_id)?;
@@ -546,8 +581,9 @@ pub async fn list_board_projects(
     )
 )]
 pub async fn get_board_project(
-    _session: AuthenticatedSession,
+    session: AuthenticatedSession,
     Extension(RequestId(request_id)): Extension<RequestId>,
+    Extension(access_checker): Extension<DynGithubAccessChecker>,
     State(pool): State<PgPool>,
     Path(board_project_id): Path<String>,
 ) -> Result<Json<BoardProjectDetailResponse>, AppError> {
@@ -561,6 +597,13 @@ pub async fn get_board_project(
             AppError::internal_error("database error", &request_id)
         })?
         .ok_or_else(|| AppError::not_found("board project not found", &request_id))?;
+
+    if !access_checker
+        .check_access(&session.user.github_access_token, &row.repo_owner, &row.repo_name)
+        .await
+    {
+        return Err(AppError::not_found("board project not found", &request_id));
+    }
 
     // Get latest run status for state derivation
     let latest_run_status = boardflow_db::queries::board_project::get_latest_run_status(&pool, id)
@@ -609,8 +652,9 @@ pub async fn get_board_project(
     )
 )]
 pub async fn list_board_runs(
-    _session: AuthenticatedSession,
+    session: AuthenticatedSession,
     Extension(RequestId(request_id)): Extension<RequestId>,
+    Extension(access_checker): Extension<DynGithubAccessChecker>,
     State(pool): State<PgPool>,
     Path(board_project_id): Path<String>,
     Query(params): Query<PaginationParams>,
@@ -618,14 +662,21 @@ pub async fn list_board_runs(
     let bp_id = parse_board_project_id(&board_project_id)
         .ok_or_else(|| AppError::validation_failed("invalid board_project_id format", &request_id))?;
 
-    // Verify board_project exists
-    boardflow_db::queries::board_project::find_by_id(&pool, bp_id)
+    // Verify board_project exists and check repository access
+    let repo = boardflow_db::queries::board_project::find_repository_by_board_project_id(&pool, bp_id)
         .await
         .map_err(|e| {
-            tracing::error!("list_board_runs bp lookup failed: {e}");
+            tracing::error!("list_board_runs repo lookup failed: {e}");
             AppError::internal_error("database error", &request_id)
         })?
         .ok_or_else(|| AppError::not_found("board project not found", &request_id))?;
+
+    if !access_checker
+        .check_access(&session.user.github_access_token, &repo.owner, &repo.name)
+        .await
+    {
+        return Err(AppError::not_found("board project not found", &request_id));
+    }
 
     let limit = params.effective_limit();
     let cursor = params.decoded_cursor(&request_id)?;
@@ -691,13 +742,30 @@ pub async fn list_board_runs(
     )
 )]
 pub async fn get_board_run(
-    _session: AuthenticatedSession,
+    session: AuthenticatedSession,
     Extension(RequestId(request_id)): Extension<RequestId>,
+    Extension(access_checker): Extension<DynGithubAccessChecker>,
     State(pool): State<PgPool>,
     Path(board_run_id): Path<String>,
 ) -> Result<Json<BoardRunDetailResponse>, AppError> {
     let id = parse_board_run_id(&board_run_id)
         .ok_or_else(|| AppError::validation_failed("invalid board_run_id format", &request_id))?;
+
+    // Check repository access via board_run → board_project → repository
+    let repo = boardflow_db::queries::board_run::find_repository_by_board_run_id(&pool, id)
+        .await
+        .map_err(|e| {
+            tracing::error!("get_board_run repo lookup failed: {e}");
+            AppError::internal_error("database error", &request_id)
+        })?
+        .ok_or_else(|| AppError::not_found("board run not found", &request_id))?;
+
+    if !access_checker
+        .check_access(&session.user.github_access_token, &repo.owner, &repo.name)
+        .await
+    {
+        return Err(AppError::not_found("board run not found", &request_id));
+    }
 
     let run = boardflow_db::queries::board_run::find_by_id(&pool, id)
         .await
@@ -774,22 +842,30 @@ pub struct ArtifactListResponse {
     )
 )]
 pub async fn list_artifacts(
-    _session: AuthenticatedSession,
+    session: AuthenticatedSession,
     Extension(RequestId(request_id)): Extension<RequestId>,
+    Extension(access_checker): Extension<DynGithubAccessChecker>,
     State(pool): State<PgPool>,
     Path(board_run_id): Path<String>,
 ) -> Result<Json<ArtifactListResponse>, AppError> {
     let id = parse_board_run_id(&board_run_id)
         .ok_or_else(|| AppError::validation_failed("invalid board_run_id format", &request_id))?;
 
-    // Verify board_run exists
-    boardflow_db::queries::board_run::find_by_id(&pool, id)
+    // Check repository access via board_run → board_project → repository
+    let repo = boardflow_db::queries::board_run::find_repository_by_board_run_id(&pool, id)
         .await
         .map_err(|e| {
-            tracing::error!("list_artifacts run lookup failed: {e}");
+            tracing::error!("list_artifacts repo lookup failed: {e}");
             AppError::internal_error("database error", &request_id)
         })?
         .ok_or_else(|| AppError::not_found("board run not found", &request_id))?;
+
+    if !access_checker
+        .check_access(&session.user.github_access_token, &repo.owner, &repo.name)
+        .await
+    {
+        return Err(AppError::not_found("board run not found", &request_id));
+    }
 
     let artifacts = boardflow_db::queries::artifact::list_by_board_run(&pool, id)
         .await
@@ -836,12 +912,29 @@ pub async fn list_artifacts(
 pub async fn get_viewer_sources(
     session: AuthenticatedSession,
     Extension(RequestId(request_id)): Extension<RequestId>,
+    Extension(access_checker): Extension<DynGithubAccessChecker>,
     Extension(artifact_secret): Extension<ArtifactSecret>,
     State(pool): State<PgPool>,
     Path(board_run_id): Path<String>,
 ) -> Result<Json<ViewerSourcesResponse>, AppError> {
     let id = parse_board_run_id(&board_run_id)
         .ok_or_else(|| AppError::validation_failed("invalid board_run_id format", &request_id))?;
+
+    // Check repository access via board_run → board_project → repository
+    let repo = boardflow_db::queries::board_run::find_repository_by_board_run_id(&pool, id)
+        .await
+        .map_err(|e| {
+            tracing::error!("get_viewer_sources repo lookup failed: {e}");
+            AppError::internal_error("database error", &request_id)
+        })?
+        .ok_or_else(|| AppError::not_found("board run not found", &request_id))?;
+
+    if !access_checker
+        .check_access(&session.user.github_access_token, &repo.owner, &repo.name)
+        .await
+    {
+        return Err(AppError::not_found("board run not found", &request_id));
+    }
 
     // Verify board_run exists
     boardflow_db::queries::board_run::find_by_id(&pool, id)

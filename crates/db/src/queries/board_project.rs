@@ -209,3 +209,18 @@ pub async fn get_latest_run_status(
     .fetch_optional(executor)
     .await
 }
+
+/// Find the repository associated with a board_project
+pub async fn find_repository_by_board_project_id(
+    executor: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
+    board_project_id: Uuid,
+) -> Result<Option<boardflow_domain::models::repository::Repository>, sqlx::Error> {
+    sqlx::query_as::<_, boardflow_domain::models::repository::Repository>(
+        r#"SELECT r.* FROM repositories r
+        JOIN board_projects bp ON bp.repository_id = r.id
+        WHERE bp.id = $1"#,
+    )
+    .bind(board_project_id)
+    .fetch_optional(executor)
+    .await
+}

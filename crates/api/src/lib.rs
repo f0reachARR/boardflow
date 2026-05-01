@@ -2,8 +2,11 @@ pub mod artifact_token;
 pub mod config;
 pub mod error;
 pub mod extractors;
+pub mod github_access;
 pub mod middleware;
 pub mod routes;
+
+use std::sync::Arc;
 
 use axum::{Extension, Json, Router};
 use sqlx::PgPool;
@@ -12,10 +15,11 @@ use utoipa::{Modify, OpenApi};
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
+use github_access::{DynGithubAccessChecker, RealGithubAccessChecker};
 use routes::auth::OAuthConfig;
 
 pub fn create_app(pool: PgPool, s3_client: Option<aws_sdk_s3::Client>) -> Router {
-    create_app_with_config(pool, s3_client, None, None)
+    create_app_with_config(pool, s3_client, None, None, None)
 }
 
 pub fn create_app_with_config(
@@ -23,6 +27,7 @@ pub fn create_app_with_config(
     s3_client: Option<aws_sdk_s3::Client>,
     oauth_config: Option<OAuthConfig>,
     artifact_secret: Option<Vec<u8>>,
+    access_checker: Option<DynGithubAccessChecker>,
 ) -> Router {
     let (router, api) = OpenApiRouter::with_openapi(ApiDoc::openapi())
         .routes(routes!(routes::health::healthz))
@@ -55,6 +60,9 @@ pub fn create_app_with_config(
             .into_bytes()
     });
 
+    let checker: DynGithubAccessChecker =
+        access_checker.unwrap_or_else(|| Arc::new(RealGithubAccessChecker));
+
     router
         .route(
             "/api/v1/openapi.json",
@@ -66,6 +74,7 @@ pub fn create_app_with_config(
         .layer(Extension(s3_client))
         .layer(Extension(oauth))
         .layer(Extension(ArtifactSecret(secret)))
+        .layer(Extension(checker))
         .layer(axum::middleware::from_fn(
             middleware::request_id::request_id_middleware,
         ))

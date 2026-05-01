@@ -35,3 +35,5 @@ base64 = "0.22"
 zip = "2"
 reqwest = { version = "0.12", features = ["json"] }
 urlencoding = "2"
+async-trait = "0.1"
+futures = "0.3"
