@@ -288,3 +288,29 @@ pub async fn find_repository_by_board_project_id(
     .fetch_optional(executor)
     .await
 }
+
+/// Insert a record into board_project_issue_history
+pub async fn insert_issue_history(
+    executor: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
+    id: Uuid,
+    board_project_id: Uuid,
+    issue_number: i32,
+    issue_node_id: &str,
+    issue_url: &str,
+    reason: &str,
+    replaced_by_issue_node_id: Option<&str>,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "INSERT INTO board_project_issue_history (id, board_project_id, issue_number, issue_node_id, issue_url, reason, replaced_by_issue_node_id, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())",
+    )
+    .bind(id)
+    .bind(board_project_id)
+    .bind(issue_number)
+    .bind(issue_node_id)
+    .bind(issue_url)
+    .bind(reason)
+    .bind(replaced_by_issue_node_id)
+    .execute(executor)
+    .await?;
+    Ok(())
+}
