@@ -292,6 +292,7 @@ mod tests {
             s3_access_key: None,
             s3_secret_key: None,
             poll_interval_secs: 2,
+            timeout_sweep_interval_secs: 60,
             github_app_id: None,
             github_private_key_pem: None,
             app_base_url: "https://test.example.com".into(),

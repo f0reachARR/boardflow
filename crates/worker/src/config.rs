@@ -6,6 +6,7 @@ pub struct WorkerConfig {
     pub s3_access_key: Option<String>,
     pub s3_secret_key: Option<String>,
     pub poll_interval_secs: u64,
+    pub timeout_sweep_interval_secs: u64,
     pub github_app_id: Option<u64>,
     pub github_private_key_pem: Option<String>,
     pub app_base_url: String,
@@ -26,6 +27,10 @@ impl WorkerConfig {
                 .ok()
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(2),
+            timeout_sweep_interval_secs: std::env::var("TIMEOUT_SWEEP_INTERVAL_SECS")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(60),
             github_app_id: std::env::var("GITHUB_APP_ID")
                 .ok()
                 .and_then(|v| v.parse().ok()),

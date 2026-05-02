@@ -193,3 +193,20 @@ pub async fn find_previous_completed(
     .fetch_optional(executor)
     .await
 }
+
+/// Sweep BoardRuns that have been in non-terminal status for more than 12 hours.
+/// Returns the IDs of the runs that were marked as timed out.
+pub async fn sweep_timed_out(
+    executor: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
+) -> Result<Vec<Uuid>, sqlx::Error> {
+    let rows = sqlx::query_scalar::<_, Uuid>(
+        r#"UPDATE board_runs
+        SET status = 'timed_out', timed_out_at = NOW()
+        WHERE status IN ('created', 'uploading', 'importing')
+        AND created_at < NOW() - interval '12 hours'
+        RETURNING id"#,
+    )
+    .fetch_all(executor)
+    .await?;
+    Ok(rows)
+}

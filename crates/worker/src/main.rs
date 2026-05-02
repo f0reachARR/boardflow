@@ -70,6 +70,9 @@ async fn main() {
 
     tracing::info!("BoardFlow worker started, polling for jobs");
 
+    let sweep_interval = std::time::Duration::from_secs(config.timeout_sweep_interval_secs);
+    let mut last_sweep = tokio::time::Instant::now();
+
     let shutdown = tokio::signal::ctrl_c();
     tokio::pin!(shutdown);
 
@@ -84,7 +87,13 @@ async fn main() {
                 &s3_client,
                 &config,
                 github_client.as_deref(),
-            ) => {}
+            ) => {
+                // Check if it's time to sweep
+                if last_sweep.elapsed() >= sweep_interval {
+                    dispatcher::sweep_timed_out_runs(&pool).await;
+                    last_sweep = tokio::time::Instant::now();
+                }
+            }
         }
     }
 
