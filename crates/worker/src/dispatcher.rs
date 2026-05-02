@@ -1,4 +1,4 @@
-use boardflow_db::queries::{board_project, github_job};
+use boardflow_db::queries::{board_project, board_run, github_job};
 use boardflow_github::GitHubAppClient;
 use boardflow_jobs::MAX_ATTEMPTS;
 use sqlx::PgPool;
@@ -125,5 +125,20 @@ fn no_github_client_result() -> HandlerResult {
     HandlerResult::Reschedule {
         reason: "GitHub client not configured".into(),
         backoff_secs: 60.0,
+    }
+}
+
+/// Sweep stale BoardRuns that exceeded the 12-hour timeout.
+pub async fn sweep_timed_out_runs(pool: &PgPool) {
+    match board_run::sweep_timed_out(pool).await {
+        Ok(ids) if !ids.is_empty() => {
+            tracing::info!(count = ids.len(), "Swept timed-out BoardRuns");
+        }
+        Ok(_) => {
+            tracing::debug!("No BoardRuns to time out");
+        }
+        Err(e) => {
+            tracing::error!(error = %e, "Failed to sweep timed-out BoardRuns");
+        }
     }
 }

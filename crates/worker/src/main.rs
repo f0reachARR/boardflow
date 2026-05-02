@@ -70,6 +70,9 @@ async fn main() {
 
     tracing::info!("BoardFlow worker started, polling for jobs");
 
+    let mut sweep_interval = tokio::time::interval(std::time::Duration::from_secs(config.timeout_sweep_interval_secs));
+    sweep_interval.tick().await; // 初回tickを消化
+
     let shutdown = tokio::signal::ctrl_c();
     tokio::pin!(shutdown);
 
@@ -85,6 +88,9 @@ async fn main() {
                 &config,
                 github_client.as_deref(),
             ) => {}
+            _ = sweep_interval.tick() => {
+                dispatcher::sweep_timed_out_runs(&pool).await;
+            }
         }
     }
 

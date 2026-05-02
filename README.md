@@ -27,6 +27,7 @@
 | `MINIO_ACCESS_KEY` | No | S3アクセスキー |
 | `MINIO_SECRET_KEY` | No | S3シークレットキー |
 | `POLL_INTERVAL_SECS` | No | ポーリング間隔秒 (default: `2`) |
+| `TIMEOUT_SWEEP_INTERVAL_SECS` | No | タイムアウトスイープ間隔秒 (default: `60`) |
 | `GITHUB_APP_ID` | No | GitHub App ID。未設定時はGitHub APIジョブをスキップ |
 | `GITHUB_PRIVATE_KEY_PEM` | No | GitHub App RSA秘密鍵(PEM)。未設定時はGitHub APIジョブをスキップ |
 | `APP_BASE_URL` | No | SaaSベースURL (default: `https://boardflow.example.com`) |
