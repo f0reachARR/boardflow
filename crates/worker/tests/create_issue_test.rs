@@ -5,7 +5,9 @@
 //! Tests are skipped (ignored) by default and must be explicitly opted in.
 
 use boardflow_domain::models::github_job::{GithubJob, GithubJobStatus};
-use boardflow_github::{CreatedComment, CreatedIssue, GitHubAppClient, GitHubClientError, IssueInfo, IssueState};
+use boardflow_github::{
+    CreatedComment, CreatedIssue, GitHubAppClient, GitHubClientError, IssueInfo, IssueState,
+};
 use chrono::Utc;
 use secrecy::SecretString;
 use sqlx::PgPool;
@@ -78,9 +80,7 @@ impl GitHubAppClient for MockGitHubClient {
         _: u64,
         _: &str,
     ) -> Result<CreatedComment, GitHubClientError> {
-        Ok(CreatedComment {
-            id: 1,
-        })
+        Ok(CreatedComment { id: 1 })
     }
 
     async fn update_comment(
@@ -208,7 +208,8 @@ async fn test_create_issue_success() {
     job.installation_id = installation_id;
     job.repository_id = repo_id;
 
-    let result = boardflow_worker::handlers::create_issue::handle(&pool, &client, &config, &job).await;
+    let result =
+        boardflow_worker::handlers::create_issue::handle(&pool, &client, &config, &job).await;
 
     // Should complete successfully
     assert!(
@@ -222,13 +223,12 @@ async fn test_create_issue_success() {
     );
 
     // Verify issue info was saved to board_project
-    let row: (Option<i32>, Option<String>) = sqlx::query_as(
-        "SELECT issue_number, issue_node_id FROM board_projects WHERE id = $1",
-    )
-    .bind(bp_id)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let row: (Option<i32>, Option<String>) =
+        sqlx::query_as("SELECT issue_number, issue_node_id FROM board_projects WHERE id = $1")
+            .bind(bp_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(row.0, Some(42));
     assert_eq!(row.1.as_deref(), Some("MDU6SXNzdWU0Mg=="));
 
@@ -240,7 +240,10 @@ async fn test_create_issue_success() {
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert!(follow_up_count.0 >= 1, "Expected create_dashboard_comment job to be enqueued");
+    assert!(
+        follow_up_count.0 >= 1,
+        "Expected create_dashboard_comment job to be enqueued"
+    );
 
     cleanup_test_data(&pool, repo_id, bp_id).await;
 }
@@ -263,11 +266,48 @@ async fn test_create_issue_idempotent() {
     struct PanicClient;
     #[async_trait::async_trait]
     impl GitHubAppClient for PanicClient {
-        async fn get_installation_token(&self, _: u64) -> Result<SecretString, GitHubClientError> { panic!() }
-        async fn create_issue(&self, _: u64, _: &str, _: &str, _: &str, _: &str) -> Result<CreatedIssue, GitHubClientError> { panic!("should not be called for idempotent case") }
-        async fn get_issue(&self, _: u64, _: &str, _: &str, _: u64) -> Result<IssueInfo, GitHubClientError> { panic!() }
-        async fn create_comment(&self, _: u64, _: &str, _: &str, _: u64, _: &str) -> Result<CreatedComment, GitHubClientError> { panic!() }
-        async fn update_comment(&self, _: u64, _: &str, _: &str, _: u64, _: &str) -> Result<(), GitHubClientError> { panic!() }
+        async fn get_installation_token(&self, _: u64) -> Result<SecretString, GitHubClientError> {
+            panic!()
+        }
+        async fn create_issue(
+            &self,
+            _: u64,
+            _: &str,
+            _: &str,
+            _: &str,
+            _: &str,
+        ) -> Result<CreatedIssue, GitHubClientError> {
+            panic!("should not be called for idempotent case")
+        }
+        async fn get_issue(
+            &self,
+            _: u64,
+            _: &str,
+            _: &str,
+            _: u64,
+        ) -> Result<IssueInfo, GitHubClientError> {
+            panic!()
+        }
+        async fn create_comment(
+            &self,
+            _: u64,
+            _: &str,
+            _: &str,
+            _: u64,
+            _: &str,
+        ) -> Result<CreatedComment, GitHubClientError> {
+            panic!()
+        }
+        async fn update_comment(
+            &self,
+            _: u64,
+            _: &str,
+            _: &str,
+            _: u64,
+            _: &str,
+        ) -> Result<(), GitHubClientError> {
+            panic!()
+        }
     }
 
     let config = make_config();
@@ -275,8 +315,12 @@ async fn test_create_issue_idempotent() {
     job.installation_id = installation_id;
     job.repository_id = repo_id;
 
-    let result = boardflow_worker::handlers::create_issue::handle(&pool, &PanicClient, &config, &job).await;
-    assert!(matches!(result, boardflow_worker::handlers::HandlerResult::Completed));
+    let result =
+        boardflow_worker::handlers::create_issue::handle(&pool, &PanicClient, &config, &job).await;
+    assert!(matches!(
+        result,
+        boardflow_worker::handlers::HandlerResult::Completed
+    ));
 
     cleanup_test_data(&pool, repo_id, bp_id).await;
 }
@@ -291,10 +335,14 @@ async fn test_create_issue_board_project_not_found() {
     let config = make_config();
     let job = make_job(Some(non_existent_bp_id), Some(Uuid::now_v7()));
 
-    let result = boardflow_worker::handlers::create_issue::handle(&pool, &client, &config, &job).await;
+    let result =
+        boardflow_worker::handlers::create_issue::handle(&pool, &client, &config, &job).await;
     match result {
         boardflow_worker::handlers::HandlerResult::Failed { reason } => {
-            assert!(reason.contains("not found"), "Expected 'not found' in reason: {reason}");
+            assert!(
+                reason.contains("not found"),
+                "Expected 'not found' in reason: {reason}"
+            );
         }
         _ => panic!("Expected Failed"),
     }
@@ -315,9 +363,13 @@ async fn test_create_issue_github_rate_limited() {
     job.installation_id = installation_id;
     job.repository_id = repo_id;
 
-    let result = boardflow_worker::handlers::create_issue::handle(&pool, &client, &config, &job).await;
+    let result =
+        boardflow_worker::handlers::create_issue::handle(&pool, &client, &config, &job).await;
     match result {
-        boardflow_worker::handlers::HandlerResult::Reschedule { reason, backoff_secs } => {
+        boardflow_worker::handlers::HandlerResult::Reschedule {
+            reason,
+            backoff_secs,
+        } => {
             assert!(reason.contains("Rate limited"));
             assert_eq!(backoff_secs, 60.0);
         }

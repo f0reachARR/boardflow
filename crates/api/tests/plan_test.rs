@@ -47,7 +47,11 @@ async fn create_test_token(pool: &PgPool, repository_id: Uuid, installation_id: 
     raw_token
 }
 
-async fn create_test_repository(pool: &PgPool, github_repository_id: i64, installation_id: i64) -> Uuid {
+async fn create_test_repository(
+    pool: &PgPool,
+    github_repository_id: i64,
+    installation_id: i64,
+) -> Uuid {
     let id = Uuid::now_v7();
     let actual_id: Uuid = sqlx::query_scalar(
         "INSERT INTO repositories (id, github_repository_id, owner, name, installation_id, created_at, updated_at) \
@@ -164,12 +168,20 @@ async fn plan_new_project_returns_build_new_project() {
     let body = response.into_body().collect().await.unwrap().to_bytes();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
 
-    assert_eq!(json["repository"]["github_repository_id"], github_repo_id.to_string());
+    assert_eq!(
+        json["repository"]["github_repository_id"],
+        github_repo_id.to_string()
+    );
     assert_eq!(json["repository"]["owner"], "test-owner");
     assert_eq!(json["repository"]["name"], "test-repo");
     assert_eq!(json["projects"][0]["decision"], "build");
     assert_eq!(json["projects"][0]["reason"], "new_project");
-    assert!(json["projects"][0]["board_project_id"].as_str().unwrap().starts_with("bp_"));
+    assert!(
+        json["projects"][0]["board_project_id"]
+            .as_str()
+            .unwrap()
+            .starts_with("bp_")
+    );
 }
 
 /// 正常系: mode=all → build / manual_dispatch
@@ -250,7 +262,8 @@ async fn plan_wrong_repository_returns_403() {
 
     // Create a repo with a DIFFERENT github_repository_id and a token for it
     let different_github_repo_id = github_repo_id + 9999;
-    let different_repo_id = create_test_repository(&pool, different_github_repo_id, installation_id).await;
+    let different_repo_id =
+        create_test_repository(&pool, different_github_repo_id, installation_id).await;
     let token = create_test_token(&pool, different_repo_id, installation_id).await;
 
     // The request targets github_repo_id, but the token belongs to different_github_repo_id → 403

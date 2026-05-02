@@ -3,7 +3,10 @@ use std::sync::Arc;
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use boardflow_api::create_app_with_config;
-use boardflow_api::github_access::{AllowAllGithubAccessChecker, DenyAllGithubAccessChecker, DynGithubAccessChecker, RateLimitedGithubAccessChecker, UpstreamErrorGithubAccessChecker};
+use boardflow_api::github_access::{
+    AllowAllGithubAccessChecker, DenyAllGithubAccessChecker, DynGithubAccessChecker,
+    RateLimitedGithubAccessChecker, UpstreamErrorGithubAccessChecker,
+};
 use http_body_util::BodyExt;
 use sqlx::PgPool;
 use tower::ServiceExt;
@@ -489,7 +492,12 @@ async fn test_list_board_projects_success() {
     assert!(json["items"].is_array());
     let items = json["items"].as_array().unwrap();
     assert!(!items.is_empty());
-    assert!(items[0]["board_project_id"].as_str().unwrap().starts_with("bp_"));
+    assert!(
+        items[0]["board_project_id"]
+            .as_str()
+            .unwrap()
+            .starts_with("bp_")
+    );
     assert!(items[0]["state"].is_string());
 }
 
@@ -555,7 +563,10 @@ async fn test_get_board_project_success() {
 
     assert_eq!(json["board_project_id"], format!("bp_{bp_id}"));
     assert!(json["repository"].is_object());
-    assert_eq!(json["repository"]["github_repository_id"], github_repo_id.to_string());
+    assert_eq!(
+        json["repository"]["github_repository_id"],
+        github_repo_id.to_string()
+    );
     assert_eq!(json["display_name"], "TestProject");
     assert!(json["state"].is_string());
 }
@@ -753,7 +764,12 @@ async fn test_list_board_runs_success() {
 
     let items = json["items"].as_array().unwrap();
     assert!(!items.is_empty());
-    assert!(items[0]["board_run_id"].as_str().unwrap().starts_with("br_"));
+    assert!(
+        items[0]["board_run_id"]
+            .as_str()
+            .unwrap()
+            .starts_with("br_")
+    );
     assert_eq!(items[0]["status"], "completed");
 }
 
@@ -940,7 +956,12 @@ async fn test_list_artifacts_success() {
 
     // Available artifact should have artifact_id
     let available = items.iter().find(|i| i["status"] == "available").unwrap();
-    assert!(available["artifact_id"].as_str().unwrap().starts_with("art_"));
+    assert!(
+        available["artifact_id"]
+            .as_str()
+            .unwrap()
+            .starts_with("art_")
+    );
     assert!(available["filename"].is_string());
     assert!(available["size_bytes"].is_number());
 
@@ -1404,7 +1425,9 @@ async fn test_list_board_projects_denied_returns_404() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(&format!("/api/v1/repositories/{github_repo_id}/board-projects"))
+                .uri(&format!(
+                    "/api/v1/repositories/{github_repo_id}/board-projects"
+                ))
                 .header("cookie", session_cookie(session_id))
                 .body(Body::empty())
                 .unwrap(),
@@ -1597,7 +1620,9 @@ async fn test_list_repositories_allow_all_pagination_cursor() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(&format!("/api/v1/repositories?limit=2&cursor={next_cursor}"))
+                .uri(&format!(
+                    "/api/v1/repositories?limit=2&cursor={next_cursor}"
+                ))
                 .header("cookie", session_cookie(session_id))
                 .body(Body::empty())
                 .unwrap(),
@@ -1620,7 +1645,10 @@ async fn test_list_repositories_allow_all_pagination_cursor() {
         .collect();
     for item in page2_items {
         let id = item["github_repository_id"].as_str().unwrap();
-        assert!(!page1_ids.contains(&id), "page 2 should not contain items from page 1");
+        assert!(
+            !page1_ids.contains(&id),
+            "page 2 should not contain items from page 1"
+        );
     }
 }
 
@@ -1638,7 +1666,9 @@ fn create_upstream_error_app(pool: PgPool) -> axum::Router {
 
 #[tokio::test]
 async fn test_get_repository_rate_limited_returns_429() {
-    let Some(pool) = setup_pool().await else { return };
+    let Some(pool) = setup_pool().await else {
+        return;
+    };
     let app = create_rate_limited_app(pool.clone());
 
     let user_id = create_test_user(&pool).await;
@@ -1666,7 +1696,9 @@ async fn test_get_repository_rate_limited_returns_429() {
 
 #[tokio::test]
 async fn test_get_repository_upstream_error_returns_500() {
-    let Some(pool) = setup_pool().await else { return };
+    let Some(pool) = setup_pool().await else {
+        return;
+    };
     let app = create_upstream_error_app(pool.clone());
 
     let user_id = create_test_user(&pool).await;
@@ -1694,7 +1726,9 @@ async fn test_get_repository_upstream_error_returns_500() {
 
 #[tokio::test]
 async fn test_list_repositories_rate_limited_returns_429() {
-    let Some(pool) = setup_pool().await else { return };
+    let Some(pool) = setup_pool().await else {
+        return;
+    };
     let app = create_rate_limited_app(pool.clone());
 
     let user_id = create_test_user(&pool).await;
@@ -1720,7 +1754,9 @@ async fn test_list_repositories_rate_limited_returns_429() {
 
 #[tokio::test]
 async fn test_list_repositories_upstream_error_returns_500() {
-    let Some(pool) = setup_pool().await else { return };
+    let Some(pool) = setup_pool().await else {
+        return;
+    };
     let app = create_upstream_error_app(pool.clone());
 
     let user_id = create_test_user(&pool).await;
@@ -1799,7 +1835,9 @@ async fn create_test_diff_metadata(pool: &PgPool, board_run_id: Uuid) -> Uuid {
 /// 正常系: diff status=ready、metadata あり
 #[tokio::test]
 async fn test_get_board_run_diff_ready() {
-    let Some(pool) = setup_pool().await else { return };
+    let Some(pool) = setup_pool().await else {
+        return;
+    };
 
     let user_id = create_test_user(&pool).await;
     let session_id = create_test_session(&pool, user_id).await;
@@ -1833,8 +1871,14 @@ async fn test_get_board_run_diff_ready() {
     assert_eq!(json["status"], "ready");
     assert!(json["summary"].is_object());
     assert!(json["metadata"].is_object());
-    assert_eq!(json["metadata"]["file_hashes"], serde_json::json!({"main.kicad_sch": "changed"}));
-    assert_eq!(json["metadata"]["bom_summary"], serde_json::json!({"added": 1, "removed": 0}));
+    assert_eq!(
+        json["metadata"]["file_hashes"],
+        serde_json::json!({"main.kicad_sch": "changed"})
+    );
+    assert_eq!(
+        json["metadata"]["bom_summary"],
+        serde_json::json!({"added": 1, "removed": 0})
+    );
     assert!(json["error_message"].is_null());
     assert!(json["created_at"].is_string());
 }
@@ -1842,7 +1886,9 @@ async fn test_get_board_run_diff_ready() {
 /// 正常系: diff status=no_baseline、base_board_run_id=null、metadata なし
 #[tokio::test]
 async fn test_get_board_run_diff_no_baseline() {
-    let Some(pool) = setup_pool().await else { return };
+    let Some(pool) = setup_pool().await else {
+        return;
+    };
 
     let user_id = create_test_user(&pool).await;
     let session_id = create_test_session(&pool, user_id).await;
@@ -1873,16 +1919,24 @@ async fn test_get_board_run_diff_no_baseline() {
     assert!(json["base_board_run_id"].is_null());
     assert_eq!(json["status"], "no_baseline");
     assert!(json["summary"].is_null());
-    assert!(json.get("metadata").is_some(), "metadata field must be present");
+    assert!(
+        json.get("metadata").is_some(),
+        "metadata field must be present"
+    );
     assert!(json["metadata"].is_null());
-    assert!(json.get("error_message").is_some(), "error_message field must be present");
+    assert!(
+        json.get("error_message").is_some(),
+        "error_message field must be present"
+    );
     assert!(json["error_message"].is_null());
 }
 
 /// 異常系: diff 未作成 → 404
 #[tokio::test]
 async fn test_get_board_run_diff_not_found() {
-    let Some(pool) = setup_pool().await else { return };
+    let Some(pool) = setup_pool().await else {
+        return;
+    };
 
     let user_id = create_test_user(&pool).await;
     let session_id = create_test_session(&pool, user_id).await;
@@ -1913,7 +1967,9 @@ async fn test_get_board_run_diff_not_found() {
 /// 異常系: 不正ID → 400
 #[tokio::test]
 async fn test_get_board_run_diff_invalid_id() {
-    let Some(pool) = setup_pool().await else { return };
+    let Some(pool) = setup_pool().await else {
+        return;
+    };
 
     let user_id = create_test_user(&pool).await;
     let session_id = create_test_session(&pool, user_id).await;
@@ -1940,7 +1996,9 @@ async fn test_get_board_run_diff_invalid_id() {
 /// 異常系: アクセス拒否 → 404
 #[tokio::test]
 async fn test_get_board_run_diff_denied() {
-    let Some(pool) = setup_pool().await else { return };
+    let Some(pool) = setup_pool().await else {
+        return;
+    };
 
     let user_id = create_test_user(&pool).await;
     let session_id = create_test_session(&pool, user_id).await;
@@ -1973,7 +2031,9 @@ async fn test_get_board_run_diff_denied() {
 /// 正常系: diff status=failed、error_message あり
 #[tokio::test]
 async fn test_get_board_run_diff_failed() {
-    let Some(pool) = setup_pool().await else { return };
+    let Some(pool) = setup_pool().await else {
+        return;
+    };
 
     let user_id = create_test_user(&pool).await;
     let session_id = create_test_session(&pool, user_id).await;
@@ -2010,7 +2070,9 @@ async fn test_get_board_run_diff_failed() {
 /// 正常系: diff status=unavailable
 #[tokio::test]
 async fn test_get_board_run_diff_unavailable() {
-    let Some(pool) = setup_pool().await else { return };
+    let Some(pool) = setup_pool().await else {
+        return;
+    };
 
     let user_id = create_test_user(&pool).await;
     let session_id = create_test_session(&pool, user_id).await;
@@ -2046,6 +2108,7 @@ async fn test_get_board_run_diff_unavailable() {
 
 // ─── Findings List Tests ─────────────────────────────────────────────────────
 
+#[allow(clippy::too_many_arguments)]
 async fn create_test_run_check_finding(
     pool: &PgPool,
     run_check_id: Uuid,
@@ -2084,7 +2147,9 @@ async fn create_test_run_check_finding(
 /// 正常系: findings一覧を取得できる
 #[tokio::test]
 async fn test_list_findings_success() {
-    let Some(pool) = setup_pool().await else { return };
+    let Some(pool) = setup_pool().await else {
+        return;
+    };
 
     let user_id = create_test_user(&pool).await;
     let session_id = create_test_session(&pool, user_id).await;
@@ -2094,16 +2159,48 @@ async fn test_list_findings_success() {
     let br_id = create_test_board_run(&pool, bp_id, "completed").await;
     let rc_id = create_test_run_check(&pool, br_id, "erc", "failed", 2, 1).await;
 
-    create_test_run_check_finding(&pool, rc_id, "error", 0, Some("ERC001"), Some("Pin not driven"), Some(5715), Some(2667)).await;
-    create_test_run_check_finding(&pool, rc_id, "error", 1, Some("ERC002"), Some("Missing connection"), Some(1000), Some(2000)).await;
-    create_test_run_check_finding(&pool, rc_id, "warning", 2, Some("ERC003"), Some("Unused pin"), None, None).await;
+    create_test_run_check_finding(
+        &pool,
+        rc_id,
+        "error",
+        0,
+        Some("ERC001"),
+        Some("Pin not driven"),
+        Some(5715),
+        Some(2667),
+    )
+    .await;
+    create_test_run_check_finding(
+        &pool,
+        rc_id,
+        "error",
+        1,
+        Some("ERC002"),
+        Some("Missing connection"),
+        Some(1000),
+        Some(2000),
+    )
+    .await;
+    create_test_run_check_finding(
+        &pool,
+        rc_id,
+        "warning",
+        2,
+        Some("ERC003"),
+        Some("Unused pin"),
+        None,
+        None,
+    )
+    .await;
 
     let app = create_test_app(pool);
     let response = app
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(&format!("/api/v1/board-runs/br_{br_id}/checks/erc/findings"))
+                .uri(&format!(
+                    "/api/v1/board-runs/br_{br_id}/checks/erc/findings"
+                ))
                 .header("cookie", session_cookie(session_id))
                 .body(Body::empty())
                 .unwrap(),
@@ -2134,7 +2231,9 @@ async fn test_list_findings_success() {
 /// 正常系: 空リスト (findingsなし)
 #[tokio::test]
 async fn test_list_findings_empty() {
-    let Some(pool) = setup_pool().await else { return };
+    let Some(pool) = setup_pool().await else {
+        return;
+    };
 
     let user_id = create_test_user(&pool).await;
     let session_id = create_test_session(&pool, user_id).await;
@@ -2150,7 +2249,9 @@ async fn test_list_findings_empty() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(&format!("/api/v1/board-runs/br_{br_id}/checks/drc/findings"))
+                .uri(&format!(
+                    "/api/v1/board-runs/br_{br_id}/checks/drc/findings"
+                ))
                 .header("cookie", session_cookie(session_id))
                 .body(Body::empty())
                 .unwrap(),
@@ -2168,7 +2269,9 @@ async fn test_list_findings_empty() {
 /// 正常系: run_checkが存在しない場合も空リスト (404ではない)
 #[tokio::test]
 async fn test_list_findings_no_run_check_returns_empty() {
-    let Some(pool) = setup_pool().await else { return };
+    let Some(pool) = setup_pool().await else {
+        return;
+    };
 
     let user_id = create_test_user(&pool).await;
     let session_id = create_test_session(&pool, user_id).await;
@@ -2183,7 +2286,9 @@ async fn test_list_findings_no_run_check_returns_empty() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(&format!("/api/v1/board-runs/br_{br_id}/checks/erc/findings"))
+                .uri(&format!(
+                    "/api/v1/board-runs/br_{br_id}/checks/erc/findings"
+                ))
                 .header("cookie", session_cookie(session_id))
                 .body(Body::empty())
                 .unwrap(),
@@ -2201,7 +2306,9 @@ async fn test_list_findings_no_run_check_returns_empty() {
 /// 正常系: severity filter
 #[tokio::test]
 async fn test_list_findings_severity_filter() {
-    let Some(pool) = setup_pool().await else { return };
+    let Some(pool) = setup_pool().await else {
+        return;
+    };
 
     let user_id = create_test_user(&pool).await;
     let session_id = create_test_session(&pool, user_id).await;
@@ -2211,16 +2318,48 @@ async fn test_list_findings_severity_filter() {
     let br_id = create_test_board_run(&pool, bp_id, "completed").await;
     let rc_id = create_test_run_check(&pool, br_id, "erc", "failed", 1, 1).await;
 
-    create_test_run_check_finding(&pool, rc_id, "error", 0, Some("ERC001"), Some("Error finding"), None, None).await;
-    create_test_run_check_finding(&pool, rc_id, "warning", 1, Some("ERC002"), Some("Warning finding"), None, None).await;
-    create_test_run_check_finding(&pool, rc_id, "notice", 2, Some("ERC003"), Some("Notice finding"), None, None).await;
+    create_test_run_check_finding(
+        &pool,
+        rc_id,
+        "error",
+        0,
+        Some("ERC001"),
+        Some("Error finding"),
+        None,
+        None,
+    )
+    .await;
+    create_test_run_check_finding(
+        &pool,
+        rc_id,
+        "warning",
+        1,
+        Some("ERC002"),
+        Some("Warning finding"),
+        None,
+        None,
+    )
+    .await;
+    create_test_run_check_finding(
+        &pool,
+        rc_id,
+        "notice",
+        2,
+        Some("ERC003"),
+        Some("Notice finding"),
+        None,
+        None,
+    )
+    .await;
 
     let app = create_test_app(pool);
     let response = app
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(&format!("/api/v1/board-runs/br_{br_id}/checks/erc/findings?severity=error"))
+                .uri(&format!(
+                    "/api/v1/board-runs/br_{br_id}/checks/erc/findings?severity=error"
+                ))
                 .header("cookie", session_cookie(session_id))
                 .body(Body::empty())
                 .unwrap(),
@@ -2240,7 +2379,9 @@ async fn test_list_findings_severity_filter() {
 /// 正常系: cursor pagination
 #[tokio::test]
 async fn test_list_findings_pagination() {
-    let Some(pool) = setup_pool().await else { return };
+    let Some(pool) = setup_pool().await else {
+        return;
+    };
 
     let user_id = create_test_user(&pool).await;
     let session_id = create_test_session(&pool, user_id).await;
@@ -2251,9 +2392,39 @@ async fn test_list_findings_pagination() {
     let rc_id = create_test_run_check(&pool, br_id, "drc", "failed", 3, 0).await;
 
     // Create 3 findings
-    create_test_run_check_finding(&pool, rc_id, "error", 0, Some("DRC001"), Some("Finding 1"), None, None).await;
-    create_test_run_check_finding(&pool, rc_id, "error", 1, Some("DRC002"), Some("Finding 2"), None, None).await;
-    create_test_run_check_finding(&pool, rc_id, "error", 2, Some("DRC003"), Some("Finding 3"), None, None).await;
+    create_test_run_check_finding(
+        &pool,
+        rc_id,
+        "error",
+        0,
+        Some("DRC001"),
+        Some("Finding 1"),
+        None,
+        None,
+    )
+    .await;
+    create_test_run_check_finding(
+        &pool,
+        rc_id,
+        "error",
+        1,
+        Some("DRC002"),
+        Some("Finding 2"),
+        None,
+        None,
+    )
+    .await;
+    create_test_run_check_finding(
+        &pool,
+        rc_id,
+        "error",
+        2,
+        Some("DRC003"),
+        Some("Finding 3"),
+        None,
+        None,
+    )
+    .await;
 
     let app = create_test_app(pool.clone());
 
@@ -2262,7 +2433,9 @@ async fn test_list_findings_pagination() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(&format!("/api/v1/board-runs/br_{br_id}/checks/drc/findings?limit=2"))
+                .uri(&format!(
+                    "/api/v1/board-runs/br_{br_id}/checks/drc/findings?limit=2"
+                ))
                 .header("cookie", session_cookie(session_id))
                 .body(Body::empty())
                 .unwrap(),
@@ -2306,7 +2479,9 @@ async fn test_list_findings_pagination() {
 /// バリデーション: 不正なcheck_kindで400
 #[tokio::test]
 async fn test_list_findings_invalid_check_kind() {
-    let Some(pool) = setup_pool().await else { return };
+    let Some(pool) = setup_pool().await else {
+        return;
+    };
 
     let user_id = create_test_user(&pool).await;
     let session_id = create_test_session(&pool, user_id).await;
@@ -2320,7 +2495,9 @@ async fn test_list_findings_invalid_check_kind() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(&format!("/api/v1/board-runs/br_{br_id}/checks/invalid/findings"))
+                .uri(&format!(
+                    "/api/v1/board-runs/br_{br_id}/checks/invalid/findings"
+                ))
                 .header("cookie", session_cookie(session_id))
                 .body(Body::empty())
                 .unwrap(),
@@ -2337,7 +2514,9 @@ async fn test_list_findings_invalid_check_kind() {
 /// バリデーション: 不正なboard_run_idフォーマットで400
 #[tokio::test]
 async fn test_list_findings_invalid_board_run_id() {
-    let Some(pool) = setup_pool().await else { return };
+    let Some(pool) = setup_pool().await else {
+        return;
+    };
 
     let user_id = create_test_user(&pool).await;
     let session_id = create_test_session(&pool, user_id).await;
@@ -2364,7 +2543,9 @@ async fn test_list_findings_invalid_board_run_id() {
 /// バリデーション: 不正なseverityフィルタで400
 #[tokio::test]
 async fn test_list_findings_invalid_severity() {
-    let Some(pool) = setup_pool().await else { return };
+    let Some(pool) = setup_pool().await else {
+        return;
+    };
 
     let user_id = create_test_user(&pool).await;
     let session_id = create_test_session(&pool, user_id).await;
@@ -2378,7 +2559,9 @@ async fn test_list_findings_invalid_severity() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(&format!("/api/v1/board-runs/br_{br_id}/checks/erc/findings?severity=critical"))
+                .uri(&format!(
+                    "/api/v1/board-runs/br_{br_id}/checks/erc/findings?severity=critical"
+                ))
                 .header("cookie", session_cookie(session_id))
                 .body(Body::empty())
                 .unwrap(),
@@ -2395,7 +2578,9 @@ async fn test_list_findings_invalid_severity() {
 /// 認証系: 未認証で401
 #[tokio::test]
 async fn test_list_findings_unauthenticated() {
-    let Some(pool) = setup_pool().await else { return };
+    let Some(pool) = setup_pool().await else {
+        return;
+    };
 
     let user_id = create_test_user(&pool).await;
     let _session_id = create_test_session(&pool, user_id).await;
@@ -2409,7 +2594,9 @@ async fn test_list_findings_unauthenticated() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(&format!("/api/v1/board-runs/br_{br_id}/checks/erc/findings"))
+                .uri(&format!(
+                    "/api/v1/board-runs/br_{br_id}/checks/erc/findings"
+                ))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -2422,7 +2609,9 @@ async fn test_list_findings_unauthenticated() {
 /// 認可系: アクセス拒否で404
 #[tokio::test]
 async fn test_list_findings_access_denied() {
-    let Some(pool) = setup_pool().await else { return };
+    let Some(pool) = setup_pool().await else {
+        return;
+    };
 
     let user_id = create_test_user(&pool).await;
     let session_id = create_test_session(&pool, user_id).await;
@@ -2436,7 +2625,9 @@ async fn test_list_findings_access_denied() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(&format!("/api/v1/board-runs/br_{br_id}/checks/erc/findings"))
+                .uri(&format!(
+                    "/api/v1/board-runs/br_{br_id}/checks/erc/findings"
+                ))
                 .header("cookie", session_cookie(session_id))
                 .body(Body::empty())
                 .unwrap(),
@@ -2450,7 +2641,9 @@ async fn test_list_findings_access_denied() {
 /// エラー系: 存在しないboard_runで404
 #[tokio::test]
 async fn test_list_findings_board_run_not_found() {
-    let Some(pool) = setup_pool().await else { return };
+    let Some(pool) = setup_pool().await else {
+        return;
+    };
 
     let user_id = create_test_user(&pool).await;
     let session_id = create_test_session(&pool, user_id).await;
@@ -2461,7 +2654,9 @@ async fn test_list_findings_board_run_not_found() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(&format!("/api/v1/board-runs/br_{fake_id}/checks/erc/findings"))
+                .uri(&format!(
+                    "/api/v1/board-runs/br_{fake_id}/checks/erc/findings"
+                ))
                 .header("cookie", session_cookie(session_id))
                 .body(Body::empty())
                 .unwrap(),
@@ -2475,7 +2670,9 @@ async fn test_list_findings_board_run_not_found() {
 /// バリデーション: 不正なcursorで400
 #[tokio::test]
 async fn test_list_findings_invalid_cursor() {
-    let Some(pool) = setup_pool().await else { return };
+    let Some(pool) = setup_pool().await else {
+        return;
+    };
 
     let user_id = create_test_user(&pool).await;
     let session_id = create_test_session(&pool, user_id).await;
@@ -2509,7 +2706,9 @@ async fn test_list_findings_invalid_cursor() {
 /// 2件のfindingsが同一sort_indexを持つ場合、idでtie-breakされて正しくpaginateされること
 #[tokio::test]
 async fn test_list_findings_sort_index_tie_breaker() {
-    let Some(pool) = setup_pool().await else { return };
+    let Some(pool) = setup_pool().await else {
+        return;
+    };
 
     let user_id = create_test_user(&pool).await;
     let session_id = create_test_session(&pool, user_id).await;
@@ -2520,8 +2719,28 @@ async fn test_list_findings_sort_index_tie_breaker() {
     let rc_id = create_test_run_check(&pool, br_id, "erc", "failed", 2, 0).await;
 
     // Create 2 findings with the SAME sort_index (0) — id will be the tie-breaker
-    let id_a = create_test_run_check_finding(&pool, rc_id, "error", 0, Some("ERC001"), Some("First"), None, None).await;
-    let id_b = create_test_run_check_finding(&pool, rc_id, "error", 0, Some("ERC002"), Some("Second"), None, None).await;
+    let id_a = create_test_run_check_finding(
+        &pool,
+        rc_id,
+        "error",
+        0,
+        Some("ERC001"),
+        Some("First"),
+        None,
+        None,
+    )
+    .await;
+    let id_b = create_test_run_check_finding(
+        &pool,
+        rc_id,
+        "error",
+        0,
+        Some("ERC002"),
+        Some("Second"),
+        None,
+        None,
+    )
+    .await;
 
     let app = create_test_app(pool.clone());
 
@@ -2530,7 +2749,9 @@ async fn test_list_findings_sort_index_tie_breaker() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(&format!("/api/v1/board-runs/br_{br_id}/checks/erc/findings?limit=1"))
+                .uri(&format!(
+                    "/api/v1/board-runs/br_{br_id}/checks/erc/findings?limit=1"
+                ))
                 .header("cookie", session_cookie(session_id))
                 .body(Body::empty())
                 .unwrap(),
@@ -2575,7 +2796,8 @@ async fn test_list_findings_sort_index_tie_breaker() {
     assert_ne!(first_id, second_id);
 
     // Both ids must be from our created findings
-    let expected_ids: std::collections::HashSet<String> = [id_a.to_string(), id_b.to_string()].into_iter().collect();
+    let expected_ids: std::collections::HashSet<String> =
+        [id_a.to_string(), id_b.to_string()].into_iter().collect();
     let actual_ids: std::collections::HashSet<String> = [first_id, second_id].into_iter().collect();
     assert_eq!(expected_ids, actual_ids);
 }

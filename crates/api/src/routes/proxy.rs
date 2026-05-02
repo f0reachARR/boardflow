@@ -1,8 +1,8 @@
+use axum::Extension;
 use axum::body::Body;
 use axum::extract::{Path, Query, State};
-use axum::http::header::{self, HeaderMap, HeaderValue};
 use axum::http::Response;
-use axum::Extension;
+use axum::http::header::{self, HeaderMap, HeaderValue};
 use serde::Deserialize;
 use sqlx::PgPool;
 use uuid::Uuid;
@@ -23,6 +23,7 @@ pub struct ProxyQuery {
     pub token: Option<String>,
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn get_artifact(
     State(pool): State<PgPool>,
     Extension(s3_client): Extension<Option<aws_sdk_s3::Client>>,
@@ -49,8 +50,13 @@ pub async fn get_artifact(
         .ok_or_else(|| AppError::unauthorized("invalid or expired token", &request_id))?;
 
     // Parse artifact_id from path (expects art_ prefix per viewer-sources URL format)
-    let artifact_id = parse_artifact_id(&artifact_id_str)
-        .ok_or_else(|| AppError::new(ErrorCode::ValidationFailed, "invalid artifact_id format", &request_id))?;
+    let artifact_id = parse_artifact_id(&artifact_id_str).ok_or_else(|| {
+        AppError::new(
+            ErrorCode::ValidationFailed,
+            "invalid artifact_id format",
+            &request_id,
+        )
+    })?;
 
     // Verify token's artifact_id matches the URL path artifact_id
     if token_artifact_id != artifact_id {
@@ -135,8 +141,15 @@ pub fn build_response_headers(
 ) -> HeaderMap {
     let mut headers = HeaderMap::new();
 
-    headers.insert(header::CONTENT_TYPE, HeaderValue::from_str(content_type).unwrap_or_else(|_| HeaderValue::from_static("application/octet-stream")));
-    headers.insert("X-Content-Type-Options", HeaderValue::from_static("nosniff"));
+    headers.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_str(content_type)
+            .unwrap_or_else(|_| HeaderValue::from_static("application/octet-stream")),
+    );
+    headers.insert(
+        "X-Content-Type-Options",
+        HeaderValue::from_static("nosniff"),
+    );
     headers.insert("Referrer-Policy", HeaderValue::from_static("no-referrer"));
 
     // Determine CSP and X-Frame-Options based on artifact type.
@@ -157,12 +170,18 @@ pub fn build_response_headers(
         "default-src 'none'; frame-ancestors 'none'".to_string()
     };
 
-    headers.insert("Content-Security-Policy", HeaderValue::from_str(&csp).unwrap());
+    headers.insert(
+        "Content-Security-Policy",
+        HeaderValue::from_str(&csp).unwrap(),
+    );
 
     if let Ok(origin) = HeaderValue::from_str(app_domain) {
         headers.insert("Access-Control-Allow-Origin", origin);
     }
-    headers.insert("Access-Control-Allow-Methods", HeaderValue::from_static("GET"));
+    headers.insert(
+        "Access-Control-Allow-Methods",
+        HeaderValue::from_static("GET"),
+    );
     headers.insert("Vary", HeaderValue::from_static("Origin"));
 
     // Non-iframe artifacts get X-Frame-Options: DENY.
@@ -171,10 +190,10 @@ pub fn build_response_headers(
     }
 
     // Add Content-Length if available
-    if let Some(size) = size_bytes {
-        if let Ok(val) = HeaderValue::from_str(&size.to_string()) {
-            headers.insert(header::CONTENT_LENGTH, val);
-        }
+    if let Some(size) = size_bytes
+        && let Ok(val) = HeaderValue::from_str(&size.to_string())
+    {
+        headers.insert(header::CONTENT_LENGTH, val);
     }
 
     // Add Content-Disposition for downloadable types

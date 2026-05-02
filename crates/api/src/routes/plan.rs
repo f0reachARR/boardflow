@@ -1,5 +1,5 @@
-use axum::extract::rejection::JsonRejection;
 use axum::extract::State;
+use axum::extract::rejection::JsonRejection;
 use axum::{Extension, Json};
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
@@ -147,7 +147,10 @@ pub async fn plan_run(
             AppError::internal_error("database error", rid)
         })?
         .ok_or_else(|| {
-            tracing::error!("token references non-existent repository_id={}", auth.0.repository_id);
+            tracing::error!(
+                "token references non-existent repository_id={}",
+                auth.0.repository_id
+            );
             AppError::internal_error("token references invalid repository", rid)
         })?;
 
@@ -213,9 +216,7 @@ pub async fn plan_run(
         }
 
         // Validation: empty or malformed tree_hash
-        if project.tree_hash.is_empty()
-            || project.tree_hash.chars().any(|c| c.is_whitespace())
-        {
+        if project.tree_hash.is_empty() || project.tree_hash.chars().any(|c| c.is_whitespace()) {
             project_outputs.push(PlanProjectOutput {
                 project_path: project.project_path.clone(),
                 board_project_id: String::new(),

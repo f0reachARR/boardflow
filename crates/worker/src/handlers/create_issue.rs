@@ -56,7 +56,13 @@ pub async fn handle(
 
     // Phase 2: Call GitHub API (no DB lock held, avoiding long lock hold).
     let created = match github_client
-        .create_issue(installation_id, &bp.repo_owner, &bp.repo_name, &title, &body)
+        .create_issue(
+            installation_id,
+            &bp.repo_owner,
+            &bp.repo_name,
+            &title,
+            &body,
+        )
         .await
     {
         Ok(c) => c,
@@ -78,7 +84,12 @@ pub async fn handle(
     };
 
     // Re-check under lock: another handler may have completed while we called the API.
-    let bp_locked = match board_project::find_by_id_with_repository_for_update(&mut *tx, board_project_id).await {
+    let bp_locked = match board_project::find_by_id_with_repository_for_update(
+        &mut *tx,
+        board_project_id,
+    )
+    .await
+    {
         Ok(Some(bp)) => bp,
         Ok(None) => {
             let _ = tx.rollback().await;
@@ -214,7 +225,10 @@ mod tests {
         };
         let result = handle_github_error(err, 1);
         match result {
-            HandlerResult::Reschedule { reason, backoff_secs } => {
+            HandlerResult::Reschedule {
+                reason,
+                backoff_secs,
+            } => {
                 assert!(reason.contains("Rate limited"));
                 assert_eq!(backoff_secs, 120.0);
             }
@@ -229,7 +243,10 @@ mod tests {
         };
         let result = handle_github_error(err, 2);
         match result {
-            HandlerResult::Reschedule { reason, backoff_secs } => {
+            HandlerResult::Reschedule {
+                reason,
+                backoff_secs,
+            } => {
                 assert!(reason.contains("Rate limited"));
                 // backoff = BASE_BACKOFF_SECS * 3^attempts * 2 = 10 * 9 * 2 = 180
                 assert_eq!(backoff_secs, boardflow_jobs::backoff_secs(2) * 2.0);
@@ -255,7 +272,10 @@ mod tests {
         let err = GitHubClientError::Api("server error".into());
         let result = handle_github_error(err, 3);
         match result {
-            HandlerResult::Reschedule { reason, backoff_secs } => {
+            HandlerResult::Reschedule {
+                reason,
+                backoff_secs,
+            } => {
                 assert!(reason.contains("GitHub API error"));
                 assert_eq!(backoff_secs, boardflow_jobs::backoff_secs(3));
             }
@@ -302,19 +322,49 @@ mod tests {
         struct NeverCalledClient;
         #[async_trait::async_trait]
         impl GitHubAppClient for NeverCalledClient {
-            async fn get_installation_token(&self, _: u64) -> Result<secrecy::SecretString, GitHubClientError> {
+            async fn get_installation_token(
+                &self,
+                _: u64,
+            ) -> Result<secrecy::SecretString, GitHubClientError> {
                 panic!("should not be called")
             }
-            async fn create_issue(&self, _: u64, _: &str, _: &str, _: &str, _: &str) -> Result<boardflow_github::CreatedIssue, GitHubClientError> {
+            async fn create_issue(
+                &self,
+                _: u64,
+                _: &str,
+                _: &str,
+                _: &str,
+                _: &str,
+            ) -> Result<boardflow_github::CreatedIssue, GitHubClientError> {
                 panic!("should not be called")
             }
-            async fn get_issue(&self, _: u64, _: &str, _: &str, _: u64) -> Result<boardflow_github::IssueInfo, GitHubClientError> {
+            async fn get_issue(
+                &self,
+                _: u64,
+                _: &str,
+                _: &str,
+                _: u64,
+            ) -> Result<boardflow_github::IssueInfo, GitHubClientError> {
                 panic!("should not be called")
             }
-            async fn create_comment(&self, _: u64, _: &str, _: &str, _: u64, _: &str) -> Result<boardflow_github::CreatedComment, GitHubClientError> {
+            async fn create_comment(
+                &self,
+                _: u64,
+                _: &str,
+                _: &str,
+                _: u64,
+                _: &str,
+            ) -> Result<boardflow_github::CreatedComment, GitHubClientError> {
                 panic!("should not be called")
             }
-            async fn update_comment(&self, _: u64, _: &str, _: &str, _: u64, _: &str) -> Result<(), GitHubClientError> {
+            async fn update_comment(
+                &self,
+                _: u64,
+                _: &str,
+                _: &str,
+                _: u64,
+                _: &str,
+            ) -> Result<(), GitHubClientError> {
                 panic!("should not be called")
             }
         }

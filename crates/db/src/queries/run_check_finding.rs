@@ -20,7 +20,11 @@ pub async fn list_by_run_check_id(
 
     // Build dynamic WHERE clauses
     let cursor_clause = if cursor.is_some() {
-        let clause = format!(" AND (sort_index, id) > (${}, ${})", param_idx, param_idx + 1);
+        let clause = format!(
+            " AND (sort_index, id) > (${}, ${})",
+            param_idx,
+            param_idx + 1
+        );
         param_idx += 2;
         Some(clause)
     } else {
@@ -44,9 +48,8 @@ pub async fn list_by_run_check_id(
 
     query.push_str(" ORDER BY sort_index ASC, id ASC LIMIT $");
     // Compute final limit param index
-    let limit_idx = 2
-        + if cursor.is_some() { 2 } else { 0 }
-        + if severity_filter.is_some() { 1 } else { 0 };
+    let limit_idx =
+        2 + if cursor.is_some() { 2 } else { 0 } + if severity_filter.is_some() { 1 } else { 0 };
     query.push_str(&limit_idx.to_string());
 
     // Build and execute query with dynamic bindings

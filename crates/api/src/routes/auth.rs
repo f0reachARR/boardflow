@@ -1,13 +1,13 @@
-use axum::extract::{Query, State};
-use axum::http::{header, HeaderMap, StatusCode};
-use axum::response::Response;
 use axum::Extension;
 use axum::Json;
+use axum::extract::{Query, State};
+use axum::http::{HeaderMap, StatusCode, header};
+use axum::response::Response;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
-use uuid::Uuid;
 use utoipa::ToSchema;
+use uuid::Uuid;
 
 use crate::error::{AppError, RequestId};
 use crate::extractors::AuthenticatedSession;
@@ -133,7 +133,10 @@ pub async fn callback(
     // Fetch GitHub user info
     let user_resp = client
         .get("https://api.github.com/user")
-        .header(header::AUTHORIZATION, format!("Bearer {}", token_data.access_token))
+        .header(
+            header::AUTHORIZATION,
+            format!("Bearer {}", token_data.access_token),
+        )
         .header(header::USER_AGENT, "BoardFlow")
         .send()
         .await

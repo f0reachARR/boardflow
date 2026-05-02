@@ -28,7 +28,8 @@ pub async fn tree_hash_changed(
     let current_run = board_run::find_by_id(pool, current_run_id).await?;
     let current_tree_hash = current_run.and_then(|r| r.tree_hash);
 
-    let prev_run = board_run::find_previous_completed(pool, board_project_id, current_run_id).await?;
+    let prev_run =
+        board_run::find_previous_completed(pool, board_project_id, current_run_id).await?;
     let prev_tree_hash = prev_run.and_then(|r| r.tree_hash);
 
     // If no previous run exists, consider it changed (first run)

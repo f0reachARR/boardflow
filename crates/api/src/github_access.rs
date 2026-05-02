@@ -30,12 +30,20 @@ pub enum AccessError {
 #[async_trait::async_trait]
 pub trait GithubAccessChecker: Send + Sync {
     /// Check access to a specific repository.
-    async fn check_access(&self, github_access_token: &str, owner: &str, name: &str) -> AccessResult;
+    async fn check_access(
+        &self,
+        github_access_token: &str,
+        owner: &str,
+        name: &str,
+    ) -> AccessResult;
 
     /// Get list of accessible repository github_ids for the user (for list filtering).
     /// Returns `Ok(None)` if no filtering is needed (e.g. test mode).
     /// Returns `Ok(Some(ids))` with the set of github_repository_ids the user can see.
-    async fn list_accessible_repo_ids(&self, github_access_token: &str) -> Result<Option<Vec<i64>>, AccessError>;
+    async fn list_accessible_repo_ids(
+        &self,
+        github_access_token: &str,
+    ) -> Result<Option<Vec<i64>>, AccessError>;
 }
 
 // ─── Production implementation ───────────────────────────────────────────────
@@ -43,6 +51,12 @@ pub trait GithubAccessChecker: Send + Sync {
 /// Production implementation: calls GitHub API.
 pub struct RealGithubAccessChecker {
     client: reqwest::Client,
+}
+
+impl Default for RealGithubAccessChecker {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl RealGithubAccessChecker {
@@ -55,7 +69,12 @@ impl RealGithubAccessChecker {
 
 #[async_trait::async_trait]
 impl GithubAccessChecker for RealGithubAccessChecker {
-    async fn check_access(&self, github_access_token: &str, owner: &str, name: &str) -> AccessResult {
+    async fn check_access(
+        &self,
+        github_access_token: &str,
+        owner: &str,
+        name: &str,
+    ) -> AccessResult {
         let url = format!("https://api.github.com/repos/{}/{}", owner, name);
 
         let result = self
@@ -94,21 +113,24 @@ impl GithubAccessChecker for RealGithubAccessChecker {
                             ))
                         }
                     }
-                    _ => AccessResult::Error(AccessError::Upstream(format!("unexpected status: {status}"))),
+                    _ => AccessResult::Error(AccessError::Upstream(format!(
+                        "unexpected status: {status}"
+                    ))),
                 }
-            },
+            }
             Err(e) => AccessResult::Error(AccessError::Upstream(e.to_string())),
         }
     }
 
-    async fn list_accessible_repo_ids(&self, github_access_token: &str) -> Result<Option<Vec<i64>>, AccessError> {
+    async fn list_accessible_repo_ids(
+        &self,
+        github_access_token: &str,
+    ) -> Result<Option<Vec<i64>>, AccessError> {
         let mut ids = Vec::new();
         let mut page = 1u32;
 
         loop {
-            let url = format!(
-                "https://api.github.com/user/repos?per_page=100&page={page}"
-            );
+            let url = format!("https://api.github.com/user/repos?per_page=100&page={page}");
 
             let resp = self
                 .client
@@ -140,7 +162,9 @@ impl GithubAccessChecker for RealGithubAccessChecker {
                 }
                 StatusCode::OK => {}
                 status => {
-                    return Err(AccessError::Upstream(format!("unexpected status: {status}")));
+                    return Err(AccessError::Upstream(format!(
+                        "unexpected status: {status}"
+                    )));
                 }
             }
 
@@ -180,7 +204,10 @@ impl GithubAccessChecker for AllowAllGithubAccessChecker {
         AccessResult::Allowed
     }
 
-    async fn list_accessible_repo_ids(&self, _token: &str) -> Result<Option<Vec<i64>>, AccessError> {
+    async fn list_accessible_repo_ids(
+        &self,
+        _token: &str,
+    ) -> Result<Option<Vec<i64>>, AccessError> {
         // No filtering needed in test mode
         Ok(None)
     }
@@ -197,7 +224,10 @@ impl GithubAccessChecker for DenyAllGithubAccessChecker {
         AccessResult::Denied
     }
 
-    async fn list_accessible_repo_ids(&self, _token: &str) -> Result<Option<Vec<i64>>, AccessError> {
+    async fn list_accessible_repo_ids(
+        &self,
+        _token: &str,
+    ) -> Result<Option<Vec<i64>>, AccessError> {
         // Empty list = nothing visible
         Ok(Some(vec![]))
     }
@@ -214,7 +244,10 @@ impl GithubAccessChecker for RateLimitedGithubAccessChecker {
         AccessResult::Error(AccessError::RateLimited)
     }
 
-    async fn list_accessible_repo_ids(&self, _token: &str) -> Result<Option<Vec<i64>>, AccessError> {
+    async fn list_accessible_repo_ids(
+        &self,
+        _token: &str,
+    ) -> Result<Option<Vec<i64>>, AccessError> {
         Err(AccessError::RateLimited)
     }
 }
@@ -227,11 +260,18 @@ pub struct UpstreamErrorGithubAccessChecker;
 #[async_trait::async_trait]
 impl GithubAccessChecker for UpstreamErrorGithubAccessChecker {
     async fn check_access(&self, _token: &str, _owner: &str, _name: &str) -> AccessResult {
-        AccessResult::Error(AccessError::Upstream("simulated upstream failure".to_string()))
+        AccessResult::Error(AccessError::Upstream(
+            "simulated upstream failure".to_string(),
+        ))
     }
 
-    async fn list_accessible_repo_ids(&self, _token: &str) -> Result<Option<Vec<i64>>, AccessError> {
-        Err(AccessError::Upstream("simulated upstream failure".to_string()))
+    async fn list_accessible_repo_ids(
+        &self,
+        _token: &str,
+    ) -> Result<Option<Vec<i64>>, AccessError> {
+        Err(AccessError::Upstream(
+            "simulated upstream failure".to_string(),
+        ))
     }
 }
 

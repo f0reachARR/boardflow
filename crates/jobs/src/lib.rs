@@ -10,4 +10,3 @@ pub const BASE_BACKOFF_SECS: f64 = 10.0;
 pub fn backoff_secs(attempts: i32) -> f64 {
     BASE_BACKOFF_SECS * 3_f64.powi(attempts)
 }
-

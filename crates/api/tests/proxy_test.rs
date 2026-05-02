@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use boardflow_api::artifact_token::generate_artifact_token;
 use boardflow_api::create_app_with_config;
 use boardflow_api::github_access::{AllowAllGithubAccessChecker, DynGithubAccessChecker};
@@ -128,7 +128,12 @@ async fn create_test_board_run(pool: &PgPool, board_project_id: Uuid) -> Uuid {
     id
 }
 
-async fn create_test_artifact(pool: &PgPool, board_run_id: Uuid, status: &str, artifact_type: &str) -> Uuid {
+async fn create_test_artifact(
+    pool: &PgPool,
+    board_run_id: Uuid,
+    status: &str,
+    artifact_type: &str,
+) -> Uuid {
     let id = Uuid::now_v7();
     sqlx::query(
         "INSERT INTO artifacts (id, board_run_id, type, status, filename, content_type, storage_key, sha256, size_bytes, created_at) \
@@ -153,7 +158,9 @@ async fn create_test_artifact(pool: &PgPool, board_run_id: Uuid, status: &str, a
 
 #[tokio::test]
 async fn test_proxy_missing_token_returns_401() {
-    let Some(pool) = setup_pool().await else { return };
+    let Some(pool) = setup_pool().await else {
+        return;
+    };
     let app = create_proxy_test_app(pool.clone());
 
     let artifact_id = Uuid::now_v7();
@@ -174,14 +181,18 @@ async fn test_proxy_missing_token_returns_401() {
 
 #[tokio::test]
 async fn test_proxy_invalid_token_returns_401() {
-    let Some(pool) = setup_pool().await else { return };
+    let Some(pool) = setup_pool().await else {
+        return;
+    };
     let app = create_proxy_test_app(pool.clone());
 
     let artifact_id = Uuid::now_v7();
     let response = app
         .oneshot(
             Request::builder()
-                .uri(format!("/proxy/artifacts/art_{artifact_id}?token=invalid-garbage"))
+                .uri(format!(
+                    "/proxy/artifacts/art_{artifact_id}?token=invalid-garbage"
+                ))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -195,7 +206,9 @@ async fn test_proxy_invalid_token_returns_401() {
 
 #[tokio::test]
 async fn test_proxy_wrong_secret_token_returns_401() {
-    let Some(pool) = setup_pool().await else { return };
+    let Some(pool) = setup_pool().await else {
+        return;
+    };
     let app = create_proxy_test_app(pool.clone());
 
     let artifact_id = Uuid::now_v7();
@@ -220,7 +233,9 @@ async fn test_proxy_wrong_secret_token_returns_401() {
 
 #[tokio::test]
 async fn test_proxy_token_artifact_mismatch_returns_401() {
-    let Some(pool) = setup_pool().await else { return };
+    let Some(pool) = setup_pool().await else {
+        return;
+    };
     let app = create_proxy_test_app(pool.clone());
 
     let artifact_id = Uuid::now_v7();
@@ -245,7 +260,9 @@ async fn test_proxy_token_artifact_mismatch_returns_401() {
 
 #[tokio::test]
 async fn test_proxy_artifact_not_found_returns_404() {
-    let Some(pool) = setup_pool().await else { return };
+    let Some(pool) = setup_pool().await else {
+        return;
+    };
     let app = create_proxy_test_app(pool.clone());
 
     let artifact_id = Uuid::now_v7();
@@ -269,7 +286,9 @@ async fn test_proxy_artifact_not_found_returns_404() {
 
 #[tokio::test]
 async fn test_proxy_artifact_not_available_returns_404() {
-    let Some(pool) = setup_pool().await else { return };
+    let Some(pool) = setup_pool().await else {
+        return;
+    };
     let app = create_proxy_test_app(pool.clone());
 
     let user_id = create_test_user(&pool).await;
@@ -297,7 +316,9 @@ async fn test_proxy_artifact_not_available_returns_404() {
 
 #[tokio::test]
 async fn test_proxy_no_s3_client_returns_500() {
-    let Some(pool) = setup_pool().await else { return };
+    let Some(pool) = setup_pool().await else {
+        return;
+    };
     let app = create_proxy_test_app(pool.clone());
 
     let user_id = create_test_user(&pool).await;
@@ -329,7 +350,9 @@ async fn test_proxy_no_s3_client_returns_500() {
 
 #[tokio::test]
 async fn test_proxy_invalid_uuid_path_returns_400() {
-    let Some(pool) = setup_pool().await else { return };
+    let Some(pool) = setup_pool().await else {
+        return;
+    };
     let app = create_proxy_test_app(pool.clone());
 
     // Generate token for a valid artifact_id but request with invalid path (no art_ prefix)
@@ -358,7 +381,9 @@ async fn test_proxy_invalid_uuid_path_returns_400() {
 
 #[tokio::test]
 async fn test_proxy_empty_token_returns_401() {
-    let Some(pool) = setup_pool().await else { return };
+    let Some(pool) = setup_pool().await else {
+        return;
+    };
     let app = create_proxy_test_app(pool.clone());
 
     let artifact_id = Uuid::now_v7();
@@ -379,7 +404,9 @@ async fn test_proxy_empty_token_returns_401() {
 
 #[tokio::test]
 async fn test_proxy_raw_uuid_without_prefix_returns_400() {
-    let Some(pool) = setup_pool().await else { return };
+    let Some(pool) = setup_pool().await else {
+        return;
+    };
     let app = create_proxy_test_app(pool.clone());
 
     let artifact_id = Uuid::now_v7();
@@ -407,7 +434,9 @@ async fn test_proxy_raw_uuid_without_prefix_returns_400() {
 
 #[tokio::test]
 async fn test_proxy_expired_token_returns_401() {
-    let Some(pool) = setup_pool().await else { return };
+    let Some(pool) = setup_pool().await else {
+        return;
+    };
     let app = create_proxy_test_app(pool.clone());
 
     let artifact_id = Uuid::now_v7();
@@ -419,7 +448,9 @@ async fn test_proxy_expired_token_returns_401() {
     let response = app
         .oneshot(
             Request::builder()
-                .uri(format!("/proxy/artifacts/art_{artifact_id}?token={expired_token}"))
+                .uri(format!(
+                    "/proxy/artifacts/art_{artifact_id}?token={expired_token}"
+                ))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -430,7 +461,12 @@ async fn test_proxy_expired_token_returns_401() {
     let body = response.into_body().collect().await.unwrap().to_bytes();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["error"]["code"], "unauthorized");
-    assert!(json["error"]["message"].as_str().unwrap().contains("expired"));
+    assert!(
+        json["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("expired")
+    );
 }
 
 // ─── Test: viewer-sources URL format end-to-end ─────────────────────────────
@@ -438,7 +474,9 @@ async fn test_proxy_expired_token_returns_401() {
 #[tokio::test]
 async fn test_proxy_viewer_sources_url_format() {
     // Verify that the URL format generated by viewer-sources (art_{uuid}) works
-    let Some(pool) = setup_pool().await else { return };
+    let Some(pool) = setup_pool().await else {
+        return;
+    };
     let app = create_proxy_test_app(pool.clone());
 
     let user_id = create_test_user(&pool).await;
@@ -453,12 +491,7 @@ async fn test_proxy_viewer_sources_url_format() {
     let url = format!("/proxy/artifacts/art_{artifact_id}?token={token}");
 
     let response = app
-        .oneshot(
-            Request::builder()
-                .uri(&url)
-                .body(Body::empty())
-                .unwrap(),
-        )
+        .oneshot(Request::builder().uri(&url).body(Body::empty()).unwrap())
         .await
         .unwrap();
 
@@ -489,8 +522,15 @@ fn test_headers_ibom_html_has_sandbox_csp() {
         Some("ibom.html"),
     );
 
-    let csp = headers.get("Content-Security-Policy").unwrap().to_str().unwrap();
-    assert!(csp.starts_with("sandbox allow-scripts;"), "CSP should start with sandbox directive, got: {csp}");
+    let csp = headers
+        .get("Content-Security-Policy")
+        .unwrap()
+        .to_str()
+        .unwrap();
+    assert!(
+        csp.starts_with("sandbox allow-scripts;"),
+        "CSP should start with sandbox directive, got: {csp}"
+    );
     assert!(csp.contains("script-src 'unsafe-inline'"));
     assert!(csp.contains("style-src 'unsafe-inline'"));
     assert!(csp.contains("img-src data:"));
@@ -510,7 +550,10 @@ fn test_headers_ibom_html_no_x_frame_options() {
         None,
     );
 
-    assert!(headers.get("X-Frame-Options").is_none(), "iframe artifacts should not have X-Frame-Options");
+    assert!(
+        headers.get("X-Frame-Options").is_none(),
+        "iframe artifacts should not have X-Frame-Options"
+    );
 }
 
 // ─── Test: non-iframe artifact gets X-Frame-Options: DENY ────────────────────
@@ -541,7 +584,11 @@ fn test_headers_non_iframe_csp_no_sandbox() {
         None,
     );
 
-    let csp = headers.get("Content-Security-Policy").unwrap().to_str().unwrap();
+    let csp = headers
+        .get("Content-Security-Policy")
+        .unwrap()
+        .to_str()
+        .unwrap();
     assert_eq!(csp, "default-src 'none'; frame-ancestors 'none'");
     assert!(!csp.contains("sandbox"));
 }
@@ -602,7 +649,13 @@ fn test_headers_content_length_absent_when_none() {
 
 #[test]
 fn test_headers_content_disposition_inline() {
-    for artifact_type in &["ibom_html", "schematic_svg", "pcb_svg", "schematic_pdf", "pcb_pdf"] {
+    for artifact_type in &[
+        "ibom_html",
+        "schematic_svg",
+        "pcb_svg",
+        "schematic_pdf",
+        "pcb_pdf",
+    ] {
         let headers = build_response_headers(
             "application/pdf",
             artifact_type,
@@ -611,8 +664,15 @@ fn test_headers_content_disposition_inline() {
             Some("test.file"),
         );
 
-        let disp = headers.get("Content-Disposition").unwrap().to_str().unwrap();
-        assert!(disp.starts_with("inline;"), "Expected inline for {artifact_type}, got: {disp}");
+        let disp = headers
+            .get("Content-Disposition")
+            .unwrap()
+            .to_str()
+            .unwrap();
+        assert!(
+            disp.starts_with("inline;"),
+            "Expected inline for {artifact_type}, got: {disp}"
+        );
         assert!(disp.contains("test.file"));
     }
 }
@@ -629,8 +689,15 @@ fn test_headers_content_disposition_attachment() {
         Some("gerbers.zip"),
     );
 
-    let disp = headers.get("Content-Disposition").unwrap().to_str().unwrap();
-    assert!(disp.starts_with("attachment;"), "Expected attachment for gerber_zip, got: {disp}");
+    let disp = headers
+        .get("Content-Disposition")
+        .unwrap()
+        .to_str()
+        .unwrap();
+    assert!(
+        disp.starts_with("attachment;"),
+        "Expected attachment for gerber_zip, got: {disp}"
+    );
     assert!(disp.contains("gerbers.zip"));
 }
 

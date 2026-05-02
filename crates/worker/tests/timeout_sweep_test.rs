@@ -125,15 +125,24 @@ async fn test_sweep_marks_stale_runs_as_timed_out() {
     // Verify status and timed_out_at are updated
     let (status, has_timed_out_at) = get_run_status(&pool, run_created).await;
     assert_eq!(status, "timed_out", "created run should be timed_out");
-    assert!(has_timed_out_at, "timed_out_at should be set for created run");
+    assert!(
+        has_timed_out_at,
+        "timed_out_at should be set for created run"
+    );
 
     let (status, has_timed_out_at) = get_run_status(&pool, run_uploading).await;
     assert_eq!(status, "timed_out", "uploading run should be timed_out");
-    assert!(has_timed_out_at, "timed_out_at should be set for uploading run");
+    assert!(
+        has_timed_out_at,
+        "timed_out_at should be set for uploading run"
+    );
 
     let (status, has_timed_out_at) = get_run_status(&pool, run_importing).await;
     assert_eq!(status, "timed_out", "importing run should be timed_out");
-    assert!(has_timed_out_at, "timed_out_at should be set for importing run");
+    assert!(
+        has_timed_out_at,
+        "timed_out_at should be set for importing run"
+    );
 
     cleanup(&pool, repo_id, bp_id).await;
 }
@@ -155,9 +164,18 @@ async fn test_sweep_does_not_affect_recent_runs() {
         .unwrap();
 
     // None of the recent runs should be swept
-    assert!(!ids.contains(&run_created), "recent created run should not be swept");
-    assert!(!ids.contains(&run_uploading), "recent uploading run should not be swept");
-    assert!(!ids.contains(&run_importing), "recent importing run should not be swept");
+    assert!(
+        !ids.contains(&run_created),
+        "recent created run should not be swept"
+    );
+    assert!(
+        !ids.contains(&run_uploading),
+        "recent uploading run should not be swept"
+    );
+    assert!(
+        !ids.contains(&run_importing),
+        "recent importing run should not be swept"
+    );
 
     // Verify status unchanged
     let (status, _) = get_run_status(&pool, run_created).await;
@@ -189,9 +207,15 @@ async fn test_sweep_does_not_affect_terminal_states() {
         .unwrap();
 
     // Terminal state runs should not be affected
-    assert!(!ids.contains(&run_completed), "completed run should not be swept");
+    assert!(
+        !ids.contains(&run_completed),
+        "completed run should not be swept"
+    );
     assert!(!ids.contains(&run_failed), "failed run should not be swept");
-    assert!(!ids.contains(&run_timed_out), "already timed_out run should not be swept");
+    assert!(
+        !ids.contains(&run_timed_out),
+        "already timed_out run should not be swept"
+    );
 
     // Verify status unchanged
     let (status, _) = get_run_status(&pool, run_completed).await;

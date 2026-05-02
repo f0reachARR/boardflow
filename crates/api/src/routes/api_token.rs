@@ -1,8 +1,8 @@
 use axum::extract::rejection::JsonRejection;
 use axum::extract::{Path, Query, State};
 use axum::{Extension, Json};
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use chrono::{DateTime, Utc};
 use rand::Rng;
 use serde::{Deserialize, Serialize};
@@ -125,7 +125,8 @@ pub async fn create_api_token(
     Path(github_repository_id): Path<i64>,
     payload: Result<Json<CreateApiTokenRequest>, JsonRejection>,
 ) -> Result<(axum::http::StatusCode, Json<CreateApiTokenResponse>), AppError> {
-    let Json(body) = payload.map_err(|e| AppError::validation_failed(e.body_text(), &request_id))?;
+    let Json(body) =
+        payload.map_err(|e| AppError::validation_failed(e.body_text(), &request_id))?;
 
     // Validate name
     let name = body.name.trim();
@@ -234,17 +235,13 @@ pub async fn list_api_tokens(
         ),
     };
 
-    let tokens = boardflow_db::queries::api_token::list_by_repository_id(
-        &pool,
-        repo.id,
-        limit + 1,
-        cursor,
-    )
-    .await
-    .map_err(|e| {
-        tracing::error!("list api_tokens failed: {e}");
-        AppError::internal_error("database error", &request_id)
-    })?;
+    let tokens =
+        boardflow_db::queries::api_token::list_by_repository_id(&pool, repo.id, limit + 1, cursor)
+            .await
+            .map_err(|e| {
+                tracing::error!("list api_tokens failed: {e}");
+                AppError::internal_error("database error", &request_id)
+            })?;
 
     let has_more = tokens.len() as i64 > limit;
     let items: Vec<ApiTokenListItem> = tokens
@@ -260,15 +257,13 @@ pub async fn list_api_tokens(
         .collect();
 
     let next_cursor = if has_more {
-        items
-            .last()
-            .map(|item| {
-                let ts = DateTime::parse_from_rfc3339(&item.created_at)
-                    .unwrap()
-                    .to_utc();
-                let id = Uuid::parse_str(&item.id).unwrap();
-                encode_cursor(&ts, &id)
-            })
+        items.last().map(|item| {
+            let ts = DateTime::parse_from_rfc3339(&item.created_at)
+                .unwrap()
+                .to_utc();
+            let id = Uuid::parse_str(&item.id).unwrap();
+            encode_cursor(&ts, &id)
+        })
     } else {
         None
     };
@@ -303,9 +298,8 @@ pub async fn revoke_api_token(
     State(pool): State<PgPool>,
     Path((github_repository_id, token_id_str)): Path<(i64, String)>,
 ) -> Result<Json<ApiTokenDetailResponse>, AppError> {
-    let token_id = Uuid::parse_str(&token_id_str).map_err(|_| {
-        AppError::validation_failed("invalid token_id format", &request_id)
-    })?;
+    let token_id = Uuid::parse_str(&token_id_str)
+        .map_err(|_| AppError::validation_failed("invalid token_id format", &request_id))?;
 
     // Lookup repository
     let repo = boardflow_db::queries::repository::find_by_github_id(&pool, github_repository_id)

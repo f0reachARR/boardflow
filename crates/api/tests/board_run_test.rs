@@ -47,7 +47,11 @@ async fn create_test_token(pool: &PgPool, repository_id: Uuid, installation_id: 
     raw_token
 }
 
-async fn create_test_repository(pool: &PgPool, github_repository_id: i64, installation_id: i64) -> Uuid {
+async fn create_test_repository(
+    pool: &PgPool,
+    github_repository_id: i64,
+    installation_id: i64,
+) -> Uuid {
     let id = Uuid::now_v7();
     let actual_id: Uuid = sqlx::query_scalar(
         "INSERT INTO repositories (id, github_repository_id, owner, name, installation_id, created_at, updated_at) \
@@ -162,7 +166,12 @@ async fn test_create_board_run_success() {
     assert!(json["artifact_bundle"].is_object());
     assert_eq!(json["artifact_bundle"]["upload_mode"], "staging_s3");
     assert_eq!(json["artifact_bundle"]["method"], "PUT");
-    assert!(json["artifact_bundle"]["upload_url"].as_str().unwrap().contains("presigned=test"));
+    assert!(
+        json["artifact_bundle"]["upload_url"]
+            .as_str()
+            .unwrap()
+            .contains("presigned=test")
+    );
 }
 
 /// 冪等性: 同じ run_id + attempt で再送すると同じ結果
@@ -514,7 +523,10 @@ async fn test_import_artifact_bundle_success() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/api/v1/board-runs/br_{}/artifact-bundles/import", br_id))
+                .uri(format!(
+                    "/api/v1/board-runs/br_{}/artifact-bundles/import",
+                    br_id
+                ))
                 .header("content-type", "application/json")
                 .header("authorization", format!("Bearer {}", token))
                 .body(Body::from(serde_json::to_vec(&body).unwrap()))
@@ -574,7 +586,10 @@ async fn test_import_artifact_bundle_idempotent() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/api/v1/board-runs/br_{}/artifact-bundles/import", br_id))
+                .uri(format!(
+                    "/api/v1/board-runs/br_{}/artifact-bundles/import",
+                    br_id
+                ))
                 .header("content-type", "application/json")
                 .header("authorization", format!("Bearer {}", token))
                 .body(Body::from(serde_json::to_vec(&body).unwrap()))
@@ -632,7 +647,10 @@ async fn test_import_artifact_bundle_conflict() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/api/v1/board-runs/br_{}/artifact-bundles/import", br_id))
+                .uri(format!(
+                    "/api/v1/board-runs/br_{}/artifact-bundles/import",
+                    br_id
+                ))
                 .header("content-type", "application/json")
                 .header("authorization", format!("Bearer {}", token))
                 .body(Body::from(serde_json::to_vec(&body).unwrap()))
@@ -670,7 +688,10 @@ async fn test_import_artifact_bundle_gone() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/api/v1/board-runs/br_{}/artifact-bundles/import", br_id))
+                .uri(format!(
+                    "/api/v1/board-runs/br_{}/artifact-bundles/import",
+                    br_id
+                ))
                 .header("content-type", "application/json")
                 .header("authorization", format!("Bearer {}", token))
                 .body(Body::from(serde_json::to_vec(&body).unwrap()))
@@ -722,7 +743,10 @@ async fn test_import_artifact_bundle_completed_run() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/api/v1/board-runs/br_{}/artifact-bundles/import", br_id))
+                .uri(format!(
+                    "/api/v1/board-runs/br_{}/artifact-bundles/import",
+                    br_id
+                ))
                 .header("content-type", "application/json")
                 .header("authorization", format!("Bearer {}", token))
                 .body(Body::from(serde_json::to_vec(&body).unwrap()))
@@ -790,7 +814,10 @@ async fn test_import_artifact_bundle_different_staging_key_conflict() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/api/v1/board-runs/br_{}/artifact-bundles/import", br_id))
+                .uri(format!(
+                    "/api/v1/board-runs/br_{}/artifact-bundles/import",
+                    br_id
+                ))
                 .header("content-type", "application/json")
                 .header("authorization", format!("Bearer {}", token))
                 .body(Body::from(serde_json::to_vec(&body).unwrap()))
@@ -948,7 +975,10 @@ async fn test_import_artifact_bundle_not_found() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/api/v1/board-runs/br_{}/artifact-bundles/import", fake_br_id))
+                .uri(format!(
+                    "/api/v1/board-runs/br_{}/artifact-bundles/import",
+                    fake_br_id
+                ))
                 .header("content-type", "application/json")
                 .header("authorization", format!("Bearer {}", token))
                 .body(Body::from(serde_json::to_vec(&body).unwrap()))

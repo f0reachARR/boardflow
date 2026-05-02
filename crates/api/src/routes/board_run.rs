@@ -112,8 +112,8 @@ async fn generate_upload_info(
     object_key: &str,
     expires_in_secs: u64,
 ) -> Result<ArtifactBundleInfo, AppError> {
-    let bucket = std::env::var("MINIO_BUCKET_STAGING")
-        .unwrap_or_else(|_| "boardflow-staging".to_string());
+    let bucket =
+        std::env::var("MINIO_BUCKET_STAGING").unwrap_or_else(|_| "boardflow-staging".to_string());
 
     match s3_client {
         Some(client) => {
@@ -133,8 +133,7 @@ async fn generate_upload_info(
                     AppError::internal_error("failed to generate upload URL", "")
                 })?;
 
-            let expires_at =
-                chrono::Utc::now() + chrono::Duration::seconds(expires_in_secs as i64);
+            let expires_at = chrono::Utc::now() + chrono::Duration::seconds(expires_in_secs as i64);
             Ok(ArtifactBundleInfo {
                 upload_mode: "staging_s3".to_string(),
                 object_key: object_key.to_string(),
@@ -145,14 +144,11 @@ async fn generate_upload_info(
         }
         None => {
             // Test mode: return placeholder
-            let expires_at =
-                chrono::Utc::now() + chrono::Duration::seconds(expires_in_secs as i64);
+            let expires_at = chrono::Utc::now() + chrono::Duration::seconds(expires_in_secs as i64);
             Ok(ArtifactBundleInfo {
                 upload_mode: "staging_s3".to_string(),
                 object_key: object_key.to_string(),
-                upload_url: format!(
-                    "http://localhost:9000/{bucket}/{object_key}?presigned=test"
-                ),
+                upload_url: format!("http://localhost:9000/{bucket}/{object_key}?presigned=test"),
                 method: "PUT".to_string(),
                 expires_at: expires_at.to_rfc3339(),
             })
@@ -251,7 +247,10 @@ pub async fn create_board_run(
         }
 
         // For created/uploading, generate new presigned URL
-        let object_key = format!("staging/runs/{}/bundle.zip", format_board_run_id(existing.id));
+        let object_key = format!(
+            "staging/runs/{}/bundle.zip",
+            format_board_run_id(existing.id)
+        );
         let upload_info = generate_upload_info(&s3_client, &object_key, 3600).await?;
         return Ok(Json(CreateBoardRunResponse {
             board_run_id: format_board_run_id(existing.id),
@@ -281,13 +280,21 @@ pub async fn create_board_run(
 
     // 6. Create ArtifactBundle
     let bundle_id = Uuid::now_v7();
-    let object_key = format!("staging/runs/{}/bundle.zip", format_board_run_id(board_run.id));
-    boardflow_db::queries::artifact_bundle::insert_staging(&pool, bundle_id, board_run.id, &object_key)
-        .await
-        .map_err(|e| {
-            tracing::error!("artifact_bundle insert failed: {e}");
-            AppError::internal_error("database error", rid)
-        })?;
+    let object_key = format!(
+        "staging/runs/{}/bundle.zip",
+        format_board_run_id(board_run.id)
+    );
+    boardflow_db::queries::artifact_bundle::insert_staging(
+        &pool,
+        bundle_id,
+        board_run.id,
+        &object_key,
+    )
+    .await
+    .map_err(|e| {
+        tracing::error!("artifact_bundle insert failed: {e}");
+        AppError::internal_error("database error", rid)
+    })?;
 
     // 7. Generate presigned URL
     let upload_info = generate_upload_info(&s3_client, &object_key, 3600).await?;
@@ -378,10 +385,7 @@ pub async fn fail_board_run(
             }));
         }
         BoardRunStatus::Completed => {
-            return Err(AppError::conflict(
-                "board run is already completed",
-                rid,
-            ));
+            return Err(AppError::conflict("board run is already completed", rid));
         }
         BoardRunStatus::TimedOut => {
             return Err(AppError::gone("board run has timed out", rid));
@@ -451,14 +455,13 @@ pub async fn import_artifact_bundle(
     })?;
 
     // 3. Find board_run with FOR UPDATE lock
-    let board_run =
-        boardflow_db::queries::board_run::find_by_id_for_update(&mut *tx, board_run_id)
-            .await
-            .map_err(|e| {
-                tracing::error!("board_run lookup failed: {e}");
-                AppError::internal_error("database error", rid)
-            })?
-            .ok_or_else(|| AppError::not_found("board run not found", rid))?;
+    let board_run = boardflow_db::queries::board_run::find_by_id_for_update(&mut *tx, board_run_id)
+        .await
+        .map_err(|e| {
+            tracing::error!("board_run lookup failed: {e}");
+            AppError::internal_error("database error", rid)
+        })?
+        .ok_or_else(|| AppError::not_found("board run not found", rid))?;
 
     // 4. Verify ownership via board_project
     let board_project =
@@ -485,15 +488,12 @@ pub async fn import_artifact_bundle(
         BoardRunStatus::Completed => {
             // Return existing bundle info
             if let Some(bundle) =
-                boardflow_db::queries::artifact_bundle::find_by_board_run_id(
-                    &mut *tx,
-                    board_run_id,
-                )
-                .await
-                .map_err(|e| {
-                    tracing::error!("artifact_bundle lookup failed: {e}");
-                    AppError::internal_error("database error", rid)
-                })?
+                boardflow_db::queries::artifact_bundle::find_by_board_run_id(&mut *tx, board_run_id)
+                    .await
+                    .map_err(|e| {
+                        tracing::error!("artifact_bundle lookup failed: {e}");
+                        AppError::internal_error("database error", rid)
+                    })?
             {
                 tx.commit().await.map_err(|e| {
                     tracing::error!("transaction commit failed: {e}");
@@ -550,31 +550,29 @@ pub async fn import_artifact_bundle(
     }
 
     // 8. Find or create ArtifactBundle and update for import
-    let bundle = match boardflow_db::queries::artifact_bundle::find_by_board_run_id(
-        &mut *tx,
-        board_run_id,
-    )
-    .await
-    .map_err(|e| {
-        tracing::error!("artifact_bundle lookup failed: {e}");
-        AppError::internal_error("database error", rid)
-    })? {
-        Some(existing_bundle) => existing_bundle,
-        None => {
-            let bundle_id = Uuid::now_v7();
-            boardflow_db::queries::artifact_bundle::insert_staging(
-                &mut *tx,
-                bundle_id,
-                board_run_id,
-                &req.staging_object_key,
-            )
+    let bundle =
+        match boardflow_db::queries::artifact_bundle::find_by_board_run_id(&mut *tx, board_run_id)
             .await
             .map_err(|e| {
-                tracing::error!("artifact_bundle insert failed: {e}");
+                tracing::error!("artifact_bundle lookup failed: {e}");
                 AppError::internal_error("database error", rid)
-            })?
-        }
-    };
+            })? {
+            Some(existing_bundle) => existing_bundle,
+            None => {
+                let bundle_id = Uuid::now_v7();
+                boardflow_db::queries::artifact_bundle::insert_staging(
+                    &mut *tx,
+                    bundle_id,
+                    board_run_id,
+                    &req.staging_object_key,
+                )
+                .await
+                .map_err(|e| {
+                    tracing::error!("artifact_bundle insert failed: {e}");
+                    AppError::internal_error("database error", rid)
+                })?
+            }
+        };
 
     let updated = boardflow_db::queries::artifact_bundle::update_for_import(
         &mut *tx,
@@ -592,10 +590,7 @@ pub async fn import_artifact_bundle(
     let bundle = match updated {
         Some(b) => b,
         None => {
-            return Err(AppError::conflict(
-                "bundle was concurrently modified",
-                rid,
-            ));
+            return Err(AppError::conflict("bundle was concurrently modified", rid));
         }
     };
 
