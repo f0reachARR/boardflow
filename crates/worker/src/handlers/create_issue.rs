@@ -23,15 +23,29 @@ pub async fn handle(
         }
     };
 
-    // Fetch board project with repository info
-    let bp = match board_project::find_by_id_with_repository(pool, board_project_id).await {
+    // Use a transaction with FOR UPDATE to prevent concurrent create_issue handlers
+    // from creating duplicate issues for the same board_project (spec 11.6).
+    let mut tx = match pool.begin().await {
+        Ok(tx) => tx,
+        Err(e) => {
+            return HandlerResult::Reschedule {
+                reason: format!("DB error starting transaction: {e}"),
+                backoff_secs: boardflow_jobs::backoff_secs(job.attempts),
+            };
+        }
+    };
+
+    // Fetch board project with repository info, acquiring row lock
+    let bp = match board_project::find_by_id_with_repository_for_update(&mut *tx, board_project_id).await {
         Ok(Some(bp)) => bp,
         Ok(None) => {
+            let _ = tx.rollback().await;
             return HandlerResult::Failed {
                 reason: format!("board_project {board_project_id} not found"),
             };
         }
         Err(e) => {
+            let _ = tx.rollback().await;
             return HandlerResult::Reschedule {
                 reason: format!("DB error: {e}"),
                 backoff_secs: boardflow_jobs::backoff_secs(job.attempts),
@@ -41,6 +55,7 @@ pub async fn handle(
 
     // If issue already exists, mark as completed (idempotency)
     if bp.issue_number.is_some() {
+        let _ = tx.rollback().await;
         return HandlerResult::Completed;
     }
 
@@ -61,13 +76,14 @@ pub async fn handle(
     {
         Ok(c) => c,
         Err(e) => {
+            let _ = tx.rollback().await;
             return handle_github_error(e, job.attempts);
         }
     };
 
-    // Update board_project with issue info
+    // Update board_project with issue info (within the same transaction)
     if let Err(e) = board_project::update_issue_info(
-        pool,
+        &mut *tx,
         board_project_id,
         created.number as i32,
         &created.node_id,
@@ -75,6 +91,7 @@ pub async fn handle(
     )
     .await
     {
+        let _ = tx.rollback().await;
         tracing::error!(error = %e, "Failed to update board_project issue info");
         return HandlerResult::Reschedule {
             reason: format!("DB error updating issue info: {e}"),
@@ -82,9 +99,9 @@ pub async fn handle(
         };
     }
 
-    // Now enqueue create_dashboard_comment since we have an issue
+    // Enqueue create_dashboard_comment since we have an issue (within transaction)
     let _ = github_job::enqueue(
-        pool,
+        &mut *tx,
         uuid::Uuid::now_v7(),
         job.installation_id,
         job.repository_id,
@@ -94,6 +111,15 @@ pub async fn handle(
         &serde_json::json!({}),
     )
     .await;
+
+    // Commit transaction — releases the FOR UPDATE lock
+    if let Err(e) = tx.commit().await {
+        tracing::error!(error = %e, "Failed to commit create_issue transaction");
+        return HandlerResult::Reschedule {
+            reason: format!("DB error committing: {e}"),
+            backoff_secs: boardflow_jobs::backoff_secs(job.attempts),
+        };
+    }
 
     tracing::info!(
         job_id = %job.id,

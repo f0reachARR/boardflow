@@ -338,3 +338,62 @@ test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
 
 - `create_issue` の主要分岐が未検証のままのため、GitHub API 成功時の状態更新や DB 再試行条件の退行を検知しづらい。
 - 環境上はテスト再実行を再現できておらず、ユーザー提示の 21 件成功をこのレビューでは独立検証できていない。
+
+## 最終レビューフェーズ (2026-05-02)
+
+### Issueまでの経緯
+
+- 2回目の修正として、`create_dashboard_comment` の history INSERT 追加、`create_issue` 統合テスト追加、`lib.rs` 追加による integration test 公開が行われたため、PR 前提の最終レビューを実施。
+
+### 調査結果
+
+- [docs/spec.md](../../../docs/spec.md) の 10.13 / 11.7 を再確認し、「同一 BoardProject に対する `create_issue` ジョブは同時に複数作らない」ことと、closed Issue の再作成時に旧 Issue を履歴として保持することを確認。
+- [crates/worker/src/handlers/create_dashboard_comment.rs](../../../crates/worker/src/handlers/create_dashboard_comment.rs) では closed 時と 404 時の両方で `insert_issue_history` を呼ぶようになっており、前回の history 欠落は解消済み。
+- 一方で、`create_issue` 再投入は [crates/worker/src/handlers/import.rs](../../../crates/worker/src/handlers/import.rs) と [crates/worker/src/handlers/create_dashboard_comment.rs](../../../crates/worker/src/handlers/create_dashboard_comment.rs) ほか複数箇所から `github_job::enqueue(..., "create_issue", ...)` しているが、[crates/db/src/queries/github_job.rs](../../../crates/db/src/queries/github_job.rs) の generic enqueue は `ON CONFLICT DO NOTHING` のみで衝突対象を持たず、実際に存在する一意制約は [crates/db/migrations/20260501000000_add_github_jobs_idempotent_index.up.sql](../../../crates/db/migrations/20260501000000_add_github_jobs_idempotent_index.up.sql) の `board_run_id + type` だけだった。
+- `create_issue` 本体は [crates/worker/src/handlers/create_issue.rs](../../../crates/worker/src/handlers/create_issue.rs) で `bp.issue_number.is_some()` を見るだけなので、同一 `board_project_id` に対する複数の `create_issue` ジョブが別 worker / 別 run から並行実行されると、どちらも `issue_number = None` を観測して二重に Issue を作成し得る。
+- `mise exec -- cargo test -p boardflow-worker create_issue -- --nocapture` は実行できたが、[crates/worker/tests/create_issue_test.rs](../../../crates/worker/tests/create_issue_test.rs) の統合テスト 4 件は `DATABASE_URL` 未設定時に全件早期 return するため、この環境では実データベースを使った検証は 1 件も走っていないことを確認した。
+- Problems では [crates/db/src/queries/board_project.rs](../../../crates/db/src/queries/board_project.rs) の `too_many_arguments` と [crates/worker/src/handlers/create_dashboard_comment.rs](../../../crates/worker/src/handlers/create_dashboard_comment.rs) の `collapsible_if` が引き続き出ていることも確認した。
+
+### テスト結果
+
+- `mise exec -- cargo test -p boardflow-worker create_issue -- --nocapture`
+   - `create_issue.rs` の unit test 6 件は実行され全件成功。
+   - `tests/create_issue_test.rs` の integration test 4 件は `DATABASE_URL not set` を出力して全件早期 return。テストバイナリ上は `ok` だが、DB 書き込み・enqueue の実検証は未実施。
+- `get_errors` では compile error はないが、clippy warning 相当の指摘は残っている。
+
+### レビュー結果
+
+- PR作成可否: `pr_ready: false`
+- 指摘1: `create_issue` の重複防止が spec 10.13 を満たしていない。現在の一意制約は `board_run_id + type` に限定されており、同一 `board_project_id` に対して別 run 由来の `create_issue` が並行に積まれた場合、[crates/worker/src/handlers/create_issue.rs](../../../crates/worker/src/handlers/create_issue.rs) の `issue_number.is_some()` 判定だけでは二重 Issue 作成を防げない。
+- 指摘2: 追加された統合テストは `DATABASE_URL` 未設定環境で全件スキップするため、現状の `cargo test` 成功は create_issue ハンドラ本体の成功系・冪等性・enqueue を常に保証しない。今回レビュー環境でも 4 件すべて未実行だった。
+
+### 必須修正
+
+1. `create_issue` の enqueue / 実行に、少なくとも同一 `board_project_id` 単位での重複防止を追加する。
+2. `create_issue` 統合テストを、環境変数未設定で黙って成功扱いにしない形へ変える。`sqlx::test` へ寄せるか、少なくとも CI で DB なしなら fail するようにして、成功系の DB 検証が常に効く状態にする。
+
+### 任意改善
+
+1. `insert_issue_history` の引数が増えてきているため、履歴作成用 struct にまとめると clippy warning と呼び出し側の可読性を同時に改善できる。
+2. `create_dashboard_comment` の history 保存ブロックは helper 化すると、3 ハンドラ間の重複を減らせる。
+
+### テスト不足
+
+- create_issue の DB 依存テストが環境依存で実質スキップ可能なため、CI 上で「4 passed」がそのまま挙動保証になっていない。
+- 同一 `board_project_id` に対して複数 `create_issue` ジョブが存在する競合ケースを検証するテストがない。
+
+### ドキュメント確認
+
+- [docs/spec.md](../../../docs/spec.md)
+- [docs/backend/summary.md](../../../docs/backend/summary.md)
+- [docs/external/postgresql-job-queue-enqueue.md](../../../docs/external/postgresql-job-queue-enqueue.md)
+- [docs/external/github-app-octocrab.md](../../../docs/external/github-app-octocrab.md)
+
+### PR/完了結果
+
+- `pr_ready: false`
+
+### 残リスク
+
+- 同一 BoardProject に対する create_issue race が残る限り、GitHub 上に重複 Issue が作成され、`board_project_issue_history` と現行 `board_projects.issue_*` の整合が崩れる可能性がある。
+- 統合テストがスキップ可能なままだと、ローカルや CI の設定差で create_issue の回帰が見逃される。

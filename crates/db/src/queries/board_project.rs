@@ -59,6 +59,31 @@ pub async fn find_by_id_with_repository(
     .await
 }
 
+/// Same as `find_by_id_with_repository` but acquires a `FOR UPDATE` lock on the
+/// board_projects row. Use within a transaction to serialize concurrent handlers
+/// that modify issue state (e.g., create_issue).
+pub async fn find_by_id_with_repository_for_update(
+    executor: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
+    id: Uuid,
+) -> Result<Option<BoardProjectWithRepository>, sqlx::Error> {
+    sqlx::query_as::<_, BoardProjectWithRepository>(
+        r#"SELECT
+            bp.id, bp.repository_id, bp.project_path, bp.project_dir, bp.display_name,
+            bp.issue_number, bp.issue_node_id, bp.issue_url, bp.issue_sync_status,
+            bp.dashboard_comment_id, bp.recreate_issue_on_update, bp.latest_tree_hash,
+            bp.latest_completed_run_id, bp.created_at, bp.updated_at,
+            r.id AS repo_id, r.github_repository_id, r.owner AS repo_owner,
+            r.name AS repo_name, r.installation_id AS repo_installation_id
+        FROM board_projects bp
+        JOIN repositories r ON r.id = bp.repository_id
+        WHERE bp.id = $1
+        FOR UPDATE OF bp"#,
+    )
+    .bind(id)
+    .fetch_optional(executor)
+    .await
+}
+
 pub async fn list_by_repository_id(
     executor: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
     repository_id: Uuid,

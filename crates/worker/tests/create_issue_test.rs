@@ -1,7 +1,8 @@
 //! Integration tests for create_issue handler.
 //!
 //! Requires DATABASE_URL to be set to a PostgreSQL database with migrations applied.
-//! Tests are skipped if DATABASE_URL is not available.
+//! Run with: `cargo test -p boardflow-worker --test create_issue_test -- --ignored`
+//! Tests are skipped (ignored) by default and must be explicitly opted in.
 
 use boardflow_domain::models::github_job::{GithubJob, GithubJobStatus};
 use boardflow_github::{CreatedComment, CreatedIssue, GitHubAppClient, GitHubClientError, IssueInfo, IssueState};
@@ -190,6 +191,7 @@ async fn cleanup_test_data(pool: &PgPool, repo_id: Uuid, bp_id: Uuid) {
 }
 
 #[tokio::test]
+#[ignore] // Requires DATABASE_URL; run with --ignored
 async fn test_create_issue_success() {
     let Some(pool) = get_pool().await else { return };
 
@@ -243,6 +245,7 @@ async fn test_create_issue_success() {
 }
 
 #[tokio::test]
+#[ignore] // Requires DATABASE_URL; run with --ignored
 async fn test_create_issue_idempotent() {
     let Some(pool) = get_pool().await else { return };
 
@@ -278,6 +281,7 @@ async fn test_create_issue_idempotent() {
 }
 
 #[tokio::test]
+#[ignore] // Requires DATABASE_URL; run with --ignored
 async fn test_create_issue_board_project_not_found() {
     let Some(pool) = get_pool().await else { return };
 
@@ -296,6 +300,7 @@ async fn test_create_issue_board_project_not_found() {
 }
 
 #[tokio::test]
+#[ignore] // Requires DATABASE_URL; run with --ignored
 async fn test_create_issue_github_rate_limited() {
     let Some(pool) = get_pool().await else { return };
 
