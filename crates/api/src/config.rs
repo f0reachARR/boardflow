@@ -44,6 +44,7 @@ pub struct AppConfig {
     pub artifact_secret: Option<String>,
     pub app_domain: String,
     pub artifact_base_url: String,
+    pub github_webhook_secret: Option<String>,
 }
 
 impl AppConfig {
@@ -79,6 +80,7 @@ impl AppConfig {
                 .unwrap_or_else(|_| "http://localhost:3000".to_string()),
             artifact_base_url: std::env::var("BOARDFLOW_ARTIFACT_BASE_URL")
                 .unwrap_or_else(|_| "http://localhost:8080".to_string()),
+            github_webhook_secret: std::env::var("GITHUB_WEBHOOK_SECRET").ok(),
         })
     }
 }

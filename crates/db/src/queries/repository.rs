@@ -142,3 +142,29 @@ pub async fn upsert(
     .fetch_one(executor)
     .await
 }
+
+pub async fn clear_installation(
+    executor: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
+    installation_id: i64,
+) -> Result<Vec<Repository>, sqlx::Error> {
+    sqlx::query_as::<_, Repository>(
+        "UPDATE repositories SET installation_id = 0, updated_at = NOW() \
+         WHERE installation_id = $1 RETURNING *",
+    )
+    .bind(installation_id)
+    .fetch_all(executor)
+    .await
+}
+
+pub async fn clear_installation_for_repo(
+    executor: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
+    github_repository_id: i64,
+) -> Result<Option<Repository>, sqlx::Error> {
+    sqlx::query_as::<_, Repository>(
+        "UPDATE repositories SET installation_id = 0, updated_at = NOW() \
+         WHERE github_repository_id = $1 RETURNING *",
+    )
+    .bind(github_repository_id)
+    .fetch_optional(executor)
+    .await
+}

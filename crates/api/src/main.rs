@@ -35,7 +35,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         None
     };
 
-    let app = boardflow_api::create_app(pool, s3_client);
+    let app = boardflow_api::create_app_with_config(
+        pool,
+        s3_client,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        config.github_webhook_secret,
+    );
 
     let addr = format!("{}:{}", config.api_host, config.api_port);
     let listener = tokio::net::TcpListener::bind(&addr).await?;

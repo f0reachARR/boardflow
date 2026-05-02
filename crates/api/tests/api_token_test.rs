@@ -30,12 +30,32 @@ async fn setup_pool() -> Option<PgPool> {
 
 fn create_test_app(pool: PgPool) -> axum::Router {
     let checker: DynGithubAccessChecker = Arc::new(AllowAllGithubAccessChecker);
-    create_app_with_config(pool, None, None, None, Some(checker), None, None, None)
+    create_app_with_config(
+        pool,
+        None,
+        None,
+        None,
+        Some(checker),
+        None,
+        None,
+        None,
+        None,
+    )
 }
 
 fn create_deny_app(pool: PgPool) -> axum::Router {
     let checker: DynGithubAccessChecker = Arc::new(DenyAllGithubAccessChecker);
-    create_app_with_config(pool, None, None, None, Some(checker), None, None, None)
+    create_app_with_config(
+        pool,
+        None,
+        None,
+        None,
+        Some(checker),
+        None,
+        None,
+        None,
+        None,
+    )
 }
 
 fn rand_i64() -> i64 {
