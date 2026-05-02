@@ -710,3 +710,63 @@ if (name === "kicanvas") {
 ### 結論
 
 docs_ready: true（ドキュメントと実装の不整合は解消済み）
+
+## ドキュメント再レビュー（2026-05-03）
+
+### 総評
+
+- `docs/external/nextjs-web-components-integration.md` の前回指摘 2 点は解消済み。BoardFlow での採用方針が `declare module "react"`、Client Component 直接 import、`Tabs.Root lazyMount` に整理され、現行実装と一致している。
+- `docs/frontend/summary.md`、`docs/external/kicanvas.md`、`docs/technology.md`、`docs/backend/api.md` の KiCanvas 関連記述も、Schematic / PCB Preview 内で KiCanvas を優先表示しつつ静的 fallback を残す現行実装と矛盾していない。
+- `docs/logs/33/worklog.md` には調査時点の旧案も履歴として残っているが、後続のレビュー結果・修正記録・ドキュメント修正記録で最終判断へ更新されており、作業ログとしては最終状態を追跡できる。
+
+### docs_ready
+
+- true
+
+### 問題
+
+- なし
+
+### 不整合のあるドキュメント
+
+- なし
+
+### 不足しているドキュメント
+
+- なし
+
+### 外部調査メモに関する指摘
+
+- `docs/external/nextjs-web-components-integration.md` は一般論と BoardFlow 採用判断が分離され、今回の実装判断を誤読しにくい構成になっている。
+- `docs/external/kicanvas-embed-api.md` と `docs/external/kicanvas.md` の API 前提・fallback 方針・vendoring 方針は引き続き妥当。
+
+### PR/完了結果
+
+- ドキュメント観点で追加の必須修正は確認されなかったため、Issue #33 は docs_ready: true と再判定する。
+
+### 残リスク
+
+- `docs/logs/33/worklog.md` 冒頭の調査・初期計画には当時の旧案が残るため、参照時は末尾のレビュー結果とドキュメント修正記録を正として読む必要がある。
+
+## PR作成（2026-05-03）
+
+### 前提確認
+
+- review エージェント: `pr_ready: true`（3回目レビューで承認）
+- docs エージェント: `docs_ready: true`（ドキュメント再レビューで承認）
+- `pnpm tsc --noEmit`: 成功
+- `pnpm build`: 成功
+- 未コミットの変更: `docs/logs/33/worklog.md` のみ（本セクション追記）
+
+### PR内容
+
+- ブランチ: `feature/issue-33-kicanvas-viewer` → `main`
+- Closes #33
+- KiCanvas Web Component を Artifact Viewer の Schematic/PCB Preview タブに統合
+
+### 残リスク
+
+- 表示条件分岐に対する自動テストが未整備（component test / E2E）
+- KiCanvas alpha 品質のため bundle 更新時の挙動変化リスクあり
+- WebGL 非対応環境での詳細なエラーハンドリングは KiCanvas 側の実装に依存
+- KiCad 6 以降のファイルのみ対応（KiCad 5 は非対応）
