@@ -241,6 +241,68 @@ page.tsx (Server)
 2. expires_at 期限内に iframe 読み込みが完了しない超低速回線環境（エッジケース、MVP では許容）
 3. Chakra UI v3 の Tabs API が変更された場合の互換性（package.json でバージョン固定済み）
 
+---
+
+## レビュー結果（Review フェーズ）
+
+**日時**: 2026-05-02  
+**担当フェーズ**: review
+
+### 総評
+
+- PDF/SVG/iBOM の iframe 分離、SVG の `sandbox=""`、iBOM の `sandbox="allow-scripts allow-same-origin"`、短命 URL の再取得導線など、Issue #32 の主目的に沿った構成にはなっている。
+- 一方で、既存の viewer-sources 契約に含まれる `kicanvas` viewer を UI 側が処理できておらず、仕様との不整合と表示退行がある。
+- また、URL 再取得失敗時のユーザー通知が未実装で、期限切れ後に壊れた iframe / download link だけが残る経路を防げていない。
+
+### 調査結果
+
+- backend 契約では `viewer-sources` に `kicanvas` を含める仕様で、API テストでも `available` が明示されている。
+- frontend 方針では `Schematic / PCB Preview では KiCanvas を第一候補にしつつ、PDF/SVG fallback を必ず残す` とされている。
+- 実装では `ArtifactViewerSection` が未知 viewer を generic download viewer として扱うため、`kicanvas` の `sources` を無視して `missing` 相当の表示に落ちる。
+- URL 再取得ロジックはあるが、`!res.ok` と `catch` がサイレント失敗で、計画にある「再取得失敗時はリロード促進メッセージ」がない。
+
+### レビュー指摘
+
+#### 必須修正
+
+1. **`kicanvas` viewer が `available` のときに誤表示になる**
+   - `ArtifactViewerSection` は全 viewer を描画対象にしているが、`renderViewer` に `kicanvas` 分岐がないため、backend が返す `sources` を無視して default 分岐へ落ちる。
+   - その結果、`kicanvas` が `available` でも「利用不可」相当のメッセージになるか、少なくとも viewer contract に整合しない UI になる。
+   - これは frontend 方針・spec・backend 契約のいずれとも不整合。
+
+2. **viewer URL の再取得失敗がユーザーに一切見えない**
+   - `refreshViewerSources()` は `!res.ok` で即 return、`catch` も握りつぶしており、失敗状態を state に保持しない。
+   - 期限切れ後は iframe と download link が stale URL のまま残るため、ユーザーは壊れた表示だけを見せられる。
+   - Issue 計画の「再取得失敗時はリロード促進メッセージ」と未整合。
+
+#### 任意改善
+
+1. Route Handler が backend の error payload を潰して generic error だけ返しているため、client 側で `unauthorized` / `forbidden` / `not_found` を出し分けにくい。
+2. `partial` status の扱いが viewer ごとに弱く、`pcb_preview` で片面だけ available の場合や `schematic` で preview 不可だが download は可能な場合に、限定表示であることの説明が薄い。
+3. URL 更新時に iframe `src` が差し替わるため、iBOM のスクロール位置や UI 状態が token 更新のたびに失われうる。現状でも要件未達ではないが、UX リスクとして明示した方がよい。
+
+### テスト結果
+
+- 確認済み: `pnpm typecheck` pass、`pnpm lint` pass
+- 未確認: component test、Playwright smoke test、viewer status 切替テスト、URL 再取得失敗時の UI テスト
+
+### ドキュメント確認
+
+- `docs/frontend/summary.md`: KiCanvas first + PDF/SVG fallback 方針あり
+- `docs/spec.md`: KiCanvas interactive preview と fallback の要件あり
+- `docs/backend/api.md`: `viewer-sources` に `kicanvas` を含む契約あり
+- 今回の実装説明・plan は「KiCanvas は今回スキップ」としているが、既存仕様との差分整理が不足している
+
+### PR/完了結果
+
+- `pr_ready: false`
+- 理由: 既存 viewer contract (`kicanvas`) の表示退行と、URL 再取得失敗時の回復導線欠如があるため
+
+### 残リスク
+
+- `kicanvas` の仕様整理なしに本 PR を出すと、backend 契約と UI の責務分担が曖昧なまま固定化される
+- 自動再取得失敗時の回復導線がないままでは、短命 URL 前提の viewer UX が本番で不安定になる
+
 ## 実装時の注意事項
 
 1. **artifact domain の分離を維持**: sandbox="allow-scripts allow-same-origin" の安全性はクロスオリジン前提
@@ -317,3 +379,37 @@ page.tsx (Server)
 - artifact domain と app domain が同一になった場合、sandbox のセキュリティモデルが破綻する
 - iBOM が将来バージョンで外部リソース読み込みを行うようになった場合、CSP の調整が必要
 - Safari/iOS の iframe 内 PDF 表示の互換性は実機テストで確認が必要
+
+---
+
+## レビュー指摘修正フェーズ
+
+**日時**: 2026-05-02  
+**担当フェーズ**: impl (review fix)
+
+### 修正内容
+
+| 指摘 | 種別 | 対応 |
+|---|---|---|
+| kicanvas viewer のハンドリング | Major | `kicanvas` を明示的にスキップし「KiCanvas (coming soon)」placeholder を表示。静的viewer (schematic/pcb_preview) が別途表示されるため情報欠損なし |
+| URL再取得失敗時のUX | Major | `refreshError` state を追加。失敗時に「Viewer URLs have expired. Please reload the page.」メッセージ + Reload ボタンを表示 |
+| Route Handler のエラーpassthrough | Minor | backend の JSON body をそのまま透過。`res.json()` を先に取得し、`!res.ok` 時はそのまま返却 |
+| partial status の表示 | Minor | `hasPartial` チェックを追加し「Some sources are unavailable. Showing limited preview.」テキストを表示 |
+
+### 変更ファイル
+
+| ファイル | 変更内容 |
+|---|---|
+| `boardflow/src/app/api/viewer-sources/[boardRunId]/route.ts` | backend error payload passthrough |
+| `boardflow/src/components/artifact-viewer/artifact-viewer-section.tsx` | kicanvas placeholder, refreshError state & UI, partial message |
+
+### テスト結果
+
+- `pnpm typecheck`: ✅ 0 errors
+- `pnpm lint`: ✅ 0 warnings, 0 errors
+
+### 残リスク
+
+- kicanvas の完全実装は別 Issue で対応必要
+- refreshError 表示後にネットワーク復旧しても自動リカバリなし（ユーザーが手動でリロード）
+- iBOM iframe の URL 更新時スクロール状態ロスは未解決（UX 改善として別 Issue 候補）
