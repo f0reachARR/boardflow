@@ -111,3 +111,38 @@
 ### 残リスク
 - DBの時刻精度依存: `NOW()` はDBサーバーの時刻に依存するが、通常運用では問題にならない
 - 大量のタイムアウト対象が一度に存在する場合のロック競合: MVPでは問題になる規模ではない
+
+---
+
+## 実装完了 (2026-05-02)
+
+### 変更内容
+
+| ファイル | 変更内容 |
+|---------|---------|
+| `crates/db/src/queries/board_run.rs` | `sweep_timed_out()` 関数追加 — 12時間超の非ターミナルRunを一括UPDATE |
+| `crates/worker/src/config.rs` | `timeout_sweep_interval_secs` フィールド追加 (デフォルト60秒) |
+| `crates/worker/src/dispatcher.rs` | `sweep_timed_out_runs()` 公開関数追加 + `board_run` import追加 |
+| `crates/worker/src/main.rs` | `last_sweep` タイマー管理、`poll_and_dispatch`後にスイープチェック |
+| `crates/worker/src/handlers/create_issue.rs` | テスト内 `WorkerConfig` に新フィールド追加 |
+| `crates/worker/tests/create_issue_test.rs` | テスト内 `WorkerConfig` に新フィールド追加 |
+| `crates/worker/tests/timeout_sweep_test.rs` | 新規: 統合テスト3件 |
+
+### 設計判断
+- 計画の「`poll_and_dispatch`シグネチャ変更」方式ではなく、Issueの指示に従い`main.rs`側で`last_sweep`を管理する方式を採用
+- `poll_and_dispatch`のシグネチャは変更なし（既存テストへの影響最小化）
+
+### テスト結果
+- `cargo check --workspace` ✅ 成功
+- `cargo test -p boardflow-worker --lib` ✅ 21テスト全パス
+- `cargo test -p boardflow-worker --test timeout_sweep_test -- --ignored` ✅ 3テスト全パス
+  1. `test_sweep_marks_stale_runs_as_timed_out` — 13h前のcreated/uploading/importing → timed_out
+  2. `test_sweep_does_not_affect_recent_runs` — 11h前のRunは影響なし
+  3. `test_sweep_does_not_affect_terminal_states` — completed/failed/timed_outは影響なし
+
+### 更新ドキュメント
+- `docs/logs/23/worklog.md` (本ファイル)
+
+### 残リスク
+- 並列テスト実行時、`sweep_timed_out`がグローバルUPDATEのため他テストのRunも巻き込む可能性 → テストでは戻り値ではなく行状態を直接検証する方式で対策済み
+- タイムアウト通知機能は未実装（将来Issue）
