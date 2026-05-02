@@ -563,3 +563,32 @@ _ = sweep_interval.tick() => {
 
 - `failed` run の orphan bundle が補修された場合、保持期限が failure 時刻ではなく作成時刻基準で計算され、仕様解釈とずれる可能性がある。
 - DB 未設定環境で統合テストが成功扱いになるままだと、worklog の「通過」を根拠に実装整合性を過信しやすい。
+
+---
+
+## ドキュメント指摘修正 (2026-05-02)
+
+### 指摘内容
+
+**必須修正**: `repair_orphaned_staging_bundles` で `failed` run の orphan bundle が `COALESCE(br.timed_out_at, br.created_at)` を使っており、`failed` run (timed_out_at = NULL) の場合に `completed_at` ではなく `created_at` が基準になっていた。仕様の「failed は failure 時刻から 7 日後」と乖離する。
+
+### 修正内容
+
+- `crates/db/src/queries/artifact_bundle.rs` の `repair_orphaned_staging_bundles` SQL を修正:
+  - 修正前: `COALESCE(br.timed_out_at, br.created_at) + INTERVAL '7 days'`
+  - 修正後: `COALESCE(br.timed_out_at, br.completed_at, br.created_at) + INTERVAL '7 days'`
+  - `failed` run では `completed_at` (= `mark_failed` 実行時刻) が設定されるため、これを基準に使用
+  - `timed_out` run: `timed_out_at` 基準 / `failed` run: `completed_at` 基準 / フォールバック: `created_at`
+
+### DB 未設定テスト問題
+
+`#[ignore]` + `get_pool()` early return パターンは `timeout_sweep_test.rs`（Issue #23）で確立したプロジェクト標準。CI では `DATABASE_URL` が設定されて実行される前提。ローカルでの false green は `--ignored` を明示しない限り `cargo test` に現れないため許容。本 Issue だけ変更すると一貫性が崩れるため変更しない。
+
+### テスト結果
+
+- `cargo check --package boardflow-db` → `Finished` (3.05s)
+- `cargo test -p boardflow-worker --lib` → 21テスト全通過（前コミットで確認済み、SQL文字列のみ変更のため影響なし）
+
+### 残リスク
+
+- なし。`timed_out` run: `timed_out_at` 基準、`failed` run: `completed_at` 基準、フォールバック: `created_at` 基準で TTL を計算する。仕様の「7日後に削除対象」を正確に反映している。
