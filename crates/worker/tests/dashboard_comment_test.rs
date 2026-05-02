@@ -287,10 +287,9 @@ async fn test_create_dashboard_comment_success() {
     job.installation_id = installation_id;
     job.repository_id = repo_id;
 
-    let result = boardflow_worker::handlers::create_dashboard_comment::handle(
-        &pool, &client, &config, &job,
-    )
-    .await;
+    let result =
+        boardflow_worker::handlers::create_dashboard_comment::handle(&pool, &client, &config, &job)
+            .await;
 
     assert!(
         matches!(result, boardflow_worker::handlers::HandlerResult::Completed),
@@ -330,16 +329,43 @@ async fn test_create_dashboard_comment_idempotent() {
         async fn get_installation_token(&self, _: u64) -> Result<SecretString, GitHubClientError> {
             panic!("should not be called")
         }
-        async fn create_issue(&self, _: u64, _: &str, _: &str, _: &str, _: &str) -> Result<CreatedIssue, GitHubClientError> {
+        async fn create_issue(
+            &self,
+            _: u64,
+            _: &str,
+            _: &str,
+            _: &str,
+            _: &str,
+        ) -> Result<CreatedIssue, GitHubClientError> {
             panic!("should not be called")
         }
-        async fn get_issue(&self, _: u64, _: &str, _: &str, _: u64) -> Result<IssueInfo, GitHubClientError> {
+        async fn get_issue(
+            &self,
+            _: u64,
+            _: &str,
+            _: &str,
+            _: u64,
+        ) -> Result<IssueInfo, GitHubClientError> {
             panic!("should not be called")
         }
-        async fn create_comment(&self, _: u64, _: &str, _: &str, _: u64, _: &str) -> Result<CreatedComment, GitHubClientError> {
+        async fn create_comment(
+            &self,
+            _: u64,
+            _: &str,
+            _: &str,
+            _: u64,
+            _: &str,
+        ) -> Result<CreatedComment, GitHubClientError> {
             panic!("should not be called")
         }
-        async fn update_comment(&self, _: u64, _: &str, _: &str, _: u64, _: &str) -> Result<(), GitHubClientError> {
+        async fn update_comment(
+            &self,
+            _: u64,
+            _: &str,
+            _: &str,
+            _: u64,
+            _: &str,
+        ) -> Result<(), GitHubClientError> {
             panic!("should not be called")
         }
     }
@@ -350,7 +376,10 @@ async fn test_create_dashboard_comment_idempotent() {
     job.repository_id = repo_id;
 
     let result = boardflow_worker::handlers::create_dashboard_comment::handle(
-        &pool, &PanicClient, &config, &job,
+        &pool,
+        &PanicClient,
+        &config,
+        &job,
     )
     .await;
 
@@ -375,10 +404,9 @@ async fn test_create_dashboard_comment_no_issue() {
     job.installation_id = installation_id;
     job.repository_id = repo_id;
 
-    let result = boardflow_worker::handlers::create_dashboard_comment::handle(
-        &pool, &client, &config, &job,
-    )
-    .await;
+    let result =
+        boardflow_worker::handlers::create_dashboard_comment::handle(&pool, &client, &config, &job)
+            .await;
 
     match result {
         boardflow_worker::handlers::HandlerResult::Reschedule {
@@ -391,7 +419,10 @@ async fn test_create_dashboard_comment_no_issue() {
             );
             assert_eq!(backoff_secs, 5.0);
         }
-        _ => panic!("Expected Reschedule, got: {}", handler_result_debug(&result)),
+        _ => panic!(
+            "Expected Reschedule, got: {}",
+            handler_result_debug(&result)
+        ),
     }
 
     cleanup_test_data(&pool, repo_id, bp_id).await;
@@ -406,10 +437,9 @@ async fn test_create_dashboard_comment_missing_board_project_id() {
     let config = make_config();
     let job = make_job("create_dashboard_comment", None, Some(Uuid::now_v7()));
 
-    let result = boardflow_worker::handlers::create_dashboard_comment::handle(
-        &pool, &client, &config, &job,
-    )
-    .await;
+    let result =
+        boardflow_worker::handlers::create_dashboard_comment::handle(&pool, &client, &config, &job)
+            .await;
 
     match result {
         boardflow_worker::handlers::HandlerResult::Failed { reason } => {
@@ -428,10 +458,9 @@ async fn test_create_dashboard_comment_missing_board_run_id() {
     let config = make_config();
     let job = make_job("create_dashboard_comment", Some(Uuid::now_v7()), None);
 
-    let result = boardflow_worker::handlers::create_dashboard_comment::handle(
-        &pool, &client, &config, &job,
-    )
-    .await;
+    let result =
+        boardflow_worker::handlers::create_dashboard_comment::handle(&pool, &client, &config, &job)
+            .await;
 
     match result {
         boardflow_worker::handlers::HandlerResult::Failed { reason } => {
@@ -455,10 +484,9 @@ async fn test_create_dashboard_comment_project_not_found() {
         Some(Uuid::now_v7()),
     );
 
-    let result = boardflow_worker::handlers::create_dashboard_comment::handle(
-        &pool, &client, &config, &job,
-    )
-    .await;
+    let result =
+        boardflow_worker::handlers::create_dashboard_comment::handle(&pool, &client, &config, &job)
+            .await;
 
     match result {
         boardflow_worker::handlers::HandlerResult::Failed { reason } => {
@@ -503,10 +531,9 @@ async fn test_update_dashboard_comment_success() {
     job.installation_id = installation_id;
     job.repository_id = repo_id;
 
-    let result = boardflow_worker::handlers::update_dashboard_comment::handle(
-        &pool, &client, &config, &job,
-    )
-    .await;
+    let result =
+        boardflow_worker::handlers::update_dashboard_comment::handle(&pool, &client, &config, &job)
+            .await;
 
     assert!(
         matches!(result, boardflow_worker::handlers::HandlerResult::Completed),
@@ -521,7 +548,11 @@ async fn test_update_dashboard_comment_success() {
             .fetch_one(&pool)
             .await
             .unwrap();
-    assert_eq!(row.0, Some(200), "dashboard_comment_id should remain unchanged after update");
+    assert_eq!(
+        row.0,
+        Some(200),
+        "dashboard_comment_id should remain unchanged after update"
+    );
 
     cleanup_test_data(&pool, repo_id, bp_id).await;
 }
@@ -533,17 +564,16 @@ async fn test_update_dashboard_comment_fallback_create() {
     let (repo_id, bp_id, run_id, installation_id) = setup_with_issue(&pool).await;
 
     // dashboard_comment_id is None → should fallback to create_comment
-    let client = MockGitHubClient::default_success()
-        .with_create_comment(Ok(CreatedComment { id: 300 }));
+    let client =
+        MockGitHubClient::default_success().with_create_comment(Ok(CreatedComment { id: 300 }));
     let config = make_config();
     let mut job = make_job("update_dashboard_comment", Some(bp_id), Some(run_id));
     job.installation_id = installation_id;
     job.repository_id = repo_id;
 
-    let result = boardflow_worker::handlers::update_dashboard_comment::handle(
-        &pool, &client, &config, &job,
-    )
-    .await;
+    let result =
+        boardflow_worker::handlers::update_dashboard_comment::handle(&pool, &client, &config, &job)
+            .await;
 
     assert!(
         matches!(result, boardflow_worker::handlers::HandlerResult::Completed),
@@ -578,19 +608,16 @@ async fn test_update_dashboard_comment_404_recreate() {
 
     // update_comment returns NotFound, then create_comment succeeds with new id
     let client = MockGitHubClient::default_success()
-        .with_update_comment(Err(GitHubClientError::NotFound(
-            "comment not found".into(),
-        )))
+        .with_update_comment(Err(GitHubClientError::NotFound("comment not found".into())))
         .with_create_comment(Ok(CreatedComment { id: 400 }));
     let config = make_config();
     let mut job = make_job("update_dashboard_comment", Some(bp_id), Some(run_id));
     job.installation_id = installation_id;
     job.repository_id = repo_id;
 
-    let result = boardflow_worker::handlers::update_dashboard_comment::handle(
-        &pool, &client, &config, &job,
-    )
-    .await;
+    let result =
+        boardflow_worker::handlers::update_dashboard_comment::handle(&pool, &client, &config, &job)
+            .await;
 
     assert!(
         matches!(result, boardflow_worker::handlers::HandlerResult::Completed),
@@ -623,10 +650,9 @@ async fn test_update_dashboard_comment_no_issue() {
     job.installation_id = installation_id;
     job.repository_id = repo_id;
 
-    let result = boardflow_worker::handlers::update_dashboard_comment::handle(
-        &pool, &client, &config, &job,
-    )
-    .await;
+    let result =
+        boardflow_worker::handlers::update_dashboard_comment::handle(&pool, &client, &config, &job)
+            .await;
 
     match result {
         boardflow_worker::handlers::HandlerResult::Reschedule {
@@ -665,14 +691,17 @@ async fn test_create_dashboard_comment_issue_closed_recreate_tree_hash_changed()
         html_url: "https://github.com/test-owner/test-repo/issues/1".into(),
     }));
     let config = make_config();
-    let mut job = make_job("create_dashboard_comment", Some(bp_id), Some(current_run_id));
+    let mut job = make_job(
+        "create_dashboard_comment",
+        Some(bp_id),
+        Some(current_run_id),
+    );
     job.installation_id = installation_id;
     job.repository_id = repo_id;
 
-    let result = boardflow_worker::handlers::create_dashboard_comment::handle(
-        &pool, &client, &config, &job,
-    )
-    .await;
+    let result =
+        boardflow_worker::handlers::create_dashboard_comment::handle(&pool, &client, &config, &job)
+            .await;
 
     // Should Reschedule after clearing issue info and enqueuing create_issue
     match result {
@@ -741,14 +770,17 @@ async fn test_create_dashboard_comment_issue_closed_tree_hash_unchanged() {
         html_url: "https://github.com/test-owner/test-repo/issues/1".into(),
     }));
     let config = make_config();
-    let mut job = make_job("create_dashboard_comment", Some(bp_id), Some(current_run_id));
+    let mut job = make_job(
+        "create_dashboard_comment",
+        Some(bp_id),
+        Some(current_run_id),
+    );
     job.installation_id = installation_id;
     job.repository_id = repo_id;
 
-    let result = boardflow_worker::handlers::create_dashboard_comment::handle(
-        &pool, &client, &config, &job,
-    )
-    .await;
+    let result =
+        boardflow_worker::handlers::create_dashboard_comment::handle(&pool, &client, &config, &job)
+            .await;
 
     // tree_hash unchanged → Completed (no recreation needed)
     assert!(
@@ -784,10 +816,9 @@ async fn test_create_dashboard_comment_issue_closed_no_recreate() {
     job.installation_id = installation_id;
     job.repository_id = repo_id;
 
-    let result = boardflow_worker::handlers::create_dashboard_comment::handle(
-        &pool, &client, &config, &job,
-    )
-    .await;
+    let result =
+        boardflow_worker::handlers::create_dashboard_comment::handle(&pool, &client, &config, &job)
+            .await;
 
     // recreate_issue_on_update=false → Completed (stop updating)
     assert!(
@@ -814,10 +845,9 @@ async fn test_create_dashboard_comment_issue_404() {
     job.installation_id = installation_id;
     job.repository_id = repo_id;
 
-    let result = boardflow_worker::handlers::create_dashboard_comment::handle(
-        &pool, &client, &config, &job,
-    )
-    .await;
+    let result =
+        boardflow_worker::handlers::create_dashboard_comment::handle(&pool, &client, &config, &job)
+            .await;
 
     // Should Reschedule after clearing issue info and enqueuing create_issue
     match result {
@@ -881,10 +911,9 @@ async fn test_create_dashboard_comment_uses_latest_completed_run() {
     job.installation_id = installation_id;
     job.repository_id = repo_id;
 
-    let result = boardflow_worker::handlers::create_dashboard_comment::handle(
-        &pool, &client, &config, &job,
-    )
-    .await;
+    let result =
+        boardflow_worker::handlers::create_dashboard_comment::handle(&pool, &client, &config, &job)
+            .await;
 
     assert!(
         matches!(result, boardflow_worker::handlers::HandlerResult::Completed),
@@ -904,9 +933,18 @@ async fn test_create_dashboard_comment_uses_latest_completed_run() {
     // Verify the comment body uses the latest run (def5678) not the old run (abc1234)
     {
         let captured = client.captured_comment_body.lock().unwrap();
-        let body = captured.as_ref().expect("create_comment should have been called");
-        assert!(body.contains("def5678"), "Comment body should contain latest run commit SHA 'def5678', got: {}", body);
-        assert!(!body.contains("abc1234"), "Comment body should NOT contain old run commit SHA");
+        let body = captured
+            .as_ref()
+            .expect("create_comment should have been called");
+        assert!(
+            body.contains("def5678"),
+            "Comment body should contain latest run commit SHA 'def5678', got: {}",
+            body
+        );
+        assert!(
+            !body.contains("abc1234"),
+            "Comment body should NOT contain old run commit SHA"
+        );
     }
 
     cleanup_test_data(&pool, repo_id, bp_id).await;
@@ -943,10 +981,9 @@ async fn test_update_dashboard_comment_issue_closed_no_recreate() {
     job.installation_id = installation_id;
     job.repository_id = repo_id;
 
-    let result = boardflow_worker::handlers::update_dashboard_comment::handle(
-        &pool, &client, &config, &job,
-    )
-    .await;
+    let result =
+        boardflow_worker::handlers::update_dashboard_comment::handle(&pool, &client, &config, &job)
+            .await;
 
     // recreate_issue_on_update=false → Completed
     assert!(
@@ -984,10 +1021,9 @@ async fn test_update_dashboard_comment_issue_404() {
     job.installation_id = installation_id;
     job.repository_id = repo_id;
 
-    let result = boardflow_worker::handlers::update_dashboard_comment::handle(
-        &pool, &client, &config, &job,
-    )
-    .await;
+    let result =
+        boardflow_worker::handlers::update_dashboard_comment::handle(&pool, &client, &config, &job)
+            .await;
 
     // Issue 404 → Reschedule
     match result {
@@ -1041,7 +1077,10 @@ async fn test_update_dashboard_comment_issue_404() {
 fn handler_result_debug(result: &boardflow_worker::handlers::HandlerResult) -> String {
     match result {
         boardflow_worker::handlers::HandlerResult::Completed => "Completed".into(),
-        boardflow_worker::handlers::HandlerResult::Reschedule { reason, backoff_secs } => {
+        boardflow_worker::handlers::HandlerResult::Reschedule {
+            reason,
+            backoff_secs,
+        } => {
             format!("Reschedule({reason}, {backoff_secs}s)")
         }
         boardflow_worker::handlers::HandlerResult::Failed { reason } => {
