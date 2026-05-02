@@ -3,7 +3,9 @@ use std::sync::Arc;
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use boardflow_api::create_app_with_config;
-use boardflow_api::github_access::{AllowAllGithubAccessChecker, DenyAllGithubAccessChecker, DynGithubAccessChecker};
+use boardflow_api::github_access::{
+    AllowAllGithubAccessChecker, DenyAllGithubAccessChecker, DynGithubAccessChecker,
+};
 use http_body_util::BodyExt;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -97,7 +99,9 @@ async fn create_test_repository(pool: &PgPool, github_repository_id: i64) -> Uui
 
 #[tokio::test]
 async fn test_create_api_token_success() {
-    let Some(pool) = setup_pool().await else { return };
+    let Some(pool) = setup_pool().await else {
+        return;
+    };
     let app = create_test_app(pool.clone());
 
     let user_id = create_test_user(&pool).await;
@@ -150,7 +154,9 @@ async fn test_create_api_token_success() {
 
 #[tokio::test]
 async fn test_list_api_tokens() {
-    let Some(pool) = setup_pool().await else { return };
+    let Some(pool) = setup_pool().await else {
+        return;
+    };
     let app = create_test_app(pool.clone());
 
     let user_id = create_test_user(&pool).await;
@@ -187,7 +193,10 @@ async fn test_list_api_tokens() {
     assert!(!items.is_empty());
 
     // Find our token
-    let item = items.iter().find(|i| i["id"] == token_id.to_string()).unwrap();
+    let item = items
+        .iter()
+        .find(|i| i["id"] == token_id.to_string())
+        .unwrap();
     assert_eq!(item["name"], "List Test Token");
     assert!(item["created_at"].is_string());
 
@@ -200,7 +209,9 @@ async fn test_list_api_tokens() {
 
 #[tokio::test]
 async fn test_revoke_api_token() {
-    let Some(pool) = setup_pool().await else { return };
+    let Some(pool) = setup_pool().await else {
+        return;
+    };
     let app = create_test_app(pool.clone());
 
     let user_id = create_test_user(&pool).await;
@@ -244,7 +255,9 @@ async fn test_revoke_api_token() {
 
 #[tokio::test]
 async fn test_revoke_idempotent() {
-    let Some(pool) = setup_pool().await else { return };
+    let Some(pool) = setup_pool().await else {
+        return;
+    };
 
     let user_id = create_test_user(&pool).await;
     let session_id = create_test_session(&pool, user_id).await;
@@ -288,7 +301,9 @@ async fn test_revoke_idempotent() {
 
 #[tokio::test]
 async fn test_create_api_token_unauthenticated() {
-    let Some(pool) = setup_pool().await else { return };
+    let Some(pool) = setup_pool().await else {
+        return;
+    };
     let app = create_test_app(pool.clone());
 
     let github_repo_id = rand_i64();
@@ -310,7 +325,9 @@ async fn test_create_api_token_unauthenticated() {
 
 #[tokio::test]
 async fn test_create_api_token_repo_not_found() {
-    let Some(pool) = setup_pool().await else { return };
+    let Some(pool) = setup_pool().await else {
+        return;
+    };
     let app = create_test_app(pool.clone());
 
     let user_id = create_test_user(&pool).await;
@@ -333,7 +350,9 @@ async fn test_create_api_token_repo_not_found() {
 
 #[tokio::test]
 async fn test_create_api_token_access_denied() {
-    let Some(pool) = setup_pool().await else { return };
+    let Some(pool) = setup_pool().await else {
+        return;
+    };
     let app = create_deny_app(pool.clone());
 
     let user_id = create_test_user(&pool).await;
@@ -358,7 +377,9 @@ async fn test_create_api_token_access_denied() {
 
 #[tokio::test]
 async fn test_create_api_token_empty_name() {
-    let Some(pool) = setup_pool().await else { return };
+    let Some(pool) = setup_pool().await else {
+        return;
+    };
     let app = create_test_app(pool.clone());
 
     let user_id = create_test_user(&pool).await;
@@ -383,7 +404,9 @@ async fn test_create_api_token_empty_name() {
 
 #[tokio::test]
 async fn test_create_api_token_name_too_long() {
-    let Some(pool) = setup_pool().await else { return };
+    let Some(pool) = setup_pool().await else {
+        return;
+    };
     let app = create_test_app(pool.clone());
 
     let user_id = create_test_user(&pool).await;
@@ -409,7 +432,9 @@ async fn test_create_api_token_name_too_long() {
 
 #[tokio::test]
 async fn test_revoke_token_wrong_repo() {
-    let Some(pool) = setup_pool().await else { return };
+    let Some(pool) = setup_pool().await else {
+        return;
+    };
 
     let user_id = create_test_user(&pool).await;
     let session_id = create_test_session(&pool, user_id).await;
@@ -451,7 +476,9 @@ async fn test_revoke_token_wrong_repo() {
 
 #[tokio::test]
 async fn test_list_api_tokens_cursor_pagination() {
-    let Some(pool) = setup_pool().await else { return };
+    let Some(pool) = setup_pool().await else {
+        return;
+    };
 
     let user_id = create_test_user(&pool).await;
     let session_id = create_test_session(&pool, user_id).await;
@@ -525,7 +552,9 @@ async fn test_list_api_tokens_cursor_pagination() {
 
 #[tokio::test]
 async fn test_list_api_tokens_access_denied() {
-    let Some(pool) = setup_pool().await else { return };
+    let Some(pool) = setup_pool().await else {
+        return;
+    };
     let app = create_deny_app(pool.clone());
 
     let user_id = create_test_user(&pool).await;
@@ -548,7 +577,9 @@ async fn test_list_api_tokens_access_denied() {
 
 #[tokio::test]
 async fn test_revoke_api_token_access_denied() {
-    let Some(pool) = setup_pool().await else { return };
+    let Some(pool) = setup_pool().await else {
+        return;
+    };
     let app = create_deny_app(pool.clone());
 
     let user_id = create_test_user(&pool).await;
@@ -584,7 +615,9 @@ async fn test_revoke_api_token_access_denied() {
 
 #[tokio::test]
 async fn test_create_api_token_malformed_json() {
-    let Some(pool) = setup_pool().await else { return };
+    let Some(pool) = setup_pool().await else {
+        return;
+    };
     let app = create_test_app(pool.clone());
 
     let user_id = create_test_user(&pool).await;
@@ -611,14 +644,19 @@ async fn test_create_api_token_malformed_json() {
     assert_eq!(json["error"]["code"], "validation_failed");
     // request_id must be non-empty (proves handler-level conversion is working)
     let request_id = json["error"]["request_id"].as_str().unwrap();
-    assert!(!request_id.is_empty(), "request_id must not be empty for malformed JSON");
+    assert!(
+        !request_id.is_empty(),
+        "request_id must not be empty for malformed JSON"
+    );
 }
 
 // ─── Test: revoke with invalid token_id returns validation_failed + request_id ─
 
 #[tokio::test]
 async fn test_revoke_api_token_invalid_token_id() {
-    let Some(pool) = setup_pool().await else { return };
+    let Some(pool) = setup_pool().await else {
+        return;
+    };
     let app = create_test_app(pool.clone());
 
     let user_id = create_test_user(&pool).await;
@@ -645,5 +683,8 @@ async fn test_revoke_api_token_invalid_token_id() {
     // Must return validation_failed with request_id
     assert_eq!(json["error"]["code"], "validation_failed");
     let request_id = json["error"]["request_id"].as_str().unwrap();
-    assert!(!request_id.is_empty(), "request_id must not be empty for invalid token_id");
+    assert!(
+        !request_id.is_empty(),
+        "request_id must not be empty for invalid token_id"
+    );
 }

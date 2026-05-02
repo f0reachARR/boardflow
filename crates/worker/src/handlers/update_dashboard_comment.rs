@@ -1,13 +1,13 @@
 use boardflow_db::queries::{board_project, board_run};
 use boardflow_domain::models::github_job::GithubJob;
-use boardflow_github::{GitHubAppClient, GitHubClientError};
 use boardflow_github::types::IssueState;
+use boardflow_github::{GitHubAppClient, GitHubClientError};
 use sqlx::PgPool;
 
 use crate::comment_body;
 use crate::config::WorkerConfig;
 
-use super::{tree_hash_changed, HandlerResult};
+use super::{HandlerResult, tree_hash_changed};
 
 pub async fn handle(
     pool: &PgPool,
@@ -90,7 +90,11 @@ pub async fn handle(
                     }
                 }
                 // Recreate: clear issue info, enqueue create_issue, reschedule
-                if let (Some(num), Some(node_id), Some(url)) = (bp.issue_number, bp.issue_node_id.as_deref(), bp.issue_url.as_deref()) {
+                if let (Some(num), Some(node_id), Some(url)) = (
+                    bp.issue_number,
+                    bp.issue_node_id.as_deref(),
+                    bp.issue_url.as_deref(),
+                ) {
                     if let Err(e) = board_project::insert_issue_history(
                         pool,
                         uuid::Uuid::now_v7(),
@@ -100,7 +104,9 @@ pub async fn handle(
                         url,
                         "recreated",
                         None,
-                    ).await {
+                    )
+                    .await
+                    {
                         tracing::warn!(error = %e, "Failed to insert issue history");
                     }
                 }
@@ -124,7 +130,11 @@ pub async fn handle(
         }
         Err(GitHubClientError::NotFound(_)) => {
             tracing::warn!(job_id = %job.id, "Issue not found (404), clearing issue info");
-            if let (Some(num), Some(node_id), Some(url)) = (bp.issue_number, bp.issue_node_id.as_deref(), bp.issue_url.as_deref()) {
+            if let (Some(num), Some(node_id), Some(url)) = (
+                bp.issue_number,
+                bp.issue_node_id.as_deref(),
+                bp.issue_url.as_deref(),
+            ) {
                 if let Err(e) = board_project::insert_issue_history(
                     pool,
                     uuid::Uuid::now_v7(),
@@ -134,7 +144,9 @@ pub async fn handle(
                     url,
                     "deleted",
                     None,
-                ).await {
+                )
+                .await
+                {
                     tracing::warn!(error = %e, "Failed to insert issue history");
                 }
             }
@@ -208,7 +220,13 @@ pub async fn handle(
 
     // Update comment via GitHub API
     match github_client
-        .update_comment(installation_id, &bp.repo_owner, &bp.repo_name, comment_id, &body)
+        .update_comment(
+            installation_id,
+            &bp.repo_owner,
+            &bp.repo_name,
+            comment_id,
+            &body,
+        )
         .await
     {
         Ok(()) => {
@@ -241,6 +259,7 @@ pub async fn handle(
 }
 
 /// Create a dashboard comment as fallback (when dashboard_comment_id is None or comment was 404)
+#[allow(clippy::too_many_arguments)]
 async fn create_dashboard_comment_fallback(
     pool: &PgPool,
     github_client: &dyn GitHubAppClient,
@@ -257,9 +276,12 @@ async fn create_dashboard_comment_fallback(
         .await
     {
         Ok(created) => {
-            if let Err(e) =
-                board_project::update_dashboard_comment_id(pool, board_project_id, created.id as i64)
-                    .await
+            if let Err(e) = board_project::update_dashboard_comment_id(
+                pool,
+                board_project_id,
+                created.id as i64,
+            )
+            .await
             {
                 tracing::error!(error = %e, "Failed to update dashboard_comment_id");
                 return HandlerResult::Reschedule {

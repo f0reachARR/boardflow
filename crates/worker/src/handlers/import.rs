@@ -1,5 +1,5 @@
 use boardflow_artifact::{
-    download_bundle, extract_bundle, upload_artifact, verify_sha256, ArtifactError,
+    ArtifactError, download_bundle, extract_bundle, upload_artifact, verify_sha256,
 };
 use boardflow_db::queries::{
     artifact, artifact_bundle, board_project, board_run, diff, github_job, run_check,
@@ -70,8 +70,12 @@ async fn process_import_job(
 
     // Step 1: Download bundle from S3
     tracing::info!(key = %payload.staging_object_key, "Downloading bundle from S3");
-    let data =
-        download_bundle(s3_client, &config.staging_bucket, &payload.staging_object_key).await?;
+    let data = download_bundle(
+        s3_client,
+        &config.staging_bucket,
+        &payload.staging_object_key,
+    )
+    .await?;
 
     // Step 2: Verify SHA256
     verify_sha256(&data, &payload.bundle_sha256)?;
@@ -81,7 +85,10 @@ async fn process_import_job(
     let (manifest, extracted_artifacts) = extract_bundle(&data)?;
 
     // Step 4: Upload artifacts to final bucket (before transaction)
-    tracing::info!(count = extracted_artifacts.len(), "Uploading artifacts to final bucket");
+    tracing::info!(
+        count = extracted_artifacts.len(),
+        "Uploading artifacts to final bucket"
+    );
 
     // Prepare upload results for use inside transaction
     struct UploadedArtifact {
@@ -215,17 +222,19 @@ async fn process_import_job(
                     };
 
                     // Normalize subject_kind to pass DB CHECK constraint
-                    let subject_kind = finding.subject_kind.as_deref().and_then(|sk| {
-                        match sk {
-                            "schematic" | "pcb" | "net" | "footprint" | "symbol" => Some(sk),
-                            _ => None,
-                        }
+                    let subject_kind = finding.subject_kind.as_deref().and_then(|sk| match sk {
+                        "schematic" | "pcb" | "net" | "footprint" | "symbol" => Some(sk),
+                        _ => None,
                     });
 
-                    let x_um =
-                        finding.pos_mm.as_ref().map(|p| (p.x * 1000.0).round() as i32);
-                    let y_um =
-                        finding.pos_mm.as_ref().map(|p| (p.y * 1000.0).round() as i32);
+                    let x_um = finding
+                        .pos_mm
+                        .as_ref()
+                        .map(|p| (p.x * 1000.0).round() as i32);
+                    let y_um = finding
+                        .pos_mm
+                        .as_ref()
+                        .map(|p| (p.y * 1000.0).round() as i32);
 
                     if let Err(e) = run_check_finding::insert(
                         &mut *tx,
@@ -321,8 +330,8 @@ async fn process_import_job(
     }
 
     // Step 6: Create snapshot
-    let file_hashes_json =
-        serde_json::to_value(&manifest.files).map_err(|e| ArtifactError::Manifest(e.to_string()))?;
+    let file_hashes_json = serde_json::to_value(&manifest.files)
+        .map_err(|e| ArtifactError::Manifest(e.to_string()))?;
     snapshot::insert(
         &mut *tx,
         Uuid::now_v7(),
@@ -425,7 +434,11 @@ async fn process_import_job(
         .await
         .map_err(|e| ArtifactError::S3(e.to_string()))?;
 
-    if bp_for_jobs.as_ref().and_then(|bp| bp.issue_number).is_none() {
+    if bp_for_jobs
+        .as_ref()
+        .and_then(|bp| bp.issue_number)
+        .is_none()
+    {
         let _ = github_job::enqueue(
             &mut *tx,
             Uuid::now_v7(),
@@ -441,7 +454,11 @@ async fn process_import_job(
     }
 
     // 2. Dashboard comment: create or update based on board_project.dashboard_comment_id
-    let dashboard_job_type = if bp_for_jobs.as_ref().and_then(|bp| bp.dashboard_comment_id).is_some() {
+    let dashboard_job_type = if bp_for_jobs
+        .as_ref()
+        .and_then(|bp| bp.dashboard_comment_id)
+        .is_some()
+    {
         "update_dashboard_comment"
     } else {
         "create_dashboard_comment"

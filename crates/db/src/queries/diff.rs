@@ -53,12 +53,10 @@ pub async fn find_diff_by_board_run_id(
     executor: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
     board_run_id: Uuid,
 ) -> Result<Option<BoardRunDiff>, sqlx::Error> {
-    sqlx::query_as::<_, BoardRunDiff>(
-        "SELECT * FROM board_run_diffs WHERE board_run_id = $1",
-    )
-    .bind(board_run_id)
-    .fetch_optional(executor)
-    .await
+    sqlx::query_as::<_, BoardRunDiff>("SELECT * FROM board_run_diffs WHERE board_run_id = $1")
+        .bind(board_run_id)
+        .fetch_optional(executor)
+        .await
 }
 
 pub async fn find_diff_metadata_by_board_run_id(

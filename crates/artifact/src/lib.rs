@@ -229,22 +229,24 @@ pub fn extract_bundle(
         let sha256 = format!("sha256:{:x}", hasher.finalize());
 
         // Verify sha256 if specified in manifest
-        if let Some(ref expected_sha256) = entry.sha256 {
-            if &sha256 != expected_sha256 {
-                return Err(ArtifactError::Sha256Mismatch {
-                    expected: expected_sha256.clone(),
-                    actual: sha256,
-                });
-            }
+        if let Some(ref expected_sha256) = entry.sha256
+            && &sha256 != expected_sha256
+        {
+            return Err(ArtifactError::Sha256Mismatch {
+                expected: expected_sha256.clone(),
+                actual: sha256,
+            });
         }
         // Verify size if specified
-        if let Some(expected_size) = entry.size_bytes {
-            if buf.len() as i64 != expected_size {
-                return Err(ArtifactError::Manifest(format!(
-                    "artifact {} size mismatch: expected {}, got {}",
-                    entry.filename, expected_size, buf.len()
-                )));
-            }
+        if let Some(expected_size) = entry.size_bytes
+            && buf.len() as i64 != expected_size
+        {
+            return Err(ArtifactError::Manifest(format!(
+                "artifact {} size mismatch: expected {}, got {}",
+                entry.filename,
+                expected_size,
+                buf.len()
+            )));
         }
 
         extracted.push(ExtractedArtifact {
@@ -312,4 +314,3 @@ pub async fn upload_artifact(
         .map_err(|e| ArtifactError::S3(e.to_string()))?;
     Ok(())
 }
-

@@ -107,8 +107,7 @@ async fn test_find_expired_staging_returns_only_expired() {
     let expired_id =
         insert_bundle(&pool, bp_id, "staging/expired/bundle.zip", -2, "completed").await;
     // Insert non-expired bundle (delete_after = 2 hours from now)
-    let future_id =
-        insert_bundle(&pool, bp_id, "staging/future/bundle.zip", 2, "completed").await;
+    let future_id = insert_bundle(&pool, bp_id, "staging/future/bundle.zip", 2, "completed").await;
 
     let expired = boardflow_db::queries::artifact_bundle::find_expired_staging(&pool)
         .await
@@ -312,10 +311,9 @@ async fn test_repair_orphaned_staging_bundles() {
     assert!(!expired.iter().any(|b| b.id == bundle_id));
 
     // Run repair
-    let repaired =
-        boardflow_db::queries::artifact_bundle::repair_orphaned_staging_bundles(&pool)
-            .await
-            .unwrap();
+    let repaired = boardflow_db::queries::artifact_bundle::repair_orphaned_staging_bundles(&pool)
+        .await
+        .unwrap();
     assert!(repaired >= 1);
 
     // After repair: delete_after should be set (7 days from now, so not expired yet)

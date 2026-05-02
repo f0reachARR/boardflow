@@ -9,9 +9,8 @@ pub fn issue_body(
     base_url: &str,
     latest_completed_run_id: Option<Uuid>,
 ) -> String {
-    let board_page_url = format!(
-        "{base_url}/repositories/{github_repository_id}/boards/{board_project_id}"
-    );
+    let board_page_url =
+        format!("{base_url}/repositories/{github_repository_id}/boards/{board_project_id}");
     let diff_section = match latest_completed_run_id {
         Some(run_id) => format!(
             "\nLatest diff page:\n\n{base_url}/repositories/{github_repository_id}/boards/{board_project_id}/runs/{run_id}/diff"
@@ -55,12 +54,19 @@ pub fn dashboard_comment(
     let commit_sha_short = &board_run.commit_sha[..7.min(board_run.commit_sha.len())];
     let branch = &board_run.branch;
 
-    let erc_result = check_result_text(board_run.erc_status, board_run.erc_errors, board_run.erc_warnings);
-    let drc_result = check_result_text(board_run.drc_status, board_run.drc_errors, board_run.drc_warnings);
-
-    let board_page_url = format!(
-        "{base_url}/repositories/{github_repository_id}/boards/{board_project_id}"
+    let erc_result = check_result_text(
+        board_run.erc_status,
+        board_run.erc_errors,
+        board_run.erc_warnings,
     );
+    let drc_result = check_result_text(
+        board_run.drc_status,
+        board_run.drc_errors,
+        board_run.drc_warnings,
+    );
+
+    let board_page_url =
+        format!("{base_url}/repositories/{github_repository_id}/boards/{board_project_id}");
     let run_url = format!(
         "{base_url}/repositories/{github_repository_id}/boards/{board_project_id}/runs/{}",
         board_run.id
@@ -104,8 +110,16 @@ pub fn run_result_comment(
 ) -> String {
     let commit_sha_short = &board_run.commit_sha[..7.min(board_run.commit_sha.len())];
 
-    let erc_result = check_result_text(board_run.erc_status, board_run.erc_errors, board_run.erc_warnings);
-    let drc_result = check_result_text(board_run.drc_status, board_run.drc_errors, board_run.drc_warnings);
+    let erc_result = check_result_text(
+        board_run.erc_status,
+        board_run.erc_errors,
+        board_run.erc_warnings,
+    );
+    let drc_result = check_result_text(
+        board_run.drc_status,
+        board_run.drc_errors,
+        board_run.drc_warnings,
+    );
 
     let run_url = format!(
         "{base_url}/repositories/{github_repository_id}/boards/{board_project_id}/runs/{}",
@@ -139,6 +153,7 @@ Diff: {diff_url}
 /// - New DRC/ERC errors appeared
 /// - Previous run passed → current run failed
 /// - Previous run failed → current run passed
+///
 /// Returns false for the first completed run (no previous run to compare against).
 pub fn should_post_run_result(current: &BoardRun, previous: Option<&BoardRun>) -> bool {
     use boardflow_domain::models::board_run::CheckStatus;
@@ -149,18 +164,18 @@ pub fn should_post_run_result(current: &BoardRun, previous: Option<&BoardRun>) -
     };
 
     // Check ERC status transition
-    let erc_changed = match (prev.erc_status, current.erc_status) {
-        (Some(CheckStatus::Passed), Some(CheckStatus::Failed)) => true,
-        (Some(CheckStatus::Failed), Some(CheckStatus::Passed)) => true,
-        _ => false,
-    };
+    let erc_changed = matches!(
+        (prev.erc_status, current.erc_status),
+        (Some(CheckStatus::Passed), Some(CheckStatus::Failed))
+            | (Some(CheckStatus::Failed), Some(CheckStatus::Passed))
+    );
 
     // Check DRC status transition
-    let drc_changed = match (prev.drc_status, current.drc_status) {
-        (Some(CheckStatus::Passed), Some(CheckStatus::Failed)) => true,
-        (Some(CheckStatus::Failed), Some(CheckStatus::Passed)) => true,
-        _ => false,
-    };
+    let drc_changed = matches!(
+        (prev.drc_status, current.drc_status),
+        (Some(CheckStatus::Passed), Some(CheckStatus::Failed))
+            | (Some(CheckStatus::Failed), Some(CheckStatus::Passed))
+    );
 
     // Check if new errors appeared
     let new_erc_errors = current.erc_errors > prev.erc_errors;
@@ -189,7 +204,9 @@ fn check_result_text(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use boardflow_domain::models::board_run::{BoardRun, BoardRunStatus, CheckStatus, DiffStatus, ReviewStatus};
+    use boardflow_domain::models::board_run::{
+        BoardRun, BoardRunStatus, CheckStatus, DiffStatus, ReviewStatus,
+    };
     use chrono::Utc;
 
     fn make_run(
@@ -230,7 +247,13 @@ mod tests {
 
     #[test]
     fn test_issue_body_contains_markers() {
-        let body = issue_body(12345, "hardware/LightStick.kicad_pro", Uuid::nil(), "https://boardflow.example.com", None);
+        let body = issue_body(
+            12345,
+            "hardware/LightStick.kicad_pro",
+            Uuid::nil(),
+            "https://boardflow.example.com",
+            None,
+        );
         assert!(body.contains("<!-- boardflow:repository_id=12345 -->"));
         assert!(body.contains("<!-- boardflow:project_path=hardware/LightStick.kicad_pro -->"));
         assert!(body.contains("`hardware/LightStick.kicad_pro`"));
@@ -242,7 +265,13 @@ mod tests {
     #[test]
     fn test_issue_body_with_diff_link() {
         let run_id = Uuid::now_v7();
-        let body = issue_body(12345, "hardware/board.kicad_pro", Uuid::nil(), "https://bf.dev", Some(run_id));
+        let body = issue_body(
+            12345,
+            "hardware/board.kicad_pro",
+            Uuid::nil(),
+            "https://bf.dev",
+            Some(run_id),
+        );
         assert!(body.contains("Latest diff page:"));
         assert!(body.contains(&format!("/runs/{run_id}/diff")));
     }

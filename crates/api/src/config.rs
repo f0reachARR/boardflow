@@ -10,7 +10,9 @@ pub enum ConfigError {
 impl fmt::Display for ConfigError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            ConfigError::MissingEnvVar(var) => write!(f, "required environment variable {var} is not set"),
+            ConfigError::MissingEnvVar(var) => {
+                write!(f, "required environment variable {var} is not set")
+            }
             ConfigError::InvalidPort(val) => write!(f, "invalid API_PORT value: {val}"),
         }
     }
@@ -62,8 +64,10 @@ impl AppConfig {
             minio_endpoint: std::env::var("MINIO_ENDPOINT").ok(),
             minio_access_key: std::env::var("MINIO_ACCESS_KEY").ok(),
             minio_secret_key: std::env::var("MINIO_SECRET_KEY").ok(),
-            minio_bucket_staging: std::env::var("MINIO_BUCKET_STAGING").unwrap_or_else(|_| "boardflow-staging".to_string()),
-            minio_bucket_final: std::env::var("MINIO_BUCKET_FINAL").unwrap_or_else(|_| "boardflow-final".to_string()),
+            minio_bucket_staging: std::env::var("MINIO_BUCKET_STAGING")
+                .unwrap_or_else(|_| "boardflow-staging".to_string()),
+            minio_bucket_final: std::env::var("MINIO_BUCKET_FINAL")
+                .unwrap_or_else(|_| "boardflow-final".to_string()),
             api_host: std::env::var("API_HOST").unwrap_or_else(|_| "0.0.0.0".to_string()),
             api_port,
             rust_log: std::env::var("RUST_LOG").unwrap_or_else(|_| "info".to_string()),
@@ -71,8 +75,10 @@ impl AppConfig {
             github_client_secret: std::env::var("GITHUB_CLIENT_SECRET").ok(),
             session_secret: std::env::var("BOARDFLOW_SESSION_SECRET").ok(),
             artifact_secret: std::env::var("BOARDFLOW_ARTIFACT_SECRET").ok(),
-            app_domain: std::env::var("BOARDFLOW_APP_DOMAIN").unwrap_or_else(|_| "http://localhost:3000".to_string()),
-            artifact_base_url: std::env::var("BOARDFLOW_ARTIFACT_BASE_URL").unwrap_or_else(|_| "http://localhost:8080".to_string()),
+            app_domain: std::env::var("BOARDFLOW_APP_DOMAIN")
+                .unwrap_or_else(|_| "http://localhost:3000".to_string()),
+            artifact_base_url: std::env::var("BOARDFLOW_ARTIFACT_BASE_URL")
+                .unwrap_or_else(|_| "http://localhost:8080".to_string()),
         })
     }
 }

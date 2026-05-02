@@ -1,7 +1,7 @@
 use axum::extract::{Path, Query, State};
 use axum::{Extension, Json};
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
@@ -90,16 +90,23 @@ fn decode_repository_cursor(cursor: &str) -> Option<(DateTime<Utc>, i64)> {
 // ─── Query parameters ────────────────────────────────────────────────────────
 
 // Helper: convert AccessResult::Denied/Error to AppError
-pub fn access_result_to_error(result: &AccessResult, not_found_msg: &str, request_id: &str) -> Option<AppError> {
+pub fn access_result_to_error(
+    result: &AccessResult,
+    not_found_msg: &str,
+    request_id: &str,
+) -> Option<AppError> {
     match result {
         AccessResult::Allowed => None,
         AccessResult::Denied => Some(AppError::not_found(not_found_msg, request_id)),
-        AccessResult::Error(AccessError::TokenExpired) => {
-            Some(AppError::unauthorized("github session expired, please re-login", request_id))
-        }
-        AccessResult::Error(AccessError::RateLimited) => {
-            Some(AppError::new(crate::error::ErrorCode::RateLimited, "rate limited", request_id))
-        }
+        AccessResult::Error(AccessError::TokenExpired) => Some(AppError::unauthorized(
+            "github session expired, please re-login",
+            request_id,
+        )),
+        AccessResult::Error(AccessError::RateLimited) => Some(AppError::new(
+            crate::error::ErrorCode::RateLimited,
+            "rate limited",
+            request_id,
+        )),
         AccessResult::Error(AccessError::Upstream(detail)) => {
             tracing::error!("GitHub API error: {detail}");
             Some(AppError::internal_error("upstream error", request_id))
@@ -112,9 +119,11 @@ fn access_error_to_app_error(err: &AccessError, request_id: &str) -> AppError {
         AccessError::TokenExpired => {
             AppError::unauthorized("github session expired, please re-login", request_id)
         }
-        AccessError::RateLimited => {
-            AppError::new(crate::error::ErrorCode::RateLimited, "rate limited", request_id)
-        }
+        AccessError::RateLimited => AppError::new(
+            crate::error::ErrorCode::RateLimited,
+            "rate limited",
+            request_id,
+        ),
         AccessError::Upstream(detail) => {
             tracing::error!("GitHub API error: {detail}");
             AppError::internal_error("upstream error", request_id)
@@ -143,7 +152,10 @@ impl PaginationParams {
         }
     }
 
-    fn decoded_repository_cursor(&self, request_id: &str) -> Result<Option<(DateTime<Utc>, i64)>, AppError> {
+    fn decoded_repository_cursor(
+        &self,
+        request_id: &str,
+    ) -> Result<Option<(DateTime<Utc>, i64)>, AppError> {
         match &self.cursor {
             None => Ok(None),
             Some(c) => decode_repository_cursor(c)
@@ -579,20 +591,27 @@ pub async fn list_board_projects(
     let limit = params.effective_limit();
     let cursor = params.decoded_cursor(&request_id)?;
 
-    let rows =
-        boardflow_db::queries::board_project::list_by_repository_id_with_status(&pool, repo.id, limit + 1, cursor)
-            .await
-            .map_err(|e| {
-                tracing::error!("list_board_projects failed: {e}");
-                AppError::internal_error("database error", &request_id)
-            })?;
+    let rows = boardflow_db::queries::board_project::list_by_repository_id_with_status(
+        &pool,
+        repo.id,
+        limit + 1,
+        cursor,
+    )
+    .await
+    .map_err(|e| {
+        tracing::error!("list_board_projects failed: {e}");
+        AppError::internal_error("database error", &request_id)
+    })?;
 
     let has_more = rows.len() as i64 > limit;
     let items: Vec<_> = rows
         .iter()
         .take(limit as usize)
         .map(|bp| {
-            let state = derive_board_project_state(bp.latest_completed_run_id, bp.latest_run_status.as_deref());
+            let state = derive_board_project_state(
+                bp.latest_completed_run_id,
+                bp.latest_run_status.as_deref(),
+            );
             BoardProjectListItem {
                 board_project_id: format_board_project_id(bp.id),
                 project_path: bp.project_path.clone(),
@@ -642,8 +661,9 @@ pub async fn get_board_project(
     State(pool): State<PgPool>,
     Path(board_project_id): Path<String>,
 ) -> Result<Json<BoardProjectDetailResponse>, AppError> {
-    let id = parse_board_project_id(&board_project_id)
-        .ok_or_else(|| AppError::validation_failed("invalid board_project_id format", &request_id))?;
+    let id = parse_board_project_id(&board_project_id).ok_or_else(|| {
+        AppError::validation_failed("invalid board_project_id format", &request_id)
+    })?;
 
     let row = boardflow_db::queries::board_project::find_by_id_with_repository(&pool, id)
         .await
@@ -655,7 +675,11 @@ pub async fn get_board_project(
 
     if let Some(err) = access_result_to_error(
         &access_checker
-            .check_access(&session.user.github_access_token, &row.repo_owner, &row.repo_name)
+            .check_access(
+                &session.user.github_access_token,
+                &row.repo_owner,
+                &row.repo_name,
+            )
             .await,
         "board project not found",
         &request_id,
@@ -671,7 +695,8 @@ pub async fn get_board_project(
             AppError::internal_error("database error", &request_id)
         })?;
 
-    let state = derive_board_project_state(row.latest_completed_run_id, latest_run_status.as_deref());
+    let state =
+        derive_board_project_state(row.latest_completed_run_id, latest_run_status.as_deref());
 
     Ok(Json(BoardProjectDetailResponse {
         board_project_id: format_board_project_id(row.id),
@@ -717,17 +742,19 @@ pub async fn list_board_runs(
     Path(board_project_id): Path<String>,
     Query(params): Query<PaginationParams>,
 ) -> Result<Json<PaginatedResponse<BoardRunListItem>>, AppError> {
-    let bp_id = parse_board_project_id(&board_project_id)
-        .ok_or_else(|| AppError::validation_failed("invalid board_project_id format", &request_id))?;
+    let bp_id = parse_board_project_id(&board_project_id).ok_or_else(|| {
+        AppError::validation_failed("invalid board_project_id format", &request_id)
+    })?;
 
     // Verify board_project exists and check repository access
-    let repo = boardflow_db::queries::board_project::find_repository_by_board_project_id(&pool, bp_id)
-        .await
-        .map_err(|e| {
-            tracing::error!("list_board_runs repo lookup failed: {e}");
-            AppError::internal_error("database error", &request_id)
-        })?
-        .ok_or_else(|| AppError::not_found("board project not found", &request_id))?;
+    let repo =
+        boardflow_db::queries::board_project::find_repository_by_board_project_id(&pool, bp_id)
+            .await
+            .map_err(|e| {
+                tracing::error!("list_board_runs repo lookup failed: {e}");
+                AppError::internal_error("database error", &request_id)
+            })?
+            .ok_or_else(|| AppError::not_found("board project not found", &request_id))?;
 
     let result = access_checker
         .check_access(&session.user.github_access_token, &repo.owner, &repo.name)
@@ -859,10 +886,22 @@ pub async fn get_board_run(
         .collect();
 
     let artifact_summary = ArtifactSummary {
-        available: artifacts.iter().filter(|a| a.status == ArtifactStatus::Available).count() as i64,
-        missing: artifacts.iter().filter(|a| a.status == ArtifactStatus::Missing).count() as i64,
-        failed: artifacts.iter().filter(|a| a.status == ArtifactStatus::Failed).count() as i64,
-        skipped: artifacts.iter().filter(|a| a.status == ArtifactStatus::Skipped).count() as i64,
+        available: artifacts
+            .iter()
+            .filter(|a| a.status == ArtifactStatus::Available)
+            .count() as i64,
+        missing: artifacts
+            .iter()
+            .filter(|a| a.status == ArtifactStatus::Missing)
+            .count() as i64,
+        failed: artifacts
+            .iter()
+            .filter(|a| a.status == ArtifactStatus::Failed)
+            .count() as i64,
+        skipped: artifacts
+            .iter()
+            .filter(|a| a.status == ArtifactStatus::Skipped)
+            .count() as i64,
     };
 
     Ok(Json(BoardRunDetailResponse {
@@ -937,17 +976,33 @@ pub async fn list_artifacts(
         .map(|a| {
             let is_available = a.status == ArtifactStatus::Available;
             ArtifactListItem {
-                artifact_id: if is_available { Some(format_artifact_id(a.id)) } else { None },
+                artifact_id: if is_available {
+                    Some(format_artifact_id(a.id))
+                } else {
+                    None
+                },
                 r#type: a.r#type.clone(),
                 status: format!("{:?}", a.status).to_lowercase(),
-                filename: if is_available { a.filename.clone() } else { None },
-                content_type: if is_available { a.content_type.clone() } else { None },
+                filename: if is_available {
+                    a.filename.clone()
+                } else {
+                    None
+                },
+                content_type: if is_available {
+                    a.content_type.clone()
+                } else {
+                    None
+                },
                 sha256: if is_available { a.sha256.clone() } else { None },
                 size_bytes: if is_available { a.size_bytes } else { None },
                 source_path: a.source_path.clone(),
                 logical_name: a.logical_name.clone(),
                 status_reason: a.status_reason.clone(),
-                created_at: if is_available { Some(a.created_at.to_rfc3339()) } else { None },
+                created_at: if is_available {
+                    Some(a.created_at.to_rfc3339())
+                } else {
+                    None
+                },
             }
         })
         .collect();
@@ -1014,9 +1069,10 @@ pub async fn get_viewer_sources(
     let expires_at = Utc::now() + chrono::Duration::hours(1);
 
     // Helper: find artifact by type
-    let find_artifact = |artifact_type: &str| -> Option<&boardflow_domain::models::artifact::Artifact> {
-        artifacts.iter().find(|a| a.r#type == artifact_type)
-    };
+    let find_artifact =
+        |artifact_type: &str| -> Option<&boardflow_domain::models::artifact::Artifact> {
+            artifacts.iter().find(|a| a.r#type == artifact_type)
+        };
 
     let user_id = session.user.id;
     let secret = &artifact_secret.0;
@@ -1036,9 +1092,10 @@ pub async fn get_viewer_sources(
         let sch = find_artifact("kicad_sch");
         let pcb = find_artifact("kicad_pcb");
         let all = [pro, sch, pcb];
-        let available_count = all.iter().filter(|a| {
-            a.map_or(false, |art| art.status == ArtifactStatus::Available)
-        }).count();
+        let available_count = all
+            .iter()
+            .filter(|a| a.is_some_and(|art| art.status == ArtifactStatus::Available))
+            .count();
 
         let status = viewer_status(available_count, 3, &all);
 
@@ -1120,9 +1177,10 @@ pub async fn get_viewer_sources(
         let top = find_artifact("pcb_top_svg");
         let bottom = find_artifact("pcb_bottom_svg");
         let all = [top, bottom];
-        let available_count = all.iter().filter(|a| {
-            a.map_or(false, |art| art.status == ArtifactStatus::Available)
-        }).count();
+        let available_count = all
+            .iter()
+            .filter(|a| a.is_some_and(|art| art.status == ArtifactStatus::Available))
+            .count();
         let status = viewer_status(available_count, 2, &all);
 
         let sources = if available_count > 0 {
@@ -1171,7 +1229,7 @@ pub async fn get_viewer_sources(
         };
         let iframe_url = html
             .filter(|a| a.status == ArtifactStatus::Available)
-            .map(|a| proxy_url(a));
+            .map(proxy_url);
         ViewerStatus {
             status: status.to_string(),
             sources: None,
@@ -1214,9 +1272,10 @@ pub async fn get_viewer_sources(
         let gerber = find_artifact("gerber_zip");
         let drill = find_artifact("drill_zip");
         let all = [gerber, drill];
-        let available_count = all.iter().filter(|a| {
-            a.map_or(false, |art| art.status == ArtifactStatus::Available)
-        }).count();
+        let available_count = all
+            .iter()
+            .filter(|a| a.is_some_and(|art| art.status == ArtifactStatus::Available))
+            .count();
         let status = viewer_status(available_count, 2, &all);
 
         let mut downloads = Vec::new();
@@ -1315,16 +1374,16 @@ fn viewer_status(
         "partial".to_string()
     } else {
         // Check if all are skipped
-        let all_skipped = artifacts.iter().all(|a| {
-            a.map_or(false, |art| art.status == ArtifactStatus::Skipped)
-        });
+        let all_skipped = artifacts
+            .iter()
+            .all(|a| a.is_some_and(|art| art.status == ArtifactStatus::Skipped));
         if all_skipped && artifacts.iter().any(|a| a.is_some()) {
             return "skipped".to_string();
         }
         // Check if any are failed
-        let has_failed = artifacts.iter().any(|a| {
-            a.map_or(false, |art| art.status == ArtifactStatus::Failed)
-        });
+        let has_failed = artifacts
+            .iter()
+            .any(|a| a.is_some_and(|art| art.status == ArtifactStatus::Failed));
         if has_failed {
             "failed".to_string()
         } else {
@@ -1522,13 +1581,15 @@ pub async fn list_findings(
     };
 
     // 4. Validate severity if provided
-    if let Some(ref sev) = params.severity {
-        if sev != "error" && sev != "warning" && sev != "notice" {
-            return Err(AppError::validation_failed(
-                "severity must be 'error', 'warning', or 'notice'",
-                &request_id,
-            ));
-        }
+    if let Some(ref sev) = params.severity
+        && sev != "error"
+        && sev != "warning"
+        && sev != "notice"
+    {
+        return Err(AppError::validation_failed(
+            "severity must be 'error', 'warning', or 'notice'",
+            &request_id,
+        ));
     }
 
     // 5. Check repository access (same pattern as get_board_run)

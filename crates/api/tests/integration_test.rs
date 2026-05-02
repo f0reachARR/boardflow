@@ -37,10 +37,7 @@ async fn test_openapi_endpoint_returns_json() {
     let body = response.into_body().collect().await.unwrap().to_bytes();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["info"]["title"], "BoardFlow API");
-    assert_eq!(
-        json["openapi"], "3.1.0",
-        "OpenAPI version must be 3.1.0"
-    );
+    assert_eq!(json["openapi"], "3.1.0", "OpenAPI version must be 3.1.0");
 }
 
 /// healthzエンドポイントがDB接続成功時に200を返すことを確認

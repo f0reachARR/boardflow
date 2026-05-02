@@ -22,6 +22,7 @@ pub fn create_app(pool: PgPool, s3_client: Option<aws_sdk_s3::Client>) -> Router
     create_app_with_config(pool, s3_client, None, None, None, None, None, None)
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn create_app_with_config(
     pool: PgPool,
     s3_client: Option<aws_sdk_s3::Client>,
@@ -76,7 +77,8 @@ pub fn create_app_with_config(
     }));
 
     let domain = AppDomain(app_domain.unwrap_or_else(|| {
-        std::env::var("BOARDFLOW_APP_DOMAIN").unwrap_or_else(|_| "http://localhost:3000".to_string())
+        std::env::var("BOARDFLOW_APP_DOMAIN")
+            .unwrap_or_else(|_| "http://localhost:3000".to_string())
     }));
 
     let base_url = ArtifactBaseUrl(artifact_base_url.unwrap_or_else(|| {

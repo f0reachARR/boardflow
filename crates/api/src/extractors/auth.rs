@@ -30,9 +30,7 @@ where
             .headers
             .get(AUTHORIZATION)
             .and_then(|v| v.to_str().ok())
-            .ok_or_else(|| {
-                AppError::unauthorized("missing authorization header", &request_id)
-            })?;
+            .ok_or_else(|| AppError::unauthorized("missing authorization header", &request_id))?;
 
         let token = auth_header.strip_prefix("Bearer ").ok_or_else(|| {
             AppError::unauthorized("invalid authorization header format", &request_id)
@@ -48,9 +46,7 @@ where
 
         let api_token = boardflow_db::queries::api_token::find_by_hash(&pool, &hash)
             .await
-            .map_err(|_| {
-                AppError::internal_error("authentication service error", &request_id)
-            })?
+            .map_err(|_| AppError::internal_error("authentication service error", &request_id))?
             .ok_or_else(|| AppError::unauthorized("invalid token", &request_id))?;
 
         if api_token.revoked_at.is_some() {

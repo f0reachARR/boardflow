@@ -10,8 +10,9 @@ pub async fn request_id_middleware(mut request: Request, next: Next) -> Response
     request.extensions_mut().insert(request_id);
 
     let mut response = next.run(request).await;
-    response
-        .headers_mut()
-        .insert("x-request-id", id.parse().expect("request id is valid header value"));
+    response.headers_mut().insert(
+        "x-request-id",
+        id.parse().expect("request id is valid header value"),
+    );
     response
 }

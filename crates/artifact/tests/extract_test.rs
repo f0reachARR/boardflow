@@ -1,11 +1,11 @@
 use boardflow_artifact::{
-    extract_bundle, verify_sha256, ArtifactError, BundleManifest, CoordinateMm, ManifestArtifact,
-    ManifestCheck, ManifestFile, ManifestFinding, MAX_BUNDLE_SIZE,
+    ArtifactError, BundleManifest, CoordinateMm, MAX_BUNDLE_SIZE, ManifestArtifact, ManifestCheck,
+    ManifestFile, ManifestFinding, extract_bundle, verify_sha256,
 };
 use sha2::{Digest, Sha256};
 use std::io::Write;
-use zip::write::SimpleFileOptions;
 use zip::ZipWriter;
+use zip::write::SimpleFileOptions;
 
 /// Helper to create a minimal valid manifest
 fn make_manifest(artifacts: Vec<ManifestArtifact>) -> BundleManifest {
@@ -423,10 +423,7 @@ fn test_coordinate_mm_to_um_conversion() {
     assert_eq!((zero.y * 1000.0).round() as i32, 0);
 
     // Small values
-    let small = CoordinateMm {
-        x: 0.001,
-        y: 0.999,
-    };
+    let small = CoordinateMm { x: 0.001, y: 0.999 };
     assert_eq!((small.x * 1000.0).round() as i32, 1);
     assert_eq!((small.y * 1000.0).round() as i32, 999);
 }
@@ -492,7 +489,9 @@ fn test_extract_bundle_sha256_verification_fail() {
         source_path: Some("artifacts/output.gbr".to_string()),
         logical_name: None,
         status_reason: None,
-        sha256: Some("sha256:0000000000000000000000000000000000000000000000000000000000000000".to_string()),
+        sha256: Some(
+            "sha256:0000000000000000000000000000000000000000000000000000000000000000".to_string(),
+        ),
         size_bytes: None,
     }]);
 
@@ -583,7 +582,10 @@ fn test_extract_bundle_rejects_unlisted_entry() {
                 msg.contains("not declared in manifest"),
                 "unexpected message: {msg}"
             );
-            assert!(msg.contains("extra.txt"), "should mention the file name: {msg}");
+            assert!(
+                msg.contains("extra.txt"),
+                "should mention the file name: {msg}"
+            );
         }
         other => panic!("unexpected error: {other:?}"),
     }
@@ -661,10 +663,7 @@ fn test_coordinate_mm_to_um_rounding() {
     assert_eq!(x_um3, 1);
 
     // Negative: -0.0006mm should round to -1µm
-    let coord4 = CoordinateMm {
-        x: -0.0006,
-        y: 0.0,
-    };
+    let coord4 = CoordinateMm { x: -0.0006, y: 0.0 };
     let x_um4 = (coord4.x * 1000.0).round() as i32;
     assert_eq!(x_um4, -1);
 

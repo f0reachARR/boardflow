@@ -5,8 +5,8 @@ use sqlx::PgPool;
 
 use crate::config::WorkerConfig;
 use crate::handlers::{
-    self, create_dashboard_comment, create_issue, create_run_result_comment,
-    update_dashboard_comment, HandlerResult,
+    self, HandlerResult, create_dashboard_comment, create_issue, create_run_result_comment,
+    update_dashboard_comment,
 };
 
 /// Job types in priority order.
@@ -76,14 +76,20 @@ pub async fn poll_and_dispatch(
                             }
                         }
                     }
-                    HandlerResult::Reschedule { reason, backoff_secs: backoff } => {
+                    HandlerResult::Reschedule {
+                        reason,
+                        backoff_secs: backoff,
+                    } => {
                         tracing::warn!(job_id = %job.id, reason = %reason, "Rescheduling job");
                         if job.attempts >= MAX_ATTEMPTS {
                             let _ = github_job::mark_failed(pool, job.id, &reason).await;
                             // Mark issue_sync_status as failed for create_issue terminal failures
                             if job_type == "create_issue" {
                                 if let Some(bp_id) = job.board_project_id {
-                                    let _ = board_project::update_issue_sync_status(pool, bp_id, "failed").await;
+                                    let _ = board_project::update_issue_sync_status(
+                                        pool, bp_id, "failed",
+                                    )
+                                    .await;
                                 }
                             }
                         } else {
@@ -96,7 +102,9 @@ pub async fn poll_and_dispatch(
                         // Mark issue_sync_status as failed for create_issue terminal failures
                         if job_type == "create_issue" {
                             if let Some(bp_id) = job.board_project_id {
-                                let _ = board_project::update_issue_sync_status(pool, bp_id, "failed").await;
+                                let _ =
+                                    board_project::update_issue_sync_status(pool, bp_id, "failed")
+                                        .await;
                             }
                         }
                     }
@@ -136,7 +144,10 @@ pub async fn sweep_timed_out_runs(pool: &PgPool) {
             // Set delete_after on staging bundles for timed-out runs
             match artifact_bundle::set_delete_after_for_timed_out_runs(pool, &ids).await {
                 Ok(n) if n > 0 => {
-                    tracing::info!(count = n, "Set delete_after on staging bundles for timed-out runs");
+                    tracing::info!(
+                        count = n,
+                        "Set delete_after on staging bundles for timed-out runs"
+                    );
                 }
                 Ok(_) => {}
                 Err(e) => {
@@ -162,7 +173,10 @@ pub async fn sweep_expired_staging_bundles(
     // Self-healing: repair orphaned bundles from terminal runs
     match artifact_bundle::repair_orphaned_staging_bundles(pool).await {
         Ok(n) if n > 0 => {
-            tracing::info!(count = n, "Repaired orphaned staging bundles (set delete_after)");
+            tracing::info!(
+                count = n,
+                "Repaired orphaned staging bundles (set delete_after)"
+            );
         }
         Ok(_) => {}
         Err(e) => {
@@ -206,5 +220,9 @@ pub async fn sweep_expired_staging_bundles(
         }
     }
 
-    tracing::info!(deleted = deleted, total = bundles.len(), "Swept expired staging bundles");
+    tracing::info!(
+        deleted = deleted,
+        total = bundles.len(),
+        "Swept expired staging bundles"
+    );
 }

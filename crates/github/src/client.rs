@@ -71,12 +71,11 @@ impl OctocrabGitHubAppClient {
         .map_err(|e| GitHubClientError::Auth(format!("invalid RSA private key: {e}")))?;
 
         let octocrab = octocrab::Octocrab::builder()
-            .app(
-                octocrab::models::AppId(config.app_id),
-                key,
-            )
+            .app(octocrab::models::AppId(config.app_id), key)
             .build()
-            .map_err(|e| GitHubClientError::Auth(format!("failed to build octocrab client: {e}")))?;
+            .map_err(|e| {
+                GitHubClientError::Auth(format!("failed to build octocrab client: {e}"))
+            })?;
 
         Ok(Self { octocrab })
     }

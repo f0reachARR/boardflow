@@ -1,13 +1,13 @@
 use boardflow_db::queries::{board_project, board_run};
 use boardflow_domain::models::github_job::GithubJob;
-use boardflow_github::{GitHubAppClient, GitHubClientError};
 use boardflow_github::types::IssueState;
+use boardflow_github::{GitHubAppClient, GitHubClientError};
 use sqlx::PgPool;
 
 use crate::comment_body;
 use crate::config::WorkerConfig;
 
-use super::{tree_hash_changed, HandlerResult};
+use super::{HandlerResult, tree_hash_changed};
 
 pub async fn handle(
     pool: &PgPool,
@@ -97,7 +97,11 @@ pub async fn handle(
                     }
                 }
                 // Need to recreate: save old issue to history, clear info, reschedule
-                if let (Some(num), Some(node_id), Some(url)) = (bp.issue_number, bp.issue_node_id.as_deref(), bp.issue_url.as_deref()) {
+                if let (Some(num), Some(node_id), Some(url)) = (
+                    bp.issue_number,
+                    bp.issue_node_id.as_deref(),
+                    bp.issue_url.as_deref(),
+                ) {
                     if let Err(e) = board_project::insert_issue_history(
                         pool,
                         uuid::Uuid::now_v7(),
@@ -107,7 +111,9 @@ pub async fn handle(
                         url,
                         "recreated",
                         None,
-                    ).await {
+                    )
+                    .await
+                    {
                         tracing::warn!(error = %e, "Failed to insert issue history");
                     }
                 }
@@ -132,7 +138,11 @@ pub async fn handle(
         Err(GitHubClientError::NotFound(_)) => {
             // Issue not found (404) — save history, clear issue info so create_issue re-runs
             tracing::warn!(job_id = %job.id, "Issue not found (404), clearing issue info");
-            if let (Some(num), Some(node_id), Some(url)) = (bp.issue_number, bp.issue_node_id.as_deref(), bp.issue_url.as_deref()) {
+            if let (Some(num), Some(node_id), Some(url)) = (
+                bp.issue_number,
+                bp.issue_node_id.as_deref(),
+                bp.issue_url.as_deref(),
+            ) {
                 if let Err(e) = board_project::insert_issue_history(
                     pool,
                     uuid::Uuid::now_v7(),
@@ -142,7 +152,9 @@ pub async fn handle(
                     url,
                     "deleted",
                     None,
-                ).await {
+                )
+                .await
+                {
                     tracing::warn!(error = %e, "Failed to insert issue history");
                 }
             }
@@ -196,7 +208,13 @@ pub async fn handle(
 
     // Create comment via GitHub API
     let created = match github_client
-        .create_comment(installation_id, &bp.repo_owner, &bp.repo_name, issue_number, &body)
+        .create_comment(
+            installation_id,
+            &bp.repo_owner,
+            &bp.repo_name,
+            issue_number,
+            &body,
+        )
         .await
     {
         Ok(c) => c,

@@ -29,12 +29,10 @@ pub async fn find_by_github_id(
     executor: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
     github_repository_id: i64,
 ) -> Result<Option<Repository>, sqlx::Error> {
-    sqlx::query_as::<_, Repository>(
-        "SELECT * FROM repositories WHERE github_repository_id = $1",
-    )
-    .bind(github_repository_id)
-    .fetch_optional(executor)
-    .await
+    sqlx::query_as::<_, Repository>("SELECT * FROM repositories WHERE github_repository_id = $1")
+        .bind(github_repository_id)
+        .fetch_optional(executor)
+        .await
 }
 
 pub async fn list_with_stats(

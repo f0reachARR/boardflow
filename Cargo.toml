@@ -12,7 +12,14 @@ members = [
 
 [workspace.dependencies]
 axum = "0.8"
-sqlx = { version = "0.8", features = ["runtime-tokio", "tls-rustls", "postgres", "uuid", "chrono", "migrate"] }
+sqlx = { version = "0.8", features = [
+    "runtime-tokio",
+    "tls-rustls",
+    "postgres",
+    "uuid",
+    "chrono",
+    "migrate",
+] }
 utoipa = { version = "5", features = ["axum_extras"] }
 utoipa-axum = "0.2"
 tokio = { version = "1", features = ["full"] }
@@ -40,4 +47,10 @@ async-trait = "0.1"
 futures = "0.3"
 octocrab = "0.49"
 secrecy = "0.10"
-jsonwebtoken = { version = "10", default-features = false, features = ["use_pem"] }
+jsonwebtoken = { version = "10", default-features = false, features = [
+    "use_pem",
+] }
+
+[workspace.lints.clippy]
+collapsible_if = "allow"
+needless_borrows_for_generic_args = "allow"

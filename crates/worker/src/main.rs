@@ -1,5 +1,5 @@
-use boardflow_github::{GitHubAppClient, OctocrabGitHubAppClient};
 use boardflow_github::GitHubAppConfig;
+use boardflow_github::{GitHubAppClient, OctocrabGitHubAppClient};
 use secrecy::SecretString;
 
 use boardflow_worker::config::WorkerConfig;
@@ -20,22 +20,17 @@ async fn main() {
         .expect("failed to connect to database");
 
     let s3_config = {
-        let mut builder = aws_sdk_s3::config::Builder::new()
-            .region(aws_sdk_s3::config::Region::new("us-east-1"));
+        let mut builder =
+            aws_sdk_s3::config::Builder::new().region(aws_sdk_s3::config::Region::new("us-east-1"));
 
         if let Some(ref endpoint) = config.s3_endpoint {
             builder = builder.endpoint_url(endpoint).force_path_style(true);
         }
 
-        if let (Some(access_key), Some(secret_key)) =
-            (&config.s3_access_key, &config.s3_secret_key)
+        if let (Some(access_key), Some(secret_key)) = (&config.s3_access_key, &config.s3_secret_key)
         {
             builder = builder.credentials_provider(aws_sdk_s3::config::Credentials::new(
-                access_key,
-                secret_key,
-                None,
-                None,
-                "env",
+                access_key, secret_key, None, None, "env",
             ));
         }
 
@@ -63,14 +58,18 @@ async fn main() {
                 }
             }
             _ => {
-                tracing::warn!("GitHub App credentials not configured, GitHub API jobs will be deferred");
+                tracing::warn!(
+                    "GitHub App credentials not configured, GitHub API jobs will be deferred"
+                );
                 None
             }
         };
 
     tracing::info!("BoardFlow worker started, polling for jobs");
 
-    let mut sweep_interval = tokio::time::interval(std::time::Duration::from_secs(config.timeout_sweep_interval_secs));
+    let mut sweep_interval = tokio::time::interval(std::time::Duration::from_secs(
+        config.timeout_sweep_interval_secs,
+    ));
     sweep_interval.tick().await; // 初回tickを消化
 
     let shutdown = tokio::signal::ctrl_c();
