@@ -5,3 +5,4 @@ pub mod health;
 pub mod plan;
 pub mod proxy;
 pub mod read;
+pub mod webhook;

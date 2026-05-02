@@ -32,12 +32,32 @@ async fn setup_pool() -> Option<PgPool> {
 
 fn create_test_app(pool: PgPool) -> axum::Router {
     let checker: DynGithubAccessChecker = Arc::new(AllowAllGithubAccessChecker);
-    create_app_with_config(pool, None, None, None, Some(checker), None, None, None)
+    create_app_with_config(
+        pool,
+        None,
+        None,
+        None,
+        Some(checker),
+        None,
+        None,
+        None,
+        None,
+    )
 }
 
 fn create_deny_app(pool: PgPool) -> axum::Router {
     let checker: DynGithubAccessChecker = Arc::new(DenyAllGithubAccessChecker);
-    create_app_with_config(pool, None, None, None, Some(checker), None, None, None)
+    create_app_with_config(
+        pool,
+        None,
+        None,
+        None,
+        Some(checker),
+        None,
+        None,
+        None,
+        None,
+    )
 }
 
 fn rand_i64() -> i64 {
@@ -1272,6 +1292,7 @@ async fn test_get_viewer_sources_returns_absolute_url_with_custom_base() {
         None,
         None,
         Some("https://artifacts.boardflow.example.com".to_string()),
+        None,
     );
 
     let response = app
@@ -1695,12 +1716,32 @@ async fn test_list_repositories_allow_all_pagination_cursor() {
 
 fn create_rate_limited_app(pool: PgPool) -> axum::Router {
     let checker: DynGithubAccessChecker = Arc::new(RateLimitedGithubAccessChecker);
-    create_app_with_config(pool, None, None, None, Some(checker), None, None, None)
+    create_app_with_config(
+        pool,
+        None,
+        None,
+        None,
+        Some(checker),
+        None,
+        None,
+        None,
+        None,
+    )
 }
 
 fn create_upstream_error_app(pool: PgPool) -> axum::Router {
     let checker: DynGithubAccessChecker = Arc::new(UpstreamErrorGithubAccessChecker);
-    create_app_with_config(pool, None, None, None, Some(checker), None, None, None)
+    create_app_with_config(
+        pool,
+        None,
+        None,
+        None,
+        Some(checker),
+        None,
+        None,
+        None,
+        None,
+    )
 }
 
 #[tokio::test]
