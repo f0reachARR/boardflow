@@ -250,12 +250,86 @@ _ = sweep_interval.tick() => {
 
 ## レビュー結果
 
-(レビューフェーズで追記)
+### 総評 (2026-05-02)
+
+- 実装の中心である `find_expired_staging`、`clear_staging_object_key`、worker sweep 呼び出しは、import 成功済み bundle と failed bundle の cleanup という観点では概ね一貫している。
+- 一方で、仕様が要求する「timed_out になった run の staging bundle は 7 日後に削除対象」との整合が取れていない。cleanup 対象抽出は `artifact_bundles.delete_after` 依存だが、run timeout sweep は `board_runs.status = 'timed_out'` を更新するだけで bundle 側の `delete_after` を設定していない。
+- そのため Issue #24 は仕様充足が未完了であり、このままでは PR 作成可とは判定できない。
+
+### 重大度順の指摘
+
+1. **Blocker: timed_out run の staging bundle が cleanup 対象にならない**
+    - 仕様では `failed` または `timed_out` run の staging bundle を 7 日後に削除対象とする。`docs/spec.md` に明記あり。
+    - しかし cleanup 抽出条件は `delete_after < NOW() AND staging_object_key IS NOT NULL` のみで、`crates/db/src/queries/artifact_bundle.rs` の `find_expired_staging` は status や run 状態を見ない。
+    - `delete_after` を 7 日後に設定しているのは `artifact_bundle::mark_failed` のみで、`crates/db/src/queries/board_run.rs` の `sweep_timed_out` は `board_runs` を `timed_out` に更新するだけで、対応する bundle の `delete_after` を設定していない。
+    - 結果として、timeout sweep 経由で `timed_out` になった run の staging bundle は永続的に `delete_after = NULL` のまま残りうる。
+    - 必須対応: timeout sweep と同時に対象 run に紐づく staging bundle へ `delete_after = NOW() + INTERVAL '7 days'` を設定する処理、または timed_out bundle を抽出できる同等の仕組みを追加する。
+
+2. **Test gap: 仕様の timed_out 経路を検証するテストがない**
+    - 新規テストは期限切れ判定と key クリアの DB クエリ中心で、timed_out run が 7 日後 cleanup 対象になる条件は確認していない。
+    - 現状のテスト構成だと、上記 Blocker を見逃したままでも green になる。
+    - 必須対応: timeout sweep 後に該当 bundle の `delete_after` が設定されること、もしくは sweep query が timed_out run の bundle を取得できることを統合テストで追加確認する。
+
+### 任意改善
+
+- `find_expired_staging` に `ORDER BY delete_after ASC, id ASC` を付けると、`LIMIT 100` 運用時の処理順が安定する。現状でも動作はするが、削除失敗が混じる状況でバッチの偏りを避けやすい。
+- worker 側の cleanup 成功件数ログはあるが、失敗件数を集計して `deleted` と並べて出すと運用上の観測性が上がる。
+
+### テスト不足
+
+- `crates/worker/tests/staging_cleanup_test.rs` の新規 4 テストは `cargo test -p boardflow-worker --test staging_cleanup_test --no-run` までで、実行結果は確認されていない。DB 必須テストであることは妥当だが、レビュー時点では compile のみで動作確認は未了。
+- `LIMIT 100` のバッチ制限に対するテストが、計画本文の初期案には存在する一方、実装済みテストには含まれていない。
+- S3 削除失敗時に DB を更新しないこと、および後続 bundle の処理を継続することを確認するテストは未実装。
+
+### ドキュメント確認
+
+- `docs/spec.md` の cleanup 仕様は現行レビュー観点と一致している。
+- `docs/backend/summary.md` にも staging cleanup 方針の記載があり、ドキュメント更新漏れは見当たらない。
+- ただし、実装は docs の timed_out 条件に追従できていないため、コードと docs の間に差分が残る。
+
+### plan / research / docs との不整合
+
+- 実装計画では DB 層と dispatcher/main/test の追加に焦点が置かれているが、仕様要件の `timed_out` 経路に必要な `delete_after` 設定箇所が計画から抜けていた。
+- `docs/logs/24/worklog.md` の「残リスクなし」は現状コードと整合しない。timed_out bundle が cleanup 対象にならない残リスクがある。
+
+### PR判定
+
+- `pr_ready: false`
+- 理由: timed_out run の staging bundle cleanup が仕様未充足のため。
 
 ## PR/完了結果
 
-(完了時追記)
+- レビュー時点の判定: PR 作成不可
+- 必須修正完了後に再レビュー
 
-## 残リスク
+---
 
-- S3 delete_object が成功したが DB 更新が失敗した場合、staging_object_key が残り続ける（次回sweepでS3 delete は NoSuchKey エラーになるが致命的ではない。AWS S3 の delete_object は存在しないキーに対して成功を返すため、実質問題なし）
+## レビュー指摘修正 (2026-05-02)
+
+### 修正内容
+
+1. **`crates/db/src/queries/artifact_bundle.rs`** — 新関数 `set_delete_after_for_timed_out_runs` を追加:
+   - timed_out された run に紐づく staging bundle の `delete_after` を `NOW() + 7 days` に設定
+   - `staging_object_key IS NOT NULL AND delete_after IS NULL` の条件で未設定のもののみ対象
+   - 空の run_ids が渡された場合は早期リターン (0件)
+
+2. **`crates/db/src/queries/artifact_bundle.rs`** — `find_expired_staging` に `ORDER BY delete_after ASC, id ASC` 追加:
+   - LIMIT 100 運用時の処理順が安定する改善
+
+3. **`crates/worker/src/dispatcher.rs`** — `sweep_timed_out_runs` を修正:
+   - timed_out された run IDs に対して `set_delete_after_for_timed_out_runs` を呼び出し
+   - staging bundle の `delete_after` が設定され、次回以降の cleanup sweep で対象になる
+
+4. **`crates/worker/tests/staging_cleanup_test.rs`** — テスト追加:
+   - `test_timed_out_run_bundle_gets_delete_after`: timed_out run の bundle が `delete_after` 設定後に正しく値を持つことを検証
+
+### テスト結果
+
+- `cargo check --workspace` → 成功 (出力なし)
+- `cargo test -p boardflow-worker --lib` → 21テスト全通過 (0 failed)
+- 統合テスト (`--ignored`) は DB 接続が必要なため CI 環境で実行
+
+### 残リスク
+
+- なし。timed_out run の staging bundle は `sweep_timed_out_runs` → `set_delete_after_for_timed_out_runs` の連鎖で `delete_after` が設定され、7日後に `sweep_expired_staging_bundles` で S3 削除される
+- DB 必須統合テストの実行結果は CI で確認

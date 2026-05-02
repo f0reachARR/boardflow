@@ -199,3 +199,68 @@ async fn test_null_staging_key_not_returned() {
     let expired_ids: Vec<Uuid> = expired.iter().map(|b| b.id).collect();
     assert!(!expired_ids.contains(&bundle_id));
 }
+
+/// Bundle belonging to a timed-out run gets delete_after set via set_delete_after_for_timed_out_runs.
+#[tokio::test]
+#[ignore]
+async fn test_timed_out_run_bundle_gets_delete_after() {
+    let pool = match get_pool().await {
+        Some(p) => p,
+        None => return,
+    };
+    let (_repo_id, bp_id) = setup_test_data(&pool).await;
+
+    // Insert a board_run that will be "timed out"
+    let run_id = Uuid::now_v7();
+    sqlx::query(
+        r#"INSERT INTO board_runs
+        (id, board_project_id, commit_sha, branch, ref, github_run_id, github_run_attempt,
+         tree_hash, status, erc_errors, erc_warnings, drc_errors, drc_warnings,
+         review_status, diff_status, created_at)
+        VALUES ($1, $2, 'abc123', 'main', 'refs/heads/main', $3, 1,
+                'treehash', 'timed_out', 0, 0, 0, 0, 'pending', 'pending', NOW())"#,
+    )
+    .bind(run_id)
+    .bind(bp_id)
+    .bind(rand::random::<i32>().unsigned_abs() as i64)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    // Insert bundle with NO delete_after (simulates pre-timeout state)
+    let bundle_id = Uuid::now_v7();
+    sqlx::query(
+        r#"INSERT INTO artifact_bundles
+        (id, board_run_id, intake_mode, staging_object_key, status, received_at)
+        VALUES ($1, $2, 'staging_s3', 'staging/timed_out/bundle.zip', 'pending', NOW())"#,
+    )
+    .bind(bundle_id)
+    .bind(run_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    // Before: bundle should NOT appear in expired list (no delete_after)
+    let expired = boardflow_db::queries::artifact_bundle::find_expired_staging(&pool)
+        .await
+        .unwrap();
+    assert!(!expired.iter().any(|b| b.id == bundle_id));
+
+    // Call set_delete_after_for_timed_out_runs
+    let affected = boardflow_db::queries::artifact_bundle::set_delete_after_for_timed_out_runs(
+        &pool,
+        &[run_id],
+    )
+    .await
+    .unwrap();
+    assert_eq!(affected, 1);
+
+    // Verify delete_after is set (it's 7 days in the future, so it won't appear in expired yet)
+    let bundle: boardflow_domain::models::artifact_bundle::ArtifactBundle =
+        sqlx::query_as("SELECT * FROM artifact_bundles WHERE id = $1")
+            .bind(bundle_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert!(bundle.delete_after.is_some());
+}

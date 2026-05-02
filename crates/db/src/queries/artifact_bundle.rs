@@ -129,12 +129,12 @@ pub async fn mark_failed(
 }
 
 /// Find expired staging bundles (delete_after < NOW() and staging_object_key IS NOT NULL).
-/// Returns up to 100 bundles per sweep cycle.
+/// Returns up to 100 bundles per sweep cycle, ordered by oldest first for deterministic processing.
 pub async fn find_expired_staging(
     executor: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
 ) -> Result<Vec<ArtifactBundle>, sqlx::Error> {
     sqlx::query_as::<_, ArtifactBundle>(
-        "SELECT * FROM artifact_bundles WHERE delete_after < NOW() AND staging_object_key IS NOT NULL LIMIT 100",
+        "SELECT * FROM artifact_bundles WHERE delete_after < NOW() AND staging_object_key IS NOT NULL ORDER BY delete_after ASC, id ASC LIMIT 100",
     )
     .fetch_all(executor)
     .await
@@ -150,4 +150,26 @@ pub async fn clear_staging_object_key(
         .execute(executor)
         .await?;
     Ok(())
+}
+
+/// Set delete_after for staging bundles belonging to timed-out runs.
+/// Called after sweep_timed_out marks runs as timed_out.
+pub async fn set_delete_after_for_timed_out_runs(
+    executor: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
+    run_ids: &[Uuid],
+) -> Result<u64, sqlx::Error> {
+    if run_ids.is_empty() {
+        return Ok(0);
+    }
+    let result = sqlx::query(
+        r#"UPDATE artifact_bundles
+        SET delete_after = NOW() + INTERVAL '7 days'
+        WHERE board_run_id = ANY($1)
+        AND staging_object_key IS NOT NULL
+        AND delete_after IS NULL"#,
+    )
+    .bind(run_ids)
+    .execute(executor)
+    .await?;
+    Ok(result.rows_affected())
 }

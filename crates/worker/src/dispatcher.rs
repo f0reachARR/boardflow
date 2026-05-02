@@ -133,6 +133,16 @@ pub async fn sweep_timed_out_runs(pool: &PgPool) {
     match board_run::sweep_timed_out(pool).await {
         Ok(ids) if !ids.is_empty() => {
             tracing::info!(count = ids.len(), "Swept timed-out BoardRuns");
+            // Set delete_after on staging bundles for timed-out runs
+            match artifact_bundle::set_delete_after_for_timed_out_runs(pool, &ids).await {
+                Ok(n) if n > 0 => {
+                    tracing::info!(count = n, "Set delete_after on staging bundles for timed-out runs");
+                }
+                Ok(_) => {}
+                Err(e) => {
+                    tracing::error!(error = %e, "Failed to set delete_after on staging bundles");
+                }
+            }
         }
         Ok(_) => {
             tracing::debug!("No BoardRuns to time out");
