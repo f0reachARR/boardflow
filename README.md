@@ -4,7 +4,7 @@
 
 ```text
 - crates/: Rust バックエンド workspace
-- frontend/: フロントエンド
+- boardflow/: Next.js フロントエンド
 ```
 
 ## KiCadバージョン
@@ -31,3 +31,24 @@
 | `GITHUB_APP_ID` | No | GitHub App ID。未設定時はGitHub APIジョブをスキップ |
 | `GITHUB_PRIVATE_KEY_PEM` | No | GitHub App RSA秘密鍵(PEM)。未設定時はGitHub APIジョブをスキップ |
 | `APP_BASE_URL` | No | SaaSベースURL (default: `https://boardflow.example.com`) |
+
+## Frontend ローカル開発
+
+```bash
+cd boardflow
+cp .env.local.example .env.local   # API_BASE_URL を確認
+pnpm install
+pnpm dev                            # http://localhost:3000
+```
+
+バックエンドが `http://localhost:3001` で起動している前提で、`/api/v1/*` へのリクエストは Next.js rewrites でプロキシされます。
+
+### 主要コマンド
+
+| コマンド | 説明 |
+|----------|------|
+| `pnpm dev` | 開発サーバー起動 |
+| `pnpm build` | プロダクションビルド |
+| `pnpm typecheck` | TypeScript 型チェック |
+| `pnpm lint` | ESLint 実行 |
+| `pnpm generate:api` | Backend OpenAPI spec から型定義を再生成 |

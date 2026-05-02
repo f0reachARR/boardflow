@@ -514,3 +514,326 @@ boardflow/
 - `next lint` deprecated 警告 (Next.js 16 で削除予定、影響なし)
 - iBOM iframe表示は artifact domain 分離後に実装
 - エラーバウンダリ・loading.tsx は未実装
+
+---
+
+## レビュー結果 (2026-05-02)
+
+### 総評
+
+- 実装の骨格自体は `docs/frontend/summary.md` の画面遷移と認証前提に概ね沿っている。
+- ただし、Server Component 用 API クライアントの `baseUrl` 設定が実行時に破綻する可能性が高く、さらに OpenAPI 型定義が実 API 契約と既に食い違っている。
+- 受け入れ条件のうち UI 構築、Chakra Provider、CI build 通過は満たしているが、`Server Component 用 API クライアントが使える` と `OpenAPI spec に基づく型安全` は未達と判定する。
+
+### 判定
+
+- `pr_ready: false`
+
+### 重大度順の指摘
+
+1. **Server Component 用 API クライアントが相対 URL を使っており、実行時に API 呼び出しが失敗する可能性が高い**
+  - `src/lib/api/server.ts` で `baseUrl: ""` になっているため、Server Component 側では相対 URL fetch になる。
+  - Node 実行環境で `fetch('/api/v1/repositories')` を試すと `Failed to parse URL from /api/v1/repositories` になり、rewrites も server-side fetch には効かない。
+  - 現在の一覧・詳細画面はすべて `createServerClient()` を経由しているため、認証後画面全体が runtime で壊れるリスクがある。
+  - 対象: `boardflow/src/lib/api/server.ts`
+
+2. **OpenAPI 型定義が手書きのままで、実 API 契約と既に不一致**
+  - `src/lib/api/schema.d.ts` に `Generated manually based on docs/backend/api.md.` とあり、自動生成物ではない。
+  - さらに `/api/v1/auth/me` の型が `github_user_id: string` / `github_avatar_url: string` になっているが、backend 実装は `user_id: String` / `github_avatar_url: Option<String>` を返す。
+  - `lib/auth.ts` の `CurrentUser` も同じ誤型を前提にしており、現状は `res.json()` を未検証で返しているだけなので型安全ではない。
+  - 受け入れ条件 7, 8 の「OpenAPI spec に基づく型定義」「型安全な API クライアント」に対して未達。
+  - 対象: `boardflow/src/lib/api/schema.d.ts`, `boardflow/src/lib/auth.ts`, `crates/api/src/routes/auth.rs`
+
+3. **Chakra UI v3 の research と package script の前提が食い違っている**
+  - research では Turbopack hydration 問題により `next dev --webpack` / `next build --webpack` が必要と整理されている。
+  - しかし実装は `next dev` / `next build` のままで、worklog では `Next.js 15.5 は webpack がデフォルト` としている。
+  - 少なくとも research と実装判断が一貫しておらず、`pnpm run dev` の再現性に疑義が残る。Next.js 15 系では dev server が Turbopack 既定という外部情報とも整合しない。
+  - これは現時点では runtime 再現未確認だが、plan / research / 実装の不整合として修正または根拠追記が必要。
+  - 対象: `boardflow/package.json`, `docs/external/chakra-ui-v3-nextjs-setup.md`, 本 worklog
+
+### 必須修正
+
+1. `createServerClient()` の `baseUrl` を backend の絶対 URL に切り替え、Server Component で確実に到達できるようにする。
+2. `schema.d.ts` を `/api/v1/openapi.json` から実生成し直し、`lib/auth.ts` を含めて実 API 契約に合わせる。
+3. `pnpm run dev` / `pnpm run build` の bundler 方針を research と揃える。`--webpack` を採用するか、不要であることを一次情報で裏付けて docs/logs を更新する。
+
+### 任意改善
+
+1. ログイン導線は `next/link` ではなく通常のアンカーまたは明示的な `window.location` 遷移に寄せた方が OAuth 開始用途として意図が明確。
+2. ログアウト処理は失敗時ハンドリングを追加し、`POST /api/v1/auth/logout` の失敗を握りつぶさない方が運用しやすい。
+3. `getCurrentUser()` の戻り値は `res.json()` の生返しではなく、最低限の shape 検証か generated types 経由で扱う方がよい。
+
+### テスト不足
+
+- `docs/frontend/summary.md` で要求している component test と Playwright smoke test が未実装。
+- 現状の CI は lint / typecheck / build のみで、認証ガード、ログイン遷移、ログアウト、認証後の read API 描画は自動検証されていない。
+- 特に今回の `baseUrl` 問題は build では露見せず、主要導線の runtime smoke test があれば捕捉できた可能性が高い。
+
+### ドキュメント更新漏れ
+
+- `docs/frontend/summary.md` のテスト方針に対して「別Issueで未実装」とした判断は worklog にしかなく、仕様との差分整理が不足している。
+- OpenAPI 型生成について、backend が既に `/api/v1/openapi.json` を提供しているにもかかわらず「将来切り替え」としている理由が文書化不足。
+
+### plan / research / docs との不整合
+
+- research では `proxy.ts` 前提だったが、実装は `middleware.ts` に変更されている。Next.js 15 採用理由の整理はあるが、acceptance 条件との対応表が途中で揺れている。
+- research では OpenAPI 自動生成前提だったが、実装は手書き schema をコミットしており、しかも実 API と不一致。
+- research では Chakra UI v3 の Turbopack 問題を認識していたが、package script へ反映されていない。
+
+### 残リスク
+
+- 現状のままでも build は通るが、認証後ページの初回アクセス時に server-side fetch 失敗で表示不能になる可能性がある。
+- 手書き schema を維持すると backend API 変更時に frontend が静かに壊れる。
+- 認証導線の自動テストがないため、OAuth / session 周りの regressions を CI で検知できない。
+
+---
+
+## 再レビュー結果 (2026-05-02 追記)
+
+### Issue までの経緯
+
+- 前回レビューでは、Server Component 用 API クライアントの `baseUrl` 不備、`/api/v1/auth/me` の型不一致、Chakra UI v3 と bundler 方針の不整合を重大指摘として記録した。
+- 今回は、依頼された3修正が正しく反映され、前回指摘が解消されたかを再確認した。
+
+### 調査結果
+
+- `boardflow/src/lib/api/server.ts` は `process.env.API_BASE_URL ?? "http://localhost:3001"` を用いる実装に修正済みで、`baseUrl: API_BASE_URL` になっていることを確認した。
+- `boardflow/src/lib/api/schema.d.ts` の `/api/v1/auth/me` は `user_id: string` と `github_avatar_url: string | null` に修正済みで、`crates/api/src/routes/auth.rs` の `MeResponse` と整合していることを確認した。
+- `boardflow/src/lib/auth.ts` の `CurrentUser` も同じ shape に同期済みであることを確認した。
+- `boardflow/package.json` は `dev` のみ `next dev --webpack` に変更されていたが、`build` は `next build` のままだった。
+- Chakra UI 公式 Next.js App Router ガイドでは、Hydration errors セクションで `dev` と `build` の両方に `--webpack` を付けるよう案内していることを確認した。
+- Next.js 公式 CLI ドキュメントでも、`next dev` と `next build` の双方に `--webpack` オプションが存在し、既定は Turbopack であることを確認した。
+
+### テスト結果
+
+- `pnpm run typecheck` : PASS
+- `pnpm run lint` : PASS
+- `pnpm run build` : PASS
+
+### ドキュメント確認
+
+- `docs/frontend/summary.md` の frontend 方針と照合し、今回の再レビュー対象は setup 基盤と認証/API クライアント前提であることを再確認した。
+- `docs/external/chakra-ui-v3-nextjs-setup.md` および外部一次情報と照合すると、現状の `package.json` は bundler 方針が未統一である。
+
+### レビュー結果
+
+- 修正1: 解消。Server Component 用 API クライアントの `baseUrl` 問題は解消済み。
+- 修正2: 解消。`/api/v1/auth/me` の型不一致は解消済み。
+- 修正3: 未解消。`dev` は修正済みだが、`build` が research と Chakra UI 公式推奨に揃っていない。
+- 新規の重大問題は確認していないが、前回の第3指摘は残存しているため、再レビュー時点でも PR 作成可とは判定しない。
+
+### 必須修正
+
+1. `boardflow/package.json` の `build` も `next build --webpack` に揃えるか、少なくとも Chakra UI 公式 guidance と異なる判断を採る理由を一次情報つきで `docs/external/` と本 worklog に明記すること。
+
+### 任意改善
+
+1. `boardflow/src/lib/api/schema.d.ts` の冒頭コメントは依然として manual 生成を示しているため、実運用前に `generate:api` 実行フローを固め、generated file として扱う運用へ寄せると API drift を抑えやすい。
+
+### テスト不足
+
+- 主要導線に対する component test / Playwright smoke test は引き続き未実装。
+- bundler 差異に起因する hydration 問題は build 成功だけでは捕捉しきれないため、`pnpm run dev` 前提の最低限の smoke 確認は別 Issue で必要。
+
+### plan / research / docs との不整合
+
+- `docs/external/chakra-ui-v3-nextjs-setup.md` と Chakra UI 公式ガイドは `dev` / `build` の両方で `--webpack` を推奨しているが、`boardflow/package.json` は `build` が未反映。
+
+### PR / 完了結果
+
+- `pr_ready: false`
+
+### 残リスク
+
+- 現状でも `pnpm run build` は成功するが、Chakra UI 側が明示している Turbopack 起因の hydration 問題について、production build 側の bundler 選択が docs / research と不一致のまま残る。
+
+---
+
+## 最終レビュー結果 (2026-05-02 追記)
+
+### Issue までの経緯
+
+- 前回再レビューでは、bundler 方針について `boardflow/package.json` の `build` script が Chakra UI 公式ガイドと一致していない点を理由に `pr_ready: false` と判定していた。
+- 今回は、実装側が「BoardFlow が採用している Next.js 15.5 系では `--webpack` を付けない `next dev` / `next build` が妥当」という一次情報ベースの再整理を行ったため、その妥当性を対象バージョン前提で再確認した。
+
+### 調査結果
+
+- `boardflow/package.json` は現在も `dev: "next dev"` / `build: "next build"` であり、実装と docs/external の記述は一致している。
+- ローカル環境の frontend 依存関係は `next@15.5.15` であることを確認した。
+- 同バージョンで `pnpm exec next dev --help` と `pnpm exec next build --help` を確認すると、`--turbo` / `--turbopack` は存在する一方で `--webpack` は表示されず、少なくとも本 repo が現在使っている Next.js 15.5.15 の CLI では webpack 強制フラグを前提にした運用は適合しない。
+- Next.js 15.5 の公式リリース記事でも `next build --turbopack` を beta の opt-in として案内しており、本 Issue の対象バージョンでは `next build` をそのまま使う整理と整合する。
+- `docs/external/chakra-ui-v3-nextjs-setup.md` も「Next.js 15.5 では `--turbo` を使わなければ問題なし」という説明へ更新済みで、Issue #29 の research / docs / 実装の三者は現時点で整合している。
+- 既存の前回指摘 2 件についても、`boardflow/src/lib/api/server.ts` の `API_BASE_URL` 化と、`boardflow/src/lib/api/schema.d.ts` / `boardflow/src/lib/auth.ts` の `/api/v1/auth/me` 型修正が維持されていることを再確認した。
+
+### テスト結果
+
+- `pnpm run typecheck` : PASS
+- `pnpm run lint` : PASS
+- `pnpm run build` : PASS
+
+### ドキュメント確認
+
+- `docs/frontend/summary.md` の setup / 認証 / API クライアント前提と照合し、Issue #29 の実装範囲では主要な基盤要件を満たしていることを確認した。
+- `docs/external/chakra-ui-v3-nextjs-setup.md` は current Chakra guide そのものではなく、BoardFlow が採用している Next.js 15.5.15 前提の検証結果を残す research artifact として読むなら妥当。
+- ただし Chakra UI の現行公式ガイドは将来の Next.js 系列では `--webpack` を案内しているため、Next.js 16 以降へ上げる際は当該 research を再検証する必要がある。
+
+### レビュー結果
+
+- 前回の blocking 指摘だった bundler 方針の不整合は、対象バージョンを Next.js 15.5.15 に固定して見直すと解消済みと判断する。
+- 実装、research、作業ログ、最終テスト結果の間で、Issue #29 に対する新たな重大不整合は確認しなかった。
+- したがって、Issue #29 単体のレビューとしては PR 作成に進めてよい。
+
+### 必須修正
+
+- なし。
+
+### 任意改善
+
+1. `docs/external/chakra-ui-v3-nextjs-setup.md` は markdownlint 上の軽微な警告（空行ルール、bare URL）が残っているため、docs 整理時に直すと保守しやすい。
+2. Next.js を 16 以降へ更新する際は、`boardflow/package.json` scripts と `docs/external/chakra-ui-v3-nextjs-setup.md` の bundler 記述を再確認する。
+
+### テスト不足
+
+- `docs/frontend/summary.md` にある component test / Playwright smoke test は未実装のままだが、Issue #29 の setup 基盤整備というスコープ外整理は worklog 内で一貫しており、今回の PR 判定を妨げるものではない。
+
+### ドキュメント更新漏れ
+
+- blocking な更新漏れは確認しなかった。
+
+### plan / research / docs との不整合
+
+- blocking な不整合は解消済み。
+- なお、Chakra UI の最新一般ガイドと BoardFlow の version-pinned research の間には将来アップグレード時の差分があり得るため、そこは version drift として継続認識しておくべき。
+
+### PR / 完了結果
+
+- `pr_ready: true`
+
+### 残リスク
+
+- Next.js の将来アップグレード時に bundler デフォルトが変わる可能性があるため、現行の判断は `next@15.5.15` に依存する。
+- 認証導線や画面遷移の runtime 自動テストは未整備のため、別 Issue で smoke test を追加する余地は残る。
+
+---
+
+## ドキュメント確認結果 (2026-05-02 追記)
+
+### Issue までの経緯
+
+- Issue #29 の実装レビューでは `pr_ready: true` まで到達していたため、今回は docs 観点に限定して、仕様・research メモ・開発手順書が現実装と一致しているかを再確認した。
+- 対象は `docs/frontend/summary.md`、`docs/external/` の関連 research、`README.md`、frontend 実装、`.env.local.example` に絞った。
+
+### ユーザー要望
+
+- `docs/frontend/summary.md` と実装の整合性確認
+- `docs/external/` の research 成果物と実装の整合性確認
+- frontend 側の README / 開発手順の要否判断
+- 仕様ドキュメント更新要否の判断
+- `.env.local.example` の妥当性確認
+
+### 調査結果
+
+- `docs/frontend/summary.md` の高レベルな技術方針自体は、Next.js App Router、GitHub OAuth 前提、OpenAPI generated types 採用、Chakra UI + lucide-react 採用という点で現実装と整合している。
+- `docs/external/nextjs-auth-pattern.md` は、Next.js 15 では `middleware.ts` を使う整理、cookie 転送、rewrites 方針まで含めて現実装と整合している。
+- `docs/external/openapi-typescript-fetch.md` は、Server Component 用 / Client Component 用の API クライアント分離と一致している。
+- `docs/external/lucide-react-setup.md` も、実際に Header / Sidebar で lucide-react を採用しており整合している。
+- 一方で `docs/external/chakra-ui-v3-nextjs-setup.md` は、CLI snippets 生成の `components/ui/provider` と `next-themes` 前提の Provider 構成を強めに記述しているが、現実装の `boardflow/src/components/ui/provider.tsx` は `ChakraProvider` のみで構成されており、`next-themes` も依存関係に含まれていない。
+- root `README.md` はリポジトリ構成を `frontend/` と記載したままで、実際の frontend 配置先である `boardflow/` を説明できていない。加えて pnpm ベースの frontend 起動手順、`.env.local` の作成手順、backend 依存関係が書かれていない。
+- frontend 配下には専用のセットアップ手順書が存在せず、Issue #29 で追加された開発者向け導線がドキュメント化されていない。
+- `.env.local.example` は `API_BASE_URL=http://localhost:3001` のみを持ち、実装側の `next.config.ts`、`src/lib/auth.ts`、`src/lib/api/server.ts` の利用実態とは一致しているため、内容自体は妥当と判断した。
+
+### テスト結果
+
+- 実装修正は行っていないため追加テストは未実施。
+- ドキュメント判定の根拠として、既存の `pnpm typecheck` / `pnpm lint` / `pnpm build` 成功記録と実ファイル内容を確認した。
+
+### レビュー結果
+
+- `docs_ready: false`
+- 実装そのものを止める docs 不整合は多くないが、PR を作る前に最低限の導入手順と採用判断の記録を揃える必要がある。
+- blocking と判断したのは、root README の誤記と frontend セットアップ手順の不足、および Chakra UI research メモの採用方針未反映の 2 点。
+
+### 必須修正
+
+1. root `README.md` の構成説明を `frontend/` から `boardflow/` に更新し、frontend の開発手順を追記すること。
+2. frontend の起動手順を 1 か所にまとめること。`pnpm install`、`cp .env.local.example .env.local`、backend を `http://localhost:3001` で起動してから `pnpm dev` を実行する流れ、および `pnpm typecheck` / `pnpm lint` / `pnpm build` を明記する必要がある。
+3. `docs/external/chakra-ui-v3-nextjs-setup.md` に、BoardFlow では CLI snippets / `next-themes` 構成を採用していないこと、または issue 実装での簡略化判断を明記し、research メモと採用実装の差分を曖昧なまま残さないこと。
+
+### 任意改善
+
+1. `.env.local.example` について、`generate:api` 実行時も backend の OpenAPI endpoint が `http://localhost:3001` 前提であることを補足すると onboarding が楽になる。
+2. `docs/frontend/summary.md` は setup issue の実装完了を説明する文書ではないため更新必須ではないが、将来的に「基盤整備は完了、preview / Playwright は別 Issue」といった実装段階メモがあると読み手には親切。
+
+### ドキュメント確認
+
+- `docs/frontend/summary.md`: 高レベル方針としては実装と整合。blocking な更新漏れは見当たらない。
+- `docs/external/nextjs-auth-pattern.md`: 実装と整合。
+- `docs/external/openapi-typescript-fetch.md`: 実装と整合。
+- `docs/external/lucide-react-setup.md`: 実装と整合。
+- `docs/external/chakra-ui-v3-nextjs-setup.md`: 採用実装との差分説明が不足。
+- `README.md`: 現在の frontend 配置と開発手順を説明できておらず更新が必要。
+
+### PR / 完了結果
+
+- `docs_ready: false`
+- docs 修正後に再確認すれば、docs 観点でも PR 作成可まで持っていける見込み。
+
+### 残リスク
+
+- frontend の導入方法が文書化されないままだと、次の作業者が `boardflow/` 配下の起動前提や backend 依存を把握できず、再現性の低いセットアップになりやすい。
+- Chakra UI の research メモが現実装より広い前提を含んだままだと、将来の refactor 時に「実装済み」と誤認される可能性がある。
+
+---
+
+## ドキュメント確認 (再レビュー 2026-05-02)
+
+### Issue までの経緯
+
+- Issue #29 の前回ドキュメントレビューでは、root README の frontend 配置先誤記と開発手順不足、`docs/external/chakra-ui-v3-nextjs-setup.md` の公式構成と BoardFlow 実装差分の説明不足を blocking と判定した。
+- 今回は、その 2 点の修正が適切に行われたかを対象限定で再確認した。
+
+### ユーザー要望
+
+- `README.md` の `frontend/` → `boardflow/` 修正と、「Frontend ローカル開発」セクション追加が適切か確認する。
+- `docs/external/chakra-ui-v3-nextjs-setup.md` の「BoardFlow 実装との差分」追記が、実装と矛盾せず十分に明確か確認する。
+
+### 調査結果
+
+- `README.md` はファイル構成を `boardflow/: Next.js フロントエンド` に修正済みで、前回指摘の配置先誤記は解消している。
+- `README.md` には `Frontend ローカル開発` セクションが追加され、`.env.local.example` のコピー、`pnpm install`、`pnpm dev`、backend が `http://localhost:3001` で起動している前提、主要コマンド一覧まで記載されている。
+- `docs/external/chakra-ui-v3-nextjs-setup.md` には `BoardFlow 実装との差分` セクションが追加され、Snippets 未使用、`next-themes` 未使用、`ChakraProvider` + `defaultSystem` の最小構成を採用していることが明記されている。
+- 上記の Chakra 差分記述は、`boardflow/src/components/ui/provider.tsx` の実装内容と一致している。
+- ただし `README.md` の主要コマンド一覧には `pnpm dev | 開発サーバー起動 (webpack)` とあり、現行の `boardflow/package.json` の script は `next dev` で `--webpack` を明示していない。README 内の新設セクションに実装と不一致な説明が残っている。
+
+### テスト結果
+
+- 実装修正は行っていないため追加の実行テストは未実施。
+- ドキュメント確認として `README.md`、`docs/external/chakra-ui-v3-nextjs-setup.md`、`boardflow/package.json`、`boardflow/.env.local.example`、`boardflow/src/components/ui/provider.tsx`、`boardflow/src/app/layout.tsx` を照合した。
+
+### レビュー結果
+
+- `docs_ready: false`
+- 前回指摘のうち 2 件目の Chakra 外部調査メモ修正は妥当で、1 件目の README 修正も大部分は解消している。
+- ただし README に今回追加された主要コマンド説明の一部が現行実装と一致していないため、PR 作成前に 1 箇所だけ整合を取り切る必要がある。
+
+### 必須修正
+
+1. `README.md` の主要コマンド一覧にある `pnpm dev` の説明を、現行 `boardflow/package.json` の script と一致する表現に修正すること。少なくとも `webpack` 前提と断定しない記述へ直す必要がある。
+
+### 任意改善
+
+1. `README.md` の `pnpm build` 説明も、必要なら bundler 方針を曖昧にしない形でそろえると読み手の混乱を減らせる。
+
+### ドキュメント確認
+
+- `README.md`: 前回指摘の配置先誤記と開発手順不足は解消。ただし主要コマンド説明に 1 箇所不整合あり。
+- `docs/external/chakra-ui-v3-nextjs-setup.md`: 今回の差分追記は実装と整合しており、前回指摘は解消。
+
+### PR / 完了結果
+
+- `docs_ready: false`
+- README の 1 箇所を直せば、今回依頼された 2 点の修正確認は docs 観点で完了と判定できる。
+
+### 残リスク
+
+- bundler 前提の記述が README に残ると、将来 script が変わった際に「webpack 前提で運用されている」という誤認を再生産しやすい。

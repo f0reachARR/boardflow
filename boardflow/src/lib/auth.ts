@@ -1,9 +1,9 @@
 import { cookies } from "next/headers"
 
 export interface CurrentUser {
-  github_user_id: string
+  user_id: string
   github_login: string
-  github_avatar_url: string
+  github_avatar_url: string | null
 }
 
 export async function getCurrentUser(): Promise<CurrentUser | null> {

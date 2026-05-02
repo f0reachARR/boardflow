@@ -11,9 +11,9 @@ export interface paths {
         200: {
           content: {
             "application/json": {
-              github_user_id: string
+              user_id: string
               github_login: string
-              github_avatar_url: string
+              github_avatar_url: string | null
             }
           }
         }
