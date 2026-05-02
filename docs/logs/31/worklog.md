@@ -194,7 +194,9 @@
 - フロントエンドページ構成は docs/frontend/summary.md の想定と整合
 
 ## PR/完了結果
-(PR後に追記)
+- PR #54 作成済み: https://github.com/f0reachARR/boardflow/pull/54
+- ターゲットブランチ: `feat/31-board-detail-run-pages` → `main`
+- Closes #31
 
 ## 残リスク
 - Findings API / Diff API がバックエンド未実装の場合、画面はエラー/非表示のgraceful degradation（設計通り）
