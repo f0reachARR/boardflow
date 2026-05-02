@@ -2,12 +2,8 @@ use boardflow_github::{GitHubAppClient, OctocrabGitHubAppClient};
 use boardflow_github::GitHubAppConfig;
 use secrecy::SecretString;
 
-mod comment_body;
-mod config;
-mod dispatcher;
-mod handlers;
-
-use config::WorkerConfig;
+use boardflow_worker::config::WorkerConfig;
+use boardflow_worker::dispatcher;
 
 #[tokio::main]
 async fn main() {

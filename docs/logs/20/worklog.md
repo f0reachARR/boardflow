@@ -280,3 +280,61 @@ test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
 
 - ジョブ実行順によっては `create_dashboard_comment` が最初に旧Issueを検出し、履歴未保存のまま active issue 情報を消す可能性がある。
 - `create_issue` の分岐テスト未整備により、RateLimit / DB error / idempotency の回帰が今後混入しても検知しにくい。
+
+## 再レビューフェーズ (2026-05-02)
+
+### Issueまでの経緯
+
+- 前回レビューで指摘した `create_dashboard_comment` の history INSERT 欠落と `create_issue` テスト不足について、修正後の再レビューを実施。
+
+### 調査結果
+
+- `docs/spec.md` の 10.13, 11.7, 13.1 を再確認し、旧Issue履歴保持と GitHub API ジョブ側での closed / 404 検出要件を確認。
+- `crates/worker/src/handlers/create_dashboard_comment.rs` では closed 時 `reason = "recreated"`、404 時 `reason = "deleted"` で `insert_issue_history` が追加されており、前回指摘は解消済み。
+- `crates/worker/src/handlers/create_run_result_comment.rs` と `crates/worker/src/handlers/update_dashboard_comment.rs` も同じパターンで揃っていることを確認。
+- `crates/worker/src/handlers/create_issue.rs` の追加テストは `handle_github_error` の分岐 5 件と、`board_project_id` 欠落の早期 return 1 件のみで、`handle` 本体の成功・冪等性・DB error・board_project not found は未検証。
+
+### 実装内容の再評価
+
+- 前回重大指摘だった history 記録漏れは修正済み。
+- ただし `create_issue` のテスト追加は、受け入れ条件や計画に記載されていた「正常系」「冪等性」「DB 起因の失敗/再実行」を直接検証する形には達していない。
+
+### テスト結果
+
+- ローカルで `cargo test -p boardflow-worker` を再実行したが、この環境の Cargo 1.75.0 では [crates/api/Cargo.toml](../../../crates/api/Cargo.toml) の `edition = "2024"` を解釈できず、ワークスペース manifest 読み込み段階で失敗し、提示されたテスト結果は再現確認できなかった。
+- 問題ビュー上では、今回追加コードに対して clippy の `collapsible_if` と `too_many_arguments` が報告されており、「変更ファイルに clippy warnings なし」という申告とは一致しなかった。
+
+### レビュー結果
+
+- PR作成可否: `pr_ready: false`
+- 指摘1: `create_issue` 追加テストは `handle_github_error` と入力欠落の早期 return に偏っており、ハンドラ本体の成功、冪等性、DB エラー時の再実行判断を検証していない。テスト件数は増えているが、要求された振る舞いの回帰防止としては不足。
+- 指摘2: clippy 診断上、今回追加した history 記録ブロックと `insert_issue_history` に警告が残っている。致命的ではないが、「warnings なし」を前提に PR を進めるには根拠が不足。
+
+### 必須修正
+
+1. `create_issue` ハンドラ本体に対して、少なくとも以下を直接検証するテストを追加する。
+   - Issue 作成成功時に `update_issue_info` と後続 enqueue へ進むこと
+   - `bp.issue_number.is_some()` の冪等終了
+   - `find_by_id_with_repository` が `None` の失敗
+   - DB error 時の `Reschedule`
+2. clippy warnings の扱いを再確認し、PR 条件に含めるなら今回追加した warning を解消するか、対象外とする理由を明記する。
+
+### 任意改善
+
+1. `insert_issue_history` の `reason` を文字列ではなく enum 相当の型に寄せると、呼び出し側の誤字を減らせる。
+2. worklog の受け入れ条件と実際に追加したテストの範囲を一致させる。
+
+### ドキュメント確認
+
+- [docs/spec.md](../../../docs/spec.md)
+- [docs/backend/summary.md](../../../docs/backend/summary.md)
+- [docs/logs/20/worklog.md](../../../docs/logs/20/worklog.md)
+
+### PR/完了結果
+
+- `pr_ready: false`
+
+### 残リスク
+
+- `create_issue` の主要分岐が未検証のままのため、GitHub API 成功時の状態更新や DB 再試行条件の退行を検知しづらい。
+- 環境上はテスト再実行を再現できておらず、ユーザー提示の 21 件成功をこのレビューでは独立検証できていない。

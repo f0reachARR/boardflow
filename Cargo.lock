@@ -797,6 +797,7 @@ dependencies = [
  "boardflow-github",
  "boardflow-jobs",
  "chrono",
+ "rand 0.8.6",
  "secrecy",
  "serde",
  "serde_json",
