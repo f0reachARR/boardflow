@@ -278,6 +278,11 @@ export default async function RunDetailPage({ params }: Props) {
                       Artifacts: +{diff.summary.artifacts.added} -{diff.summary.artifacts.removed} ~{diff.summary.artifacts.changed}
                     </Text>
                   </HStack>
+                  <Link href={`/repositories/${repositoryId}/boards/${boardProjectId}/runs/${boardRunId}/diff`}>
+                    <Text color="blue.600" fontSize="sm" mt={2} _hover={{ textDecoration: "underline" }}>
+                      View full diff →
+                    </Text>
+                  </Link>
                 </VStack>
               )}
               {diff.status === "no_baseline" && (
