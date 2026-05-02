@@ -188,6 +188,55 @@ export interface paths {
       }
     }
   }
+  "/api/v1/board-runs/{board_run_id}/checks/{check_kind}/findings": {
+    get: {
+      parameters: {
+        path: { board_run_id: string; check_kind: "erc" | "drc" }
+        query?: { limit?: number; cursor?: string; severity?: "error" | "warning" | "notice" }
+      }
+      responses: {
+        200: {
+          content: {
+            "application/json": PaginatedResponse<Finding>
+          }
+        }
+        400: {
+          content: {
+            "application/json": ApiError
+          }
+        }
+        401: {
+          content: {
+            "application/json": ApiError
+          }
+        }
+        404: {
+          content: {
+            "application/json": ApiError
+          }
+        }
+      }
+    }
+  }
+  "/api/v1/board-runs/{board_run_id}/diff": {
+    get: {
+      parameters: {
+        path: { board_run_id: string }
+      }
+      responses: {
+        200: {
+          content: {
+            "application/json": DiffResponse
+          }
+        }
+        404: {
+          content: {
+            "application/json": ApiError
+          }
+        }
+      }
+    }
+  }
 }
 
 // Common types
@@ -353,4 +402,34 @@ export interface ViewerDownload {
   status?: string
   url?: string
   status_reason?: string
+}
+
+export interface Finding {
+  id: string
+  severity: "error" | "warning" | "notice"
+  rule_code: string
+  title: string
+  message: string | null
+  subject_kind: string | null
+  subject_ref: string | null
+  sheet_path: string | null
+  pcb_layer: string | null
+  pos_mm: { x: number; y: number } | null
+}
+
+export interface DiffResponse {
+  board_run_id: string
+  base_board_run_id: string | null
+  status: "ready" | "no_baseline" | "unavailable" | "failed"
+  summary: DiffSummary | null
+  metadata: Record<string, unknown> | null
+  error_message: string | null
+  created_at: string
+}
+
+export interface DiffSummary {
+  file_changes: { added: number; removed: number; changed: number; unchanged: number }
+  bom_changes: { added: number; removed: number; changed: number }
+  checks: Record<string, { status_change: string; error_delta: number; warning_delta: number }>
+  artifacts: { added: number; removed: number; changed: number }
 }
