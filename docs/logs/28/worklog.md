@@ -577,3 +577,34 @@ pub struct WebhookSecret(pub Option<String>);
 ### 更新した作業ログパス
 
 `docs/logs/28/worklog.md`
+
+---
+
+## PR作成フェーズ (2026-05-02)
+
+### PR/完了結果
+
+- PR 作成: **完了**
+- PR URL: https://github.com/f0reachARR/boardflow/pull/51
+- タイトル: `feat(#28): GitHub App Webhook受信エンドポイント実装`
+- ベースブランチ: `main` ← `feat/28-github-webhook-endpoint`
+
+### 確認事項
+
+- `pr_ready: true`（再レビューフェーズで確認済み）
+- `docs_ready: true`（ドキュメント確認フェーズで確認済み）
+- 未コミット変更なし（`docs/logs/25/` のみ untracked で無関係）
+- ユニットテスト 15 件 / 統合テスト 10 件 すべて pass
+- `cargo clippy --workspace --all-targets -- -D warnings`: OK
+- `cargo fmt --all -- --check`: OK
+
+### 残リスク
+
+- Issue 本文のエンドポイント表記 (`POST /api/v1/webhooks/github`) と実装 (`POST /api/v1/github/webhook`) に表記揺れあり。将来一本化推奨。
+- `GITHUB_WEBHOOK_SECRET` の設定手順が README / 恒久ドキュメントに未記載。本番導入時に別途追記推奨。
+- installation deleted / removed 後に既存の GitHub job が残っていた場合の downstream 挙動は本 Issue のテスト範囲外。
+
+### 更新した作業ログパス
+
+`docs/logs/28/worklog.md`
+
