@@ -357,3 +357,103 @@ test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
 - `update_dashboard_comment` の closed + recreate=true + tree_hash 変化ケースは未テスト（create側でカバー済み、同一ロジックのためリスク低）
 - `board_project_issue_history` への INSERT 内容（reason等）の詳細検証は省略
 - DATABASE_URL 未設定環境ではテスト実行不可（`#[ignore]` で明示的opt-in）
+
+---
+
+## 再レビュー結果（2026-05-02）
+
+### 総評
+
+- Issue #21 の再レビュー対象である `dashboard_comment_test.rs` の拡張により、前回レビューで指摘した closed Issue / Issue 404 / update正常系 / stale job の観点は追加された。
+- `cargo test -p boardflow-worker --test dashboard_comment_test -- --ignored` を再実行し、17件すべての通過を確認した。
+- ただし、仕様が要求する「最新runを使って本文を生成すること」と「旧Issueを履歴として保持すること」は、現状テスト名に対応する副作用までは検証できていない。
+- そのため、再レビュー時点の判定は `pr_ready: false` とする。
+
+### 前回指摘の解消状況
+
+1. closed Issue テスト追加
+    - create側3件、update側1件が追加され、分岐自体はテスト対象に入った。
+2. Issue 404 テスト追加
+    - create側1件、update側1件が追加され、clear + enqueue の確認も追加された。
+3. update正常系修正
+    - `create_comment_result = None` により fallback create 混入時の panic 保証が入った。
+    - `dashboard_comment_id` 維持確認も追加された。
+4. debounce / stale job テスト追加
+    - create側に stale job シナリオが追加された。
+
+### レビュー結果
+
+1. 中: stale job テストが「最新runを使った本文生成」をまだ保証していない
+    - `test_create_dashboard_comment_uses_latest_completed_run` は古い `board_run_id` を渡した状態で Completed と `dashboard_comment_id` 保存だけを見ている。
+    - しかし `create_comment` モックは本文引数を検査していないため、実装が誤って古いrun本文を送っても同じく成功する。
+    - 仕様の debounce 要件は「最新状態にまとめる」ことなので、本文に含まれる run URL または commit SHA が `latest_completed_run_id` 側を指すことまで確認しないと回帰検出力が不足する。
+
+2. 中: closed / 404 再作成系テストが旧Issue履歴保持を検証していない
+    - 仕様では closed + recreate と 404 相当の検出時に旧Issueを履歴として保持することを求めている。
+    - 現在の追加テストは `issue_number` クリアと `create_issue` enqueue までは確認しているが、`board_project_issue_history` への記録有無は見ていない。
+    - 実装側は履歴保存失敗を warning で握りつぶすため、この副作用はテストで押さえないと退行検知できない。
+
+### 必須修正
+
+1. `test_create_dashboard_comment_uses_latest_completed_run` で `create_comment` に渡された本文を検査し、最新runの URL または commit SHA が含まれることを確認する。
+2. closed recreate と Issue 404 の各テストで `board_project_issue_history` を確認し、旧Issueが履歴として保存されることを検証する。
+
+### 任意改善
+
+1. update側にも本文検査付きの stale job ケースを追加すると、仕様 13.3 との対応がより明確になる。
+2. MockGitHubClient を引数記録型にすると、comment_id や body の検証を各テストで共通化できる。
+
+### テスト結果
+
+- `cargo test -p boardflow-worker --test dashboard_comment_test -- --ignored` を再実行し、17件すべて通過。
+
+### ドキュメント確認
+
+- `docs/spec.md` の 11.7 と 13.1、13.3 を再確認した。
+- README は確認済みで、本Issueで追加更新が必要な利用者向けドキュメント差分は見当たらない。
+- `CONTRIBUTING.md` はリポジトリ内に存在せず、確認対象外。
+
+### PR/完了結果
+
+- `pr_ready: false`
+
+### 残リスク
+
+- latest_completed_run_id の参照先が退行しても、現状の stale job テストだけでは検出できない。
+- 履歴保存の insert が壊れても、現状の closed / 404 テストだけでは検出できない。
+
+---
+
+## 2回目レビュー指摘修正（2026-05-02）
+
+### 修正内容
+
+レビュー指摘2件を修正:
+
+#### 1. debounce テストで本文の中身を検証する
+
+- `MockGitHubClient` に `captured_comment_body: std::sync::Mutex<Option<String>>` フィールドを追加
+- `default_success()` および全直接構築箇所で初期化
+- `create_comment` impl で body をキャプチャ
+- `test_create_dashboard_comment_uses_latest_completed_run` テスト末尾に body 検証を追加:
+  - `def5678`（latest run の commit SHA）が body に含まれることを確認
+  - `abc1234`（old run の commit SHA）が body に含まれないことを確認
+
+#### 2. closed recreate / 404 テストで board_project_issue_history を検証する
+
+- `test_create_dashboard_comment_issue_closed_recreate_tree_hash_changed` テストに `board_project_issue_history` レコード存在確認を追加
+- `test_create_dashboard_comment_issue_404` テストに `board_project_issue_history` レコード存在確認を追加
+
+### ビルド確認
+
+- `cargo check -p boardflow-worker --tests` → 成功（EXIT:0）
+- `cargo test -p boardflow-worker --test dashboard_comment_test -- --list` → 17テスト確認
+
+### 影響範囲
+
+- PanicClient を使うテスト（idempotent, update_success, update_closed_no_recreate）には影響なし
+- `captured_comment_body` は `std::sync::Mutex` を使用（async 内で即座に drop するため安全）
+
+### 残リスク
+
+- なし（前回指摘の2点が解消された）
