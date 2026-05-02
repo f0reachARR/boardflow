@@ -583,7 +583,7 @@ MVPの差分は、人がレビューを開始できる軽量サマリに限定�
   - designator、value、footprint、quantityなど正規化できる列の変更
 - ERC / DRC集計差分
   - status変化
-  - error / warning / notice件数の増減
+  - error / warning件数の増減
 - 主要artifact状態差分
   - available / missing / failed / skipped の変化
 - PCB / Schematic preview差分サマリ
