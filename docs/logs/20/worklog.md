@@ -397,3 +397,117 @@ test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
 
 - 同一 BoardProject に対する create_issue race が残る限り、GitHub 上に重複 Issue が作成され、`board_project_issue_history` と現行 `board_projects.issue_*` の整合が崩れる可能性がある。
 - 統合テストがスキップ可能なままだと、ローカルや CI の設定差で create_issue の回帰が見逃される。
+
+## 3回目レビューフェーズ (2026-05-02)
+
+### Issueまでの経緯
+
+- 前回レビューで指摘した `create_issue` の競合時重複作成と、統合テストの false green について、トランザクション + `FOR UPDATE` と `#[ignore]` 追加後の再レビューを実施。
+
+### 調査結果
+
+- [docs/spec.md](../../../docs/spec.md) の 11.6 を再確認し、同一 BoardProject に対する `create_issue` ジョブは同時に複数作らない要件を確認。
+- [crates/worker/src/handlers/create_issue.rs](../../../crates/worker/src/handlers/create_issue.rs) では、トランザクション開始後に [crates/db/src/queries/board_project.rs](../../../crates/db/src/queries/board_project.rs#L80) の `FOR UPDATE OF bp` を使って対象 row をロックし、`issue_number.is_some()` をロック取得後に再確認しているため、前回指摘した「並行 worker による二重 Issue 作成」への対策自体は入っている。
+- `mise exec -- cargo test -p boardflow-worker --test create_issue_test -- --ignored` はこの環境でも 4 件成功し、`mise exec -- cargo check -p boardflow-worker` も成功した。
+- ただし [crates/worker/src/handlers/create_issue.rs](../../../crates/worker/src/handlers/create_issue.rs#L103) の follow-up `create_dashboard_comment` enqueue は `let _ =` で失敗が握りつぶされており、その後 [crates/worker/src/handlers/create_issue.rs](../../../crates/worker/src/handlers/create_issue.rs#L117) で commit される。今回の説明にある「update_issue_info と enqueue を同一トランザクション内で実行し原子的」という主張とは一致していない。
+- また、仕様 13.1 の [docs/spec.md](../../../docs/spec.md#L1882) には Issue 作成失敗時に `issue_sync_status = failed` を UI 表示可能にする要件があるが、現状の state 変更は [crates/db/src/queries/board_project.rs](../../../crates/db/src/queries/board_project.rs#L247) の `synced` と [crates/db/src/queries/board_project.rs](../../../crates/db/src/queries/board_project.rs#L294) の `pending` のみで、dispatcher 側も [crates/worker/src/dispatcher.rs](../../../crates/worker/src/dispatcher.rs#L82) と [crates/worker/src/dispatcher.rs](../../../crates/worker/src/dispatcher.rs#L89) で job failure しか記録していない。
+
+### レビュー結果
+
+- PR作成可否: `pr_ready: false`
+- 指摘1: [crates/worker/src/handlers/create_issue.rs](../../../crates/worker/src/handlers/create_issue.rs#L103) で `github_job::enqueue` の失敗を無視したまま commit しているため、Issue 作成だけ成功して dashboard comment 作成ジョブが失われる経路が残っている。これは [docs/spec.md](../../../docs/spec.md#L1876) の「create issue job 完了後に create dashboard comment job」要件と、今回の「同一トランザクションで原子的」という説明の両方に反する。
+- 指摘2: [docs/spec.md](../../../docs/spec.md#L1882) は Issue 作成失敗時に `issue_sync_status` を `failed` として UI に見せることを要求しているが、実装は成功時 `synced`、Issue 消失時 `pending` に戻す処理しか持っておらず、create_issue が最終的に失敗しても BoardProject 側の同期状態が失敗へ遷移しない。これでは仕様どおりに失敗状態を観測できない。
+
+### 必須修正
+
+1. `create_issue` 内の follow-up enqueue は失敗を握りつぶさず、少なくとも transaction 全体を rollback / reschedule するか、別の回復経路を実装して「Issue だけできて dashboard comment job がない」状態を防ぐ。
+2. `create_issue` の失敗系に対して `board_projects.issue_sync_status` を `failed` に落とす更新経路を追加し、retry 開始時に `syncing`、再作成待ちでは `pending`、成功時に `synced` へ遷移する責務を整理する。
+
+### 任意改善
+
+1. `FOR UPDATE` ロックを保持したまま外部の GitHub API 呼び出しをしているため、行ロックの保持時間は長くなりやすい。競合件数が少ない前提なら許容可能だが、将来的には短縮策を検討した方がよい。
+2. [crates/db/src/queries/board_project.rs](../../../crates/db/src/queries/board_project.rs#L318) の `insert_issue_history` は引数数が多く clippy warning も出ているため、struct 化すると保守しやすい。
+
+### テスト不足
+
+- `create_issue` 失敗時に `issue_sync_status` が適切に遷移することを検証するテストがない。
+- `create_dashboard_comment` enqueue 失敗時に transaction がどう扱われるべきかを検証するテストがない。
+
+### ドキュメント確認
+
+- [docs/spec.md](../../../docs/spec.md)
+- [docs/backend/summary.md](../../../docs/backend/summary.md)
+- [docs/external/postgresql-job-queue-enqueue.md](../../../docs/external/postgresql-job-queue-enqueue.md)
+- [docs/logs/20/worklog.md](../../../docs/logs/20/worklog.md)
+
+### plan / research / docs との不整合
+
+- 今回の修正説明では「`update_issue_info` と `enqueue` を同一 transaction で扱うことで atomicity を確保」とされているが、実コードは enqueue failure を無視して commit するため、その説明と一致していない。
+- `docs/spec.md` 13.1 の failed 状態表示要件に対して、関連 query / handler / dispatcher のどこにも BoardProject 側を `failed` にする実装がない。
+
+### PR/完了結果
+
+- `pr_ready: false`
+
+### 残リスク
+
+- follow-up job 喪失時、初回 Issue は作成済みなのに dashboard comment が作成されず、後続 run まで回復しない可能性がある。
+- create_issue の最終失敗が UI 上 `pending` のまま見えると、運用側が GitHub 連携失敗に気づきにくい。
+
+## 4回目修正 (2026-05-02)
+
+### 修正内容
+
+3回目レビューの必須修正2点を解消:
+
+1. **enqueue 失敗時の原子性確保**: `create_issue` ハンドラ内の `github_job::enqueue("create_dashboard_comment")` 失敗時に `let _ =` ではなく、transaction を rollback して Reschedule を返すよう修正。これにより「Issue作成済みだが dashboard comment job がない」状態を防止。
+
+2. **issue_sync_status = failed の追加**: 
+   - `crates/db/src/queries/board_project.rs` に `update_issue_sync_status` 関数追加
+   - `crates/worker/src/dispatcher.rs` で create_issue ジョブが最終失敗（max attempts 超過 or HandlerResult::Failed）時に `issue_sync_status = "failed"` に更新
+
+3. **楽観ロック(Optimistic Locking)パターンへの変更**:
+   - Phase 1: ロックなしで board_project を読み取り、早期チェック
+   - Phase 2: FOR UPDATE ロックなしで GitHub API を呼び出し（長時間ロック保持を回避）
+   - Phase 3: FOR UPDATE + 再検証 + DB書き込み（短時間ロック）
+   - レビュー指摘「FOR UPDATE を保持したまま外部 API 呼び出し」を解消
+
+4. **dispatcher.rs の import 修正**: `board_project` モジュールの use 追加
+
+### テスト結果
+
+```
+cargo test -p boardflow-worker (nightly 1.97.0)
+
+running 21 tests
+test comment_body::tests::test_issue_body_contains_markers ... ok
+test comment_body::tests::test_dashboard_comment_contains_markers ... ok
+test comment_body::tests::test_issue_body_with_diff_link ... ok
+test comment_body::tests::test_issue_body_with_run ... ok
+test comment_body::tests::test_issue_body_without_run ... ok
+test comment_body::tests::test_issue_title ... ok
+test comment_body::tests::test_issue_title_format ... ok
+test comment_body::tests::test_run_result_comment_contains_markers ... ok
+test comment_body::tests::test_should_not_post_run_result_fewer_errors ... ok
+test comment_body::tests::test_should_not_post_run_result_no_change ... ok
+test comment_body::tests::test_should_not_post_run_result_same_failure ... ok
+test comment_body::tests::test_should_post_run_result_fail_to_pass ... ok
+test comment_body::tests::test_should_post_run_result_first_run ... ok
+test comment_body::tests::test_should_post_run_result_new_errors ... ok
+test comment_body::tests::test_should_post_run_result_pass_to_fail ... ok
+test handlers::create_issue::tests::test_handle_github_error_api ... ok
+test handlers::create_issue::tests::test_handle_github_error_auth ... ok
+test handlers::create_issue::tests::test_handle_github_error_not_found ... ok
+test handlers::create_issue::tests::test_handle_github_error_rate_limited_with_retry_after ... ok
+test handlers::create_issue::tests::test_handle_github_error_rate_limited_without_retry_after ... ok
+test handlers::create_issue::tests::test_handle_missing_board_project_id ... ok
+
+test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+
+integration tests: 4 ignored (require DATABASE_URL)
+```
+
+### 残リスク
+
+- 楽観ロックパターンにより、並行実行時に GitHub 上に orphaned issue が生まれる可能性がある（Phase 3 の再検証で他方が先に書き込み済みの場合）。ただし DB 整合性は保たれ、orphaned issue は手動クリーンアップ対象。
+- 統合テストは `#[ignore]` のため CI に DATABASE_URL 設定がないと未実行。
