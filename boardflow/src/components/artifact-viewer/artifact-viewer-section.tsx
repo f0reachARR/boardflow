@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState, useCallback } from "react"
-import { Box, Heading, VStack, HStack, Badge, Text } from "@chakra-ui/react"
+import { Box, Heading, Badge, Tabs, Text } from "@chakra-ui/react"
 import type { ViewerEntry, ViewerSourcesResponse } from "@/lib/api/schema"
 import { PdfViewer } from "./pdf-viewer"
 import { SvgViewer } from "./svg-viewer"
@@ -9,26 +9,15 @@ import { IbomViewer } from "./ibom-viewer"
 import { DownloadList } from "./download-list"
 import { ViewerStatusMessage } from "./viewer-status-message"
 
-function viewerStatusColor(status: string): string {
-  switch (status) {
-    case "available":
-      return "green"
-    case "partial":
-      return "yellow"
-    case "missing":
-      return "orange"
-    case "failed":
-      return "red"
-    case "skipped":
-      return "gray"
-    default:
-      return "gray"
-  }
-}
-
-function viewerDisplayName(name: string): string {
-  return name.replace(/_/g, " ")
-}
+/** Ordered tab definitions */
+const TAB_DEFINITIONS: { key: string; label: string }[] = [
+  { key: "schematic", label: "Schematic" },
+  { key: "pcb_preview", label: "PCB" },
+  { key: "ibom", label: "iBOM" },
+  { key: "bom", label: "BOM" },
+  { key: "fabrication", label: "Fabrication" },
+  { key: "kicanvas", label: "KiCanvas" },
+]
 
 interface ArtifactViewerSectionProps {
   viewers: Record<string, ViewerEntry>
@@ -70,7 +59,6 @@ export function ArtifactViewerSection({
     const delay = refreshAt - Date.now()
 
     if (delay <= 0) {
-      // Already past refresh time, refresh immediately
       refreshViewerSources()
       return
     }
@@ -86,9 +74,34 @@ export function ArtifactViewerSection({
     }
   }, [expiresAt, refreshViewerSources])
 
-  if (Object.keys(viewers).length === 0) return null
+  // Build visible tabs from definitions, filtering out "skipped" viewers
+  const visibleTabs = TAB_DEFINITIONS.filter((def) => {
+    const viewer = viewers[def.key]
+    if (!viewer) return false
+    return viewer.status !== "skipped"
+  })
+
+  if (visibleTabs.length === 0) {
+    return (
+      <Box>
+        <Heading size="md" mb={3}>
+          Viewers
+        </Heading>
+        <Text fontSize="sm" color="gray.500">
+          No viewers available for this run.
+        </Text>
+      </Box>
+    )
+  }
 
   const hasPartial = Object.values(viewers).some((v) => v.status === "partial")
+
+  // Default tab: first available or partial viewer
+  const defaultTab =
+    visibleTabs.find((t) => {
+      const v = viewers[t.key]
+      return v && (v.status === "available" || v.status === "partial")
+    })?.key ?? visibleTabs[0].key
 
   return (
     <Box>
@@ -128,60 +141,59 @@ export function ArtifactViewerSection({
           Some sources are unavailable. Showing limited preview.
         </Text>
       )}
-      <VStack align="stretch" gap={4}>
-        {Object.entries(viewers).map(([name, viewer]) => {
-          if (name === "kicanvas") {
+      <Tabs.Root defaultValue={defaultTab}>
+        <Tabs.List>
+          {visibleTabs.map((tab) => {
+            const viewer = viewers[tab.key]!
+            const isDisabled =
+              viewer.status === "missing" || viewer.status === "failed"
             return (
-              <Box
-                key={name}
-                borderWidth="1px"
-                borderRadius="md"
-                p={4}
-                bg="gray.50"
+              <Tabs.Trigger
+                key={tab.key}
+                value={tab.key}
+                disabled={isDisabled}
               >
-                <HStack justify="space-between" mb={3}>
-                  <Text fontWeight="medium" textTransform="capitalize">
-                    KiCanvas
-                  </Text>
-                  <Badge colorPalette="gray">coming soon</Badge>
-                </HStack>
-                <Text fontSize="sm" color="gray.500">
-                  KiCanvas interactive viewer will be available in a future update.
-                </Text>
-              </Box>
+                {tab.label}
+                {isDisabled && (
+                  <Badge ml={1} size="xs" colorPalette="red">
+                    {viewer.status}
+                  </Badge>
+                )}
+              </Tabs.Trigger>
             )
-          }
-
-          return (
-            <Box
-              key={name}
-              borderWidth="1px"
-              borderRadius="md"
-              p={4}
-              bg="white"
-            >
-              <HStack justify="space-between" mb={3}>
-                <Text fontWeight="medium" textTransform="capitalize">
-                  {viewerDisplayName(name)}
-                </Text>
-                <Badge colorPalette={viewerStatusColor(viewer.status)}>
-                  {viewer.status}
-                </Badge>
-              </HStack>
-              {renderViewer(name, viewer)}
+          })}
+        </Tabs.List>
+        {visibleTabs.map((tab) => (
+          <Tabs.Content key={tab.key} value={tab.key}>
+            <Box pt={4}>
+              {renderViewerContent(tab.key, viewers[tab.key]!)}
             </Box>
-          )
-        })}
-      </VStack>
+          </Tabs.Content>
+        ))}
+      </Tabs.Root>
     </Box>
   )
 }
 
-function renderViewer(name: string, viewer: ViewerEntry) {
-  const displayName = viewerDisplayName(name)
+function renderViewerContent(name: string, viewer: ViewerEntry) {
+  if (viewer.status === "missing" || viewer.status === "failed") {
+    return <ViewerStatusMessage status={viewer.status} viewerName={name} />
+  }
 
-  if (viewer.status === "missing" || viewer.status === "failed" || viewer.status === "skipped") {
-    return <ViewerStatusMessage status={viewer.status} viewerName={displayName} />
+  if (name === "kicanvas") {
+    return (
+      <Box p={4} bg="gray.50" borderWidth="1px" borderRadius="md">
+        <Text fontWeight="medium" mb={2}>
+          KiCanvas
+        </Text>
+        <Badge colorPalette="gray" mb={2}>
+          coming soon
+        </Badge>
+        <Text fontSize="sm" color="gray.500">
+          KiCanvas interactive viewer will be available in a future update.
+        </Text>
+      </Box>
+    )
   }
 
   switch (name) {
@@ -193,7 +205,7 @@ function renderViewer(name: string, viewer: ViewerEntry) {
             <DownloadList downloads={viewer.downloads} title="Schematic Downloads" />
           )}
           {!viewer.primary && !viewer.downloads?.length && (
-            <ViewerStatusMessage status="missing" viewerName={displayName} />
+            <ViewerStatusMessage status="missing" viewerName="schematic" />
           )}
         </>
       )
@@ -205,7 +217,7 @@ function renderViewer(name: string, viewer: ViewerEntry) {
             <SvgViewer sources={viewer.sources} />
           )}
           {(!viewer.sources || viewer.sources.length === 0) && (
-            <ViewerStatusMessage status="missing" viewerName={displayName} />
+            <ViewerStatusMessage status="missing" viewerName="pcb_preview" />
           )}
         </>
       )
@@ -215,7 +227,7 @@ function renderViewer(name: string, viewer: ViewerEntry) {
         <>
           {viewer.iframe_url && <IbomViewer iframeUrl={viewer.iframe_url} />}
           {!viewer.iframe_url && (
-            <ViewerStatusMessage status="missing" viewerName={displayName} />
+            <ViewerStatusMessage status="missing" viewerName="ibom" />
           )}
         </>
       )
@@ -225,7 +237,7 @@ function renderViewer(name: string, viewer: ViewerEntry) {
       return (
         <>
           {viewer.downloads && viewer.downloads.length > 0 && (
-            <DownloadList downloads={viewer.downloads} title={`${displayName} Downloads`} />
+            <DownloadList downloads={viewer.downloads} title={`${name} Downloads`} />
           )}
           {(!viewer.downloads || viewer.downloads.length === 0) && viewer.primary && (
             <a href={viewer.primary.url} target="_blank" rel="noopener noreferrer">
@@ -235,7 +247,7 @@ function renderViewer(name: string, viewer: ViewerEntry) {
             </a>
           )}
           {!viewer.downloads?.length && !viewer.primary && (
-            <ViewerStatusMessage status="missing" viewerName={displayName} />
+            <ViewerStatusMessage status="missing" viewerName={name} />
           )}
         </>
       )
