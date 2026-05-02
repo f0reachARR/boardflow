@@ -258,6 +258,54 @@ page.tsx (Server)
 - Next.js Server Components: https://nextjs.org/docs/app/building-your-application/rendering/server-components
 - Next.js Route Handlers: https://nextjs.org/docs/app/building-your-application/routing/route-handlers
 
+---
+
+## 実装フェーズ
+
+**日時**: 2026-05-02  
+**担当フェーズ**: impl
+
+### 作成したファイル
+
+| ファイル | 役割 |
+|---|---|
+| `boardflow/src/app/api/viewer-sources/[boardRunId]/route.ts` | Route Handler: Client→Backend proxy (cookie認証転送) |
+| `boardflow/src/components/artifact-viewer/artifact-viewer-section.tsx` | Client Component コンテナ。URL期限管理 + viewer切替 |
+| `boardflow/src/components/artifact-viewer/pdf-viewer.tsx` | PDF iframe + ダウンロードリンク |
+| `boardflow/src/components/artifact-viewer/svg-viewer.tsx` | SVG Tab(Top/Bottom) + sandbox="" + ダウンロードリンク |
+| `boardflow/src/components/artifact-viewer/ibom-viewer.tsx` | iBOM sandboxed iframe (allow-scripts allow-same-origin) |
+| `boardflow/src/components/artifact-viewer/download-list.tsx` | ダウンロードリンク一覧 (available/unavailable 分岐) |
+| `boardflow/src/components/artifact-viewer/viewer-status-message.tsx` | viewer unavailable時のフォールバックメッセージ |
+
+### 変更したファイル
+
+| ファイル | 変更内容 |
+|---|---|
+| `boardflow/src/app/(authenticated)/.../runs/[boardRunId]/page.tsx` | Viewersセクションを `ArtifactViewerSection` に差し替え。未使用の `viewerStatusColor` 関数を削除。 |
+
+### 実装ポイント
+
+1. **iframe**: Chakra UI v3の`Box as="iframe"`はiframe属性の型定義がないため、native `<iframe>` を `Box` で囲むパターンを採用
+2. **URL期限管理**: `useEffect` + `setTimeout` で `expires_at - 5分` にRoute Handler経由で再取得
+3. **セキュリティ**:
+   - SVG: `sandbox=""` でスクリプト完全ブロック
+   - iBOM: `sandbox="allow-scripts allow-same-origin"` (クロスオリジン配信前提)
+   - 全ダウンロードリンク: `rel="noopener noreferrer"` 付与
+   - Route Handler: cookie認証チェック後にバックエンドへプロキシ
+4. **lucide-react `Image`**: ESLint jsx-a11y/alt-text と名前衝突するため `ImageIcon` にリネーム
+
+### テスト結果
+
+- `pnpm typecheck`: ✅ 0 errors
+- `pnpm lint`: ✅ 0 warnings, 0 errors
+
+### 残リスク
+
+1. Safari/iOS での PDF iframe 表示互換性（ダウンロードリンク併設で緩和）
+2. Chakra UI v3 Tabs の API 安定性（package.json でバージョン固定済み）
+3. 期限切れ後の再取得失敗時にユーザーへ通知なし（サイレント失敗）— 将来的にトースト通知を検討
+4. E2Eテスト未実装（本Issue scope外、将来Issue）
+
 ## 更新ファイル
 
 - `docs/external/iframe-sandbox-ibom.md` (新規作成)
