@@ -127,3 +127,27 @@ pub async fn mark_failed(
     .await?;
     Ok(())
 }
+
+/// Find expired staging bundles (delete_after < NOW() and staging_object_key IS NOT NULL).
+/// Returns up to 100 bundles per sweep cycle.
+pub async fn find_expired_staging(
+    executor: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
+) -> Result<Vec<ArtifactBundle>, sqlx::Error> {
+    sqlx::query_as::<_, ArtifactBundle>(
+        "SELECT * FROM artifact_bundles WHERE delete_after < NOW() AND staging_object_key IS NOT NULL LIMIT 100",
+    )
+    .fetch_all(executor)
+    .await
+}
+
+/// Clear staging_object_key after successful S3 deletion.
+pub async fn clear_staging_object_key(
+    executor: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
+    id: Uuid,
+) -> Result<(), sqlx::Error> {
+    sqlx::query("UPDATE artifact_bundles SET staging_object_key = NULL WHERE id = $1")
+        .bind(id)
+        .execute(executor)
+        .await?;
+    Ok(())
+}

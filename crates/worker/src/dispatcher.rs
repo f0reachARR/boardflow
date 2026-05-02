@@ -1,4 +1,4 @@
-use boardflow_db::queries::{board_project, board_run, github_job};
+use boardflow_db::queries::{artifact_bundle, board_project, board_run, github_job};
 use boardflow_github::GitHubAppClient;
 use boardflow_jobs::MAX_ATTEMPTS;
 use sqlx::PgPool;
@@ -141,4 +141,49 @@ pub async fn sweep_timed_out_runs(pool: &PgPool) {
             tracing::error!(error = %e, "Failed to sweep timed-out BoardRuns");
         }
     }
+}
+
+/// Delete expired staging bundles from S3 and clear their object keys.
+pub async fn sweep_expired_staging_bundles(
+    pool: &PgPool,
+    s3_client: &aws_sdk_s3::Client,
+    config: &WorkerConfig,
+) {
+    let bundles = match artifact_bundle::find_expired_staging(pool).await {
+        Ok(b) => b,
+        Err(e) => {
+            tracing::error!(error = %e, "Failed to query expired staging bundles");
+            return;
+        }
+    };
+
+    if bundles.is_empty() {
+        tracing::debug!("No expired staging bundles to clean up");
+        return;
+    }
+
+    let mut deleted = 0u64;
+    for bundle in &bundles {
+        let key = bundle.staging_object_key.as_deref().unwrap();
+        match s3_client
+            .delete_object()
+            .bucket(&config.staging_bucket)
+            .key(key)
+            .send()
+            .await
+        {
+            Ok(_) => {
+                if let Err(e) = artifact_bundle::clear_staging_object_key(pool, bundle.id).await {
+                    tracing::error!(bundle_id = %bundle.id, error = %e, "Failed to clear staging_object_key");
+                } else {
+                    deleted += 1;
+                }
+            }
+            Err(e) => {
+                tracing::warn!(bundle_id = %bundle.id, key = key, error = %e, "Failed to delete staging object, will retry next sweep");
+            }
+        }
+    }
+
+    tracing::info!(deleted = deleted, total = bundles.len(), "Swept expired staging bundles");
 }

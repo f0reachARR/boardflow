@@ -90,6 +90,7 @@ async fn main() {
             ) => {}
             _ = sweep_interval.tick() => {
                 dispatcher::sweep_timed_out_runs(&pool).await;
+                dispatcher::sweep_expired_staging_bundles(&pool, &s3_client, &config).await;
             }
         }
     }
