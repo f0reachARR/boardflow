@@ -3,6 +3,7 @@
 //! Requires DATABASE_URL to be set to a PostgreSQL database with migrations applied.
 //! Run with: `cargo test -p boardflow-worker --test staging_cleanup_test -- --ignored`
 
+use serial_test::serial;
 use sqlx::PgPool;
 use uuid::Uuid;
 
@@ -96,6 +97,7 @@ async fn insert_bundle(
 /// Expired bundle with staging_object_key set is returned by find_expired_staging.
 #[tokio::test]
 #[ignore]
+#[serial]
 async fn test_find_expired_staging_returns_only_expired() {
     let pool = match get_pool().await {
         Some(p) => p,
@@ -120,6 +122,7 @@ async fn test_find_expired_staging_returns_only_expired() {
 /// clear_staging_object_key sets staging_object_key to NULL.
 #[tokio::test]
 #[ignore]
+#[serial]
 async fn test_clear_staging_object_key() {
     let pool = match get_pool().await {
         Some(p) => p,
@@ -152,6 +155,7 @@ async fn test_clear_staging_object_key() {
 /// After clearing staging_object_key, the bundle is no longer returned by find_expired_staging.
 #[tokio::test]
 #[ignore]
+#[serial]
 async fn test_cleared_bundle_not_returned_by_find_expired() {
     let pool = match get_pool().await {
         Some(p) => p,
@@ -178,6 +182,7 @@ async fn test_cleared_bundle_not_returned_by_find_expired() {
 /// Bundle with staging_object_key = NULL is not returned (already cleaned up).
 #[tokio::test]
 #[ignore]
+#[serial]
 async fn test_null_staging_key_not_returned() {
     let pool = match get_pool().await {
         Some(p) => p,
@@ -202,6 +207,7 @@ async fn test_null_staging_key_not_returned() {
 /// Bundle belonging to a timed-out run gets delete_after set via set_delete_after_for_timed_out_runs.
 #[tokio::test]
 #[ignore]
+#[serial]
 async fn test_timed_out_run_bundle_gets_delete_after() {
     let pool = match get_pool().await {
         Some(p) => p,
@@ -209,7 +215,7 @@ async fn test_timed_out_run_bundle_gets_delete_after() {
     };
     let (_repo_id, bp_id) = setup_test_data(&pool).await;
 
-    // Insert a board_run that will be "timed out"
+    // Insert a board_run with timed_out status
     let run_id = Uuid::now_v7();
     sqlx::query(
         r#"INSERT INTO board_runs
@@ -267,6 +273,7 @@ async fn test_timed_out_run_bundle_gets_delete_after() {
 /// Orphaned bundle (terminal run, no delete_after) gets repaired by repair_orphaned_staging_bundles.
 #[tokio::test]
 #[ignore]
+#[serial]
 async fn test_repair_orphaned_staging_bundles() {
     let pool = match get_pool().await {
         Some(p) => p,

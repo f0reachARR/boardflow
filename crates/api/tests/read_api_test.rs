@@ -1,3 +1,4 @@
+use serial_test::serial;
 use std::sync::Arc;
 
 use axum::body::Body;
@@ -205,6 +206,7 @@ async fn create_test_run_check(
 
 /// 認証系: セッションなしで401が返る
 #[tokio::test]
+#[serial]
 async fn test_list_repositories_unauthenticated() {
     let pool = match setup_pool().await {
         Some(p) => p,
@@ -228,6 +230,7 @@ async fn test_list_repositories_unauthenticated() {
 
 /// 認証系: 期限切れセッションで401が返る
 #[tokio::test]
+#[serial]
 async fn test_list_repositories_expired_session() {
     let pool = match setup_pool().await {
         Some(p) => p,
@@ -255,6 +258,7 @@ async fn test_list_repositories_expired_session() {
 
 /// 正常系: リポジトリ一覧を取得できる
 #[tokio::test]
+#[serial]
 async fn test_list_repositories_success() {
     let pool = match setup_pool().await {
         Some(p) => p,
@@ -289,6 +293,7 @@ async fn test_list_repositories_success() {
 
 /// 正常系: limit パラメータが機能する
 #[tokio::test]
+#[serial]
 async fn test_list_repositories_with_limit() {
     let pool = match setup_pool().await {
         Some(p) => p,
@@ -327,6 +332,7 @@ async fn test_list_repositories_with_limit() {
 
 /// 境界値: limit=0 は 1 に clamp される
 #[tokio::test]
+#[serial]
 async fn test_list_repositories_limit_zero_clamped() {
     let pool = match setup_pool().await {
         Some(p) => p,
@@ -359,6 +365,7 @@ async fn test_list_repositories_limit_zero_clamped() {
 
 /// エラー系: 不正な cursor
 #[tokio::test]
+#[serial]
 async fn test_list_repositories_invalid_cursor() {
     let pool = match setup_pool().await {
         Some(p) => p,
@@ -391,6 +398,7 @@ async fn test_list_repositories_invalid_cursor() {
 
 /// 正常系: リポジトリ詳細を取得できる
 #[tokio::test]
+#[serial]
 async fn test_get_repository_success() {
     let pool = match setup_pool().await {
         Some(p) => p,
@@ -429,6 +437,7 @@ async fn test_get_repository_success() {
 
 /// エラー系: 存在しないリポジトリ
 #[tokio::test]
+#[serial]
 async fn test_get_repository_not_found() {
     let pool = match setup_pool().await {
         Some(p) => p,
@@ -458,6 +467,7 @@ async fn test_get_repository_not_found() {
 
 /// 正常系: BoardProject一覧を取得できる
 #[tokio::test]
+#[serial]
 async fn test_list_board_projects_success() {
     let pool = match setup_pool().await {
         Some(p) => p,
@@ -503,6 +513,7 @@ async fn test_list_board_projects_success() {
 
 /// エラー系: 存在しないリポジトリのBoardProject一覧
 #[tokio::test]
+#[serial]
 async fn test_list_board_projects_repo_not_found() {
     let pool = match setup_pool().await {
         Some(p) => p,
@@ -532,6 +543,7 @@ async fn test_list_board_projects_repo_not_found() {
 
 /// 正常系: BoardProject詳細を取得できる
 #[tokio::test]
+#[serial]
 async fn test_get_board_project_success() {
     let pool = match setup_pool().await {
         Some(p) => p,
@@ -573,6 +585,7 @@ async fn test_get_board_project_success() {
 
 /// 正常系: BoardProject state がprocessing (最新runがcreated)
 #[tokio::test]
+#[serial]
 async fn test_get_board_project_state_processing() {
     let pool = match setup_pool().await {
         Some(p) => p,
@@ -607,6 +620,7 @@ async fn test_get_board_project_state_processing() {
 
 /// 正常系: BoardProject state がfailed (最新runがfailed)
 #[tokio::test]
+#[serial]
 async fn test_get_board_project_state_failed() {
     let pool = match setup_pool().await {
         Some(p) => p,
@@ -641,6 +655,7 @@ async fn test_get_board_project_state_failed() {
 
 /// 正常系: BoardProject state がtimed_out
 #[tokio::test]
+#[serial]
 async fn test_get_board_project_state_timed_out() {
     let pool = match setup_pool().await {
         Some(p) => p,
@@ -675,6 +690,7 @@ async fn test_get_board_project_state_timed_out() {
 
 /// エラー系: 不正なBoardProject IDフォーマット
 #[tokio::test]
+#[serial]
 async fn test_get_board_project_invalid_id() {
     let pool = match setup_pool().await {
         Some(p) => p,
@@ -702,6 +718,7 @@ async fn test_get_board_project_invalid_id() {
 
 /// エラー系: 存在しないBoardProject
 #[tokio::test]
+#[serial]
 async fn test_get_board_project_not_found() {
     let pool = match setup_pool().await {
         Some(p) => p,
@@ -732,6 +749,7 @@ async fn test_get_board_project_not_found() {
 
 /// 正常系: BoardRun一覧を取得できる
 #[tokio::test]
+#[serial]
 async fn test_list_board_runs_success() {
     let pool = match setup_pool().await {
         Some(p) => p,
@@ -775,6 +793,7 @@ async fn test_list_board_runs_success() {
 
 /// エラー系: 存在しないBoardProjectのBoardRun一覧
 #[tokio::test]
+#[serial]
 async fn test_list_board_runs_bp_not_found() {
     let pool = match setup_pool().await {
         Some(p) => p,
@@ -805,6 +824,7 @@ async fn test_list_board_runs_bp_not_found() {
 
 /// 正常系: BoardRun詳細を取得できる（checks + artifact_summary含む）
 #[tokio::test]
+#[serial]
 async fn test_get_board_run_success() {
     let pool = match setup_pool().await {
         Some(p) => p,
@@ -861,6 +881,7 @@ async fn test_get_board_run_success() {
 
 /// エラー系: 不正なBoardRun IDフォーマット
 #[tokio::test]
+#[serial]
 async fn test_get_board_run_invalid_id() {
     let pool = match setup_pool().await {
         Some(p) => p,
@@ -888,6 +909,7 @@ async fn test_get_board_run_invalid_id() {
 
 /// エラー系: 存在しないBoardRun
 #[tokio::test]
+#[serial]
 async fn test_get_board_run_not_found() {
     let pool = match setup_pool().await {
         Some(p) => p,
@@ -918,6 +940,7 @@ async fn test_get_board_run_not_found() {
 
 /// 正常系: Artifact一覧を取得できる
 #[tokio::test]
+#[serial]
 async fn test_list_artifacts_success() {
     let pool = match setup_pool().await {
         Some(p) => p,
@@ -972,6 +995,7 @@ async fn test_list_artifacts_success() {
 
 /// エラー系: 存在しないBoardRunのArtifact一覧
 #[tokio::test]
+#[serial]
 async fn test_list_artifacts_run_not_found() {
     let pool = match setup_pool().await {
         Some(p) => p,
@@ -1002,6 +1026,7 @@ async fn test_list_artifacts_run_not_found() {
 
 /// 正常系: Viewer Sources を取得できる（全artifact available）
 #[tokio::test]
+#[serial]
 async fn test_get_viewer_sources_all_available() {
     let pool = match setup_pool().await {
         Some(p) => p,
@@ -1071,6 +1096,7 @@ async fn test_get_viewer_sources_all_available() {
 
 /// 正常系: 一部のartifactが missing の場合は partial
 #[tokio::test]
+#[serial]
 async fn test_get_viewer_sources_partial() {
     let pool = match setup_pool().await {
         Some(p) => p,
@@ -1110,6 +1136,7 @@ async fn test_get_viewer_sources_partial() {
 
 /// 正常系: artifact が全くない場合は missing
 #[tokio::test]
+#[serial]
 async fn test_get_viewer_sources_missing() {
     let pool = match setup_pool().await {
         Some(p) => p,
@@ -1148,6 +1175,7 @@ async fn test_get_viewer_sources_missing() {
 
 /// 正常系: 全artifactが skipped の場合は skipped
 #[tokio::test]
+#[serial]
 async fn test_get_viewer_sources_skipped() {
     let pool = match setup_pool().await {
         Some(p) => p,
@@ -1187,6 +1215,7 @@ async fn test_get_viewer_sources_skipped() {
 
 /// エラー系: 存在しないBoardRunのViewer Sources
 #[tokio::test]
+#[serial]
 async fn test_get_viewer_sources_run_not_found() {
     let pool = match setup_pool().await {
         Some(p) => p,
@@ -1215,6 +1244,7 @@ async fn test_get_viewer_sources_run_not_found() {
 
 /// 正常系: viewer-sources が artifact_base_url を使った絶対URLを生成する
 #[tokio::test]
+#[serial]
 async fn test_get_viewer_sources_returns_absolute_url_with_custom_base() {
     let pool = match setup_pool().await {
         Some(p) => p,
@@ -1275,6 +1305,7 @@ async fn test_get_viewer_sources_returns_absolute_url_with_custom_base() {
 
 /// 統合: cursor pagination でページ遷移ができる
 #[tokio::test]
+#[serial]
 async fn test_pagination_cursor_traversal() {
     let pool = match setup_pool().await {
         Some(p) => p,
@@ -1347,6 +1378,7 @@ async fn test_pagination_cursor_traversal() {
 
 /// 権限チェック: リポジトリアクセス拒否時にlist_repositoriesが空を返す
 #[tokio::test]
+#[serial]
 async fn test_list_repositories_denied_returns_empty() {
     let pool = match setup_pool().await {
         Some(p) => p,
@@ -1379,6 +1411,7 @@ async fn test_list_repositories_denied_returns_empty() {
 
 /// 権限チェック: リポジトリアクセス拒否時にget_repositoryが404を返す
 #[tokio::test]
+#[serial]
 async fn test_get_repository_denied_returns_404() {
     let pool = match setup_pool().await {
         Some(p) => p,
@@ -1408,6 +1441,7 @@ async fn test_get_repository_denied_returns_404() {
 
 /// 権限チェック: リポジトリアクセス拒否時にlist_board_projectsが404を返す
 #[tokio::test]
+#[serial]
 async fn test_list_board_projects_denied_returns_404() {
     let pool = match setup_pool().await {
         Some(p) => p,
@@ -1440,6 +1474,7 @@ async fn test_list_board_projects_denied_returns_404() {
 
 /// 権限チェック: リポジトリアクセス拒否時にget_board_projectが404を返す
 #[tokio::test]
+#[serial]
 async fn test_get_board_project_denied_returns_404() {
     let pool = match setup_pool().await {
         Some(p) => p,
@@ -1470,6 +1505,7 @@ async fn test_get_board_project_denied_returns_404() {
 
 /// 権限チェック: リポジトリアクセス拒否時にget_board_runが404を返す
 #[tokio::test]
+#[serial]
 async fn test_get_board_run_denied_returns_404() {
     let pool = match setup_pool().await {
         Some(p) => p,
@@ -1501,6 +1537,7 @@ async fn test_get_board_run_denied_returns_404() {
 
 /// 権限チェック: リポジトリアクセス拒否時にlist_artifactsが404を返す
 #[tokio::test]
+#[serial]
 async fn test_list_artifacts_denied_returns_404() {
     let pool = match setup_pool().await {
         Some(p) => p,
@@ -1534,6 +1571,7 @@ async fn test_list_artifacts_denied_returns_404() {
 
 /// Pagination整合性: deny-allでrepository一覧が空かつhas_more=false（pre-filterのため）
 #[tokio::test]
+#[serial]
 async fn test_list_repositories_deny_all_pagination_integrity() {
     let pool = match setup_pool().await {
         Some(p) => p,
@@ -1573,6 +1611,7 @@ async fn test_list_repositories_deny_all_pagination_integrity() {
 
 /// Pagination整合性: allow-allでrepository一覧のページ遷移が正しく動作する
 #[tokio::test]
+#[serial]
 async fn test_list_repositories_allow_all_pagination_cursor() {
     let pool = match setup_pool().await {
         Some(p) => p,
@@ -1665,6 +1704,7 @@ fn create_upstream_error_app(pool: PgPool) -> axum::Router {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_get_repository_rate_limited_returns_429() {
     let Some(pool) = setup_pool().await else {
         return;
@@ -1695,6 +1735,7 @@ async fn test_get_repository_rate_limited_returns_429() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_get_repository_upstream_error_returns_500() {
     let Some(pool) = setup_pool().await else {
         return;
@@ -1725,6 +1766,7 @@ async fn test_get_repository_upstream_error_returns_500() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_list_repositories_rate_limited_returns_429() {
     let Some(pool) = setup_pool().await else {
         return;
@@ -1753,6 +1795,7 @@ async fn test_list_repositories_rate_limited_returns_429() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_list_repositories_upstream_error_returns_500() {
     let Some(pool) = setup_pool().await else {
         return;
@@ -1834,6 +1877,7 @@ async fn create_test_diff_metadata(pool: &PgPool, board_run_id: Uuid) -> Uuid {
 
 /// 正常系: diff status=ready、metadata あり
 #[tokio::test]
+#[serial]
 async fn test_get_board_run_diff_ready() {
     let Some(pool) = setup_pool().await else {
         return;
@@ -1885,6 +1929,7 @@ async fn test_get_board_run_diff_ready() {
 
 /// 正常系: diff status=no_baseline、base_board_run_id=null、metadata なし
 #[tokio::test]
+#[serial]
 async fn test_get_board_run_diff_no_baseline() {
     let Some(pool) = setup_pool().await else {
         return;
@@ -1933,6 +1978,7 @@ async fn test_get_board_run_diff_no_baseline() {
 
 /// 異常系: diff 未作成 → 404
 #[tokio::test]
+#[serial]
 async fn test_get_board_run_diff_not_found() {
     let Some(pool) = setup_pool().await else {
         return;
@@ -1966,6 +2012,7 @@ async fn test_get_board_run_diff_not_found() {
 
 /// 異常系: 不正ID → 400
 #[tokio::test]
+#[serial]
 async fn test_get_board_run_diff_invalid_id() {
     let Some(pool) = setup_pool().await else {
         return;
@@ -1995,6 +2042,7 @@ async fn test_get_board_run_diff_invalid_id() {
 
 /// 異常系: アクセス拒否 → 404
 #[tokio::test]
+#[serial]
 async fn test_get_board_run_diff_denied() {
     let Some(pool) = setup_pool().await else {
         return;
@@ -2030,6 +2078,7 @@ async fn test_get_board_run_diff_denied() {
 
 /// 正常系: diff status=failed、error_message あり
 #[tokio::test]
+#[serial]
 async fn test_get_board_run_diff_failed() {
     let Some(pool) = setup_pool().await else {
         return;
@@ -2069,6 +2118,7 @@ async fn test_get_board_run_diff_failed() {
 
 /// 正常系: diff status=unavailable
 #[tokio::test]
+#[serial]
 async fn test_get_board_run_diff_unavailable() {
     let Some(pool) = setup_pool().await else {
         return;
@@ -2146,6 +2196,7 @@ async fn create_test_run_check_finding(
 
 /// 正常系: findings一覧を取得できる
 #[tokio::test]
+#[serial]
 async fn test_list_findings_success() {
     let Some(pool) = setup_pool().await else {
         return;
@@ -2230,6 +2281,7 @@ async fn test_list_findings_success() {
 
 /// 正常系: 空リスト (findingsなし)
 #[tokio::test]
+#[serial]
 async fn test_list_findings_empty() {
     let Some(pool) = setup_pool().await else {
         return;
@@ -2268,6 +2320,7 @@ async fn test_list_findings_empty() {
 
 /// 正常系: run_checkが存在しない場合も空リスト (404ではない)
 #[tokio::test]
+#[serial]
 async fn test_list_findings_no_run_check_returns_empty() {
     let Some(pool) = setup_pool().await else {
         return;
@@ -2305,6 +2358,7 @@ async fn test_list_findings_no_run_check_returns_empty() {
 
 /// 正常系: severity filter
 #[tokio::test]
+#[serial]
 async fn test_list_findings_severity_filter() {
     let Some(pool) = setup_pool().await else {
         return;
@@ -2378,6 +2432,7 @@ async fn test_list_findings_severity_filter() {
 
 /// 正常系: cursor pagination
 #[tokio::test]
+#[serial]
 async fn test_list_findings_pagination() {
     let Some(pool) = setup_pool().await else {
         return;
@@ -2478,6 +2533,7 @@ async fn test_list_findings_pagination() {
 
 /// バリデーション: 不正なcheck_kindで400
 #[tokio::test]
+#[serial]
 async fn test_list_findings_invalid_check_kind() {
     let Some(pool) = setup_pool().await else {
         return;
@@ -2513,6 +2569,7 @@ async fn test_list_findings_invalid_check_kind() {
 
 /// バリデーション: 不正なboard_run_idフォーマットで400
 #[tokio::test]
+#[serial]
 async fn test_list_findings_invalid_board_run_id() {
     let Some(pool) = setup_pool().await else {
         return;
@@ -2542,6 +2599,7 @@ async fn test_list_findings_invalid_board_run_id() {
 
 /// バリデーション: 不正なseverityフィルタで400
 #[tokio::test]
+#[serial]
 async fn test_list_findings_invalid_severity() {
     let Some(pool) = setup_pool().await else {
         return;
@@ -2577,6 +2635,7 @@ async fn test_list_findings_invalid_severity() {
 
 /// 認証系: 未認証で401
 #[tokio::test]
+#[serial]
 async fn test_list_findings_unauthenticated() {
     let Some(pool) = setup_pool().await else {
         return;
@@ -2608,6 +2667,7 @@ async fn test_list_findings_unauthenticated() {
 
 /// 認可系: アクセス拒否で404
 #[tokio::test]
+#[serial]
 async fn test_list_findings_access_denied() {
     let Some(pool) = setup_pool().await else {
         return;
@@ -2640,6 +2700,7 @@ async fn test_list_findings_access_denied() {
 
 /// エラー系: 存在しないboard_runで404
 #[tokio::test]
+#[serial]
 async fn test_list_findings_board_run_not_found() {
     let Some(pool) = setup_pool().await else {
         return;
@@ -2669,6 +2730,7 @@ async fn test_list_findings_board_run_not_found() {
 
 /// バリデーション: 不正なcursorで400
 #[tokio::test]
+#[serial]
 async fn test_list_findings_invalid_cursor() {
     let Some(pool) = setup_pool().await else {
         return;
@@ -2705,6 +2767,7 @@ async fn test_list_findings_invalid_cursor() {
 /// 正常系: sort_index同値時のid tie-breakerテスト
 /// 2件のfindingsが同一sort_indexを持つ場合、idでtie-breakされて正しくpaginateされること
 #[tokio::test]
+#[serial]
 async fn test_list_findings_sort_index_tie_breaker() {
     let Some(pool) = setup_pool().await else {
         return;

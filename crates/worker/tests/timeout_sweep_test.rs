@@ -3,6 +3,7 @@
 //! Requires DATABASE_URL to be set to a PostgreSQL database with migrations applied.
 //! Run with: `cargo test -p boardflow-worker --test timeout_sweep_test -- --ignored`
 
+use serial_test::serial;
 use sqlx::PgPool;
 use uuid::Uuid;
 
@@ -107,7 +108,8 @@ async fn get_run_status(pool: &PgPool, id: Uuid) -> (String, bool) {
 }
 
 #[tokio::test]
-#[ignore] // Requires DATABASE_URL; run with --ignored
+#[ignore]
+#[serial]
 async fn test_sweep_marks_stale_runs_as_timed_out() {
     let Some(pool) = get_pool().await else { return };
     let (repo_id, bp_id) = setup_test_data(&pool).await;
@@ -148,7 +150,8 @@ async fn test_sweep_marks_stale_runs_as_timed_out() {
 }
 
 #[tokio::test]
-#[ignore] // Requires DATABASE_URL; run with --ignored
+#[ignore]
+#[serial]
 async fn test_sweep_does_not_affect_recent_runs() {
     let Some(pool) = get_pool().await else { return };
     let (repo_id, bp_id) = setup_test_data(&pool).await;
@@ -191,7 +194,8 @@ async fn test_sweep_does_not_affect_recent_runs() {
 }
 
 #[tokio::test]
-#[ignore] // Requires DATABASE_URL; run with --ignored
+#[ignore]
+#[serial]
 async fn test_sweep_does_not_affect_terminal_states() {
     let Some(pool) = get_pool().await else { return };
     let (repo_id, bp_id) = setup_test_data(&pool).await;

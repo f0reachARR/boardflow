@@ -2,6 +2,7 @@ use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use boardflow_api::create_app;
 use http_body_util::BodyExt;
+use serial_test::serial;
 use sha2::{Digest, Sha256};
 use sqlx::PgPool;
 use tower::ServiceExt;
@@ -119,6 +120,7 @@ fn rand_i64() -> i64 {
 
 /// 正常系: board run 作成成功、presigned URL 取得
 #[tokio::test]
+#[serial]
 async fn test_create_board_run_success() {
     let pool = match setup_pool().await {
         Some(p) => p,
@@ -176,6 +178,7 @@ async fn test_create_board_run_success() {
 
 /// 冪等性: 同じ run_id + attempt で再送すると同じ結果
 #[tokio::test]
+#[serial]
 async fn test_create_board_run_idempotent() {
     let pool = match setup_pool().await {
         Some(p) => p,
@@ -241,6 +244,7 @@ async fn test_create_board_run_idempotent() {
 
 /// 認証なし → 401
 #[tokio::test]
+#[serial]
 async fn test_create_board_run_unauthorized() {
     let pool = match setup_pool().await {
         Some(p) => p,
@@ -276,6 +280,7 @@ async fn test_create_board_run_unauthorized() {
 
 /// 他リポジトリの project → 403
 #[tokio::test]
+#[serial]
 async fn test_create_board_run_forbidden() {
     let pool = match setup_pool().await {
         Some(p) => p,
@@ -323,6 +328,7 @@ async fn test_create_board_run_forbidden() {
 
 /// 正常系: fail 成功
 #[tokio::test]
+#[serial]
 async fn test_fail_board_run_success() {
     let pool = match setup_pool().await {
         Some(p) => p,
@@ -369,6 +375,7 @@ async fn test_fail_board_run_success() {
 
 /// 冪等性: 既に failed → 同じ結果を返す
 #[tokio::test]
+#[serial]
 async fn test_fail_board_run_idempotent() {
     let pool = match setup_pool().await {
         Some(p) => p,
@@ -409,6 +416,7 @@ async fn test_fail_board_run_idempotent() {
 
 /// completed run を fail → 409 Conflict
 #[tokio::test]
+#[serial]
 async fn test_fail_board_run_conflict() {
     let pool = match setup_pool().await {
         Some(p) => p,
@@ -446,6 +454,7 @@ async fn test_fail_board_run_conflict() {
 
 /// timed_out run を fail → 410 Gone
 #[tokio::test]
+#[serial]
 async fn test_fail_board_run_gone() {
     let pool = match setup_pool().await {
         Some(p) => p,
@@ -485,6 +494,7 @@ async fn test_fail_board_run_gone() {
 
 /// 正常系: import 成功
 #[tokio::test]
+#[serial]
 async fn test_import_artifact_bundle_success() {
     let pool = match setup_pool().await {
         Some(p) => p,
@@ -545,6 +555,7 @@ async fn test_import_artifact_bundle_success() {
 
 /// 冪等性: 同じ key + sha256 で再送
 #[tokio::test]
+#[serial]
 async fn test_import_artifact_bundle_idempotent() {
     let pool = match setup_pool().await {
         Some(p) => p,
@@ -608,6 +619,7 @@ async fn test_import_artifact_bundle_idempotent() {
 
 /// 異なる sha256 → 409 Conflict
 #[tokio::test]
+#[serial]
 async fn test_import_artifact_bundle_conflict() {
     let pool = match setup_pool().await {
         Some(p) => p,
@@ -664,6 +676,7 @@ async fn test_import_artifact_bundle_conflict() {
 
 /// failed run に import → 410 Gone
 #[tokio::test]
+#[serial]
 async fn test_import_artifact_bundle_gone() {
     let pool = match setup_pool().await {
         Some(p) => p,
@@ -705,6 +718,7 @@ async fn test_import_artifact_bundle_gone() {
 
 /// completed run への import → 既存 bundle 状態を返し、新 job を作らない
 #[tokio::test]
+#[serial]
 async fn test_import_artifact_bundle_completed_run() {
     let pool = match setup_pool().await {
         Some(p) => p,
@@ -775,6 +789,7 @@ async fn test_import_artifact_bundle_completed_run() {
 
 /// 同一 run に異なる staging_object_key で 409 Conflict
 #[tokio::test]
+#[serial]
 async fn test_import_artifact_bundle_different_staging_key_conflict() {
     let pool = match setup_pool().await {
         Some(p) => p,
@@ -831,6 +846,7 @@ async fn test_import_artifact_bundle_different_staging_key_conflict() {
 
 /// status != "failed" で 400 validation_failed
 #[tokio::test]
+#[serial]
 async fn test_fail_board_run_invalid_status() {
     let pool = match setup_pool().await {
         Some(p) => p,
@@ -870,6 +886,7 @@ async fn test_fail_board_run_invalid_status() {
 
 /// 存在しない board_project_id で 404
 #[tokio::test]
+#[serial]
 async fn test_create_board_run_not_found_project() {
     let pool = match setup_pool().await {
         Some(p) => p,
@@ -914,6 +931,7 @@ async fn test_create_board_run_not_found_project() {
 
 /// 存在しない board_run_id で fail → 404
 #[tokio::test]
+#[serial]
 async fn test_fail_board_run_not_found() {
     let pool = match setup_pool().await {
         Some(p) => p,
@@ -951,6 +969,7 @@ async fn test_fail_board_run_not_found() {
 
 /// 存在しない board_run_id で import → 404
 #[tokio::test]
+#[serial]
 async fn test_import_artifact_bundle_not_found() {
     let pool = match setup_pool().await {
         Some(p) => p,
@@ -993,6 +1012,7 @@ async fn test_import_artifact_bundle_not_found() {
 /// Race condition: 先着リクエスト成功後、後着が異なる sha256 で 409 になることを確認
 /// (トランザクション内で conflict 判定が行われることを順次実行で擬似テスト)
 #[tokio::test]
+#[serial]
 async fn test_import_artifact_bundle_update_conflict() {
     let pool = match setup_pool().await {
         Some(p) => p,
