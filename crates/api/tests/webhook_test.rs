@@ -361,6 +361,100 @@ async fn test_webhook_repos_removed() {
     );
 }
 
+// --- Test: webhook secret not configured returns 500 ---
+
+#[tokio::test]
+#[serial]
+async fn test_webhook_no_secret_configured() {
+    let Some(pool) = setup_pool().await else {
+        return;
+    };
+    // webhook_secret を None で作成
+    let app =
+        boardflow_api::create_app_with_config(pool, None, None, None, None, None, None, None, None);
+    let body = br#"{"zen":"test"}"#;
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/github/webhook")
+                .header("Content-Type", "application/json")
+                .header("X-GitHub-Event", "ping")
+                .header("X-Hub-Signature-256", "sha256=dummy")
+                .body(Body::from(body.to_vec()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+}
+
+// --- Test: removed event from different installation does not clear ---
+
+#[tokio::test]
+#[serial]
+async fn test_webhook_repos_removed_different_installation() {
+    let Some(pool) = setup_pool().await else {
+        return;
+    };
+
+    let current_installation_id = rand_i64();
+    let different_installation_id = rand_i64();
+    let repo_id = rand_i64();
+
+    // repo を current_installation_id で登録
+    boardflow_db::queries::repository::upsert(
+        &pool,
+        repo_id,
+        "kept-org",
+        "kept-repo",
+        current_installation_id,
+    )
+    .await
+    .unwrap();
+
+    // different_installation_id からの removed event
+    let body = serde_json::json!({
+        "action": "removed",
+        "installation": { "id": different_installation_id },
+        "repositories_added": [],
+        "repositories_removed": [
+            { "id": repo_id, "name": "kept-repo", "full_name": "kept-org/kept-repo" }
+        ]
+    });
+    let body_bytes = serde_json::to_vec(&body).unwrap();
+    let signature = compute_signature(WEBHOOK_SECRET, &body_bytes);
+
+    let app = create_test_app(pool.clone());
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/github/webhook")
+                .header("Content-Type", "application/json")
+                .header("X-GitHub-Event", "installation_repositories")
+                .header("X-Hub-Signature-256", &signature)
+                .body(Body::from(body_bytes))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // installation_id は変更されていないことを確認
+    let repo = boardflow_db::queries::repository::find_by_github_id(&pool, repo_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        repo.installation_id, current_installation_id,
+        "installation_id should NOT be cleared by different installation's removal"
+    );
+}
+
 // --- Test: unknown event returns 200 ---
 
 #[tokio::test]

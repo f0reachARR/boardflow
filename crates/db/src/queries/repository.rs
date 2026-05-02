@@ -159,12 +159,14 @@ pub async fn clear_installation(
 pub async fn clear_installation_for_repo(
     executor: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
     github_repository_id: i64,
+    installation_id: i64,
 ) -> Result<Option<Repository>, sqlx::Error> {
     sqlx::query_as::<_, Repository>(
         "UPDATE repositories SET installation_id = 0, updated_at = NOW() \
-         WHERE github_repository_id = $1 RETURNING *",
+         WHERE github_repository_id = $1 AND installation_id = $2 RETURNING *",
     )
     .bind(github_repository_id)
+    .bind(installation_id)
     .fetch_optional(executor)
     .await
 }

@@ -99,7 +99,16 @@ pub async fn github_webhook(
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
 
-    tracing::info!(event = event, "received webhook event");
+    let delivery_id = headers
+        .get("X-GitHub-Delivery")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("unknown");
+
+    tracing::info!(
+        event = event,
+        delivery_id = delivery_id,
+        "received webhook event"
+    );
 
     match event {
         "ping" => StatusCode::OK,
@@ -208,9 +217,12 @@ async fn handle_installation_repositories_event(pool: &PgPool, body: &[u8]) -> S
         }
         "removed" => {
             for repo in &event.repositories_removed {
-                if let Err(err) =
-                    boardflow_db::queries::repository::clear_installation_for_repo(pool, repo.id)
-                        .await
+                if let Err(err) = boardflow_db::queries::repository::clear_installation_for_repo(
+                    pool,
+                    repo.id,
+                    event.installation.id,
+                )
+                .await
                 {
                     tracing::error!(
                         error = %err,
