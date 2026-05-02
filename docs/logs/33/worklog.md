@@ -393,3 +393,36 @@ if (name === "kicanvas") {
 - https://github.com/theacodes/kicanvas/blob/main/scripts/bundle.js
 - https://nextjs.org/docs/app/api-reference/components/script
 - https://til.jakelazaroff.com/typescript/add-custom-element-to-jsx-intrinsic-elements/
+
+## 実装内容（2026-05-03）
+
+### 追加ファイル
+
+1. **`boardflow/public/vendor/kicanvas/kicanvas.js`** — vendored bundle（477KB）
+2. **`boardflow/public/vendor/kicanvas/VERSION`** — バージョン情報
+3. **`.gitattributes`** — `linguist-vendored` 設定
+4. **`boardflow/src/types/kicanvas.d.ts`** — `declare module "react"` で `JSX.IntrinsicElements` を拡張
+5. **`boardflow/src/components/artifact-viewer/kicanvas-viewer.tsx`** — Client Component
+
+### 変更ファイル
+
+1. **`boardflow/src/components/artifact-viewer/artifact-viewer-section.tsx`** — "coming soon" プレースホルダーを `KiCanvasViewer` コンポーネント呼び出しに置き換え
+
+### 技術的判断
+
+- TypeScript型定義: `declare module "react/jsx-runtime"` では Next.js の TSC が認識しなかったため、`declare module "react"` による `JSX.IntrinsicElements` 拡張を採用
+- dynamic import: `/* webpackIgnore: true */` コメントで webpack の module resolution をバイパス + `@ts-expect-error` で TypeScript エラーを抑制
+- タイムアウト: 10秒（alpha品質の外部バンドルのため余裕を持たせた）
+- `Spinner` は Chakra UI v3 の `@chakra-ui/react` に存在することを確認して使用
+
+### テスト結果
+
+- `pnpm tsc --noEmit` → 成功
+- `pnpm build` (Next.js production build) → 成功
+- `pnpm eslint` 対象ファイル → エラーなし
+
+### 残リスク
+
+- KiCanvas はalpha品質のため、将来の bundle 更新時に API 変更の可能性あり
+- `customElements.whenDefined` でリカバリできるが、Events API（kicanvas:error）は未実装のためエラー検知が限定的
+- WebGL 非対応環境での詳細なエラーハンドリングは KiCanvas 側の実装に依存
