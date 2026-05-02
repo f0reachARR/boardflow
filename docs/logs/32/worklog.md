@@ -517,3 +517,125 @@ page.tsx (Server)
 
 - frontend だけを修正しても、viewer-sources API が pcb_pdf を返さない限り PCB Preview の PDF link は安定して提供できない。
 - KiCanvas の扱いは Issue 本文と docs/spec.md の差分を残したままなので、次の担当者が scope を誤解するリスクがある。
+
+---
+
+## 最終レビュー結果（2026-05-02, final review）
+
+### 総評
+
+- 前回までの指摘のうち、top-level タブ UI、Route Handler の backend error passthrough、URL 再取得失敗時の reload 導線、partial 表示は修正済み。
+- ただし、`missing` / `failed` / `skipped` viewer に対する理由表示が実際には到達不能で、Issue #32 の受け入れ条件「status が available 以外の場合に適切なフォールバックメッセージを表示する」をまだ満たしていない。
+- そのため、この Issue は最終確認時点でも PR ready とは判断しない。
+
+### 調査結果
+
+- [boardflow/src/components/artifact-viewer/artifact-viewer-section.tsx](boardflow/src/components/artifact-viewer/artifact-viewer-section.tsx#L71) では `skipped` viewer を `visibleTabs` から除外している。
+- [boardflow/src/components/artifact-viewer/artifact-viewer-section.tsx](boardflow/src/components/artifact-viewer/artifact-viewer-section.tsx#L79) 以降では `missing` / `failed` viewer のタブは残すが、[boardflow/src/components/artifact-viewer/artifact-viewer-section.tsx](boardflow/src/components/artifact-viewer/artifact-viewer-section.tsx#L92) で `disabled` にしている。
+- 一方で、フォールバック文言そのものは [boardflow/src/components/artifact-viewer/artifact-viewer-section.tsx](boardflow/src/components/artifact-viewer/artifact-viewer-section.tsx#L108) と [boardflow/src/components/artifact-viewer/viewer-status-message.tsx](boardflow/src/components/artifact-viewer/viewer-status-message.tsx#L8) に実装されている。
+- つまり「表示されるはずの理由メッセージ」が、`skipped` ではタブごと消され、`missing` / `failed` ではタブ無効化で実質アクセス不能になっている。
+- これは [docs/frontend/summary.md](docs/frontend/summary.md#L94) の「viewer単位の status に応じて、表示、限定表示、fallback、理由表示を切り替える」と不整合。
+
+### レビュー結果
+
+- `pr_ready: false`
+
+#### 指摘
+
+1. **Major**: `missing` / `failed` / `skipped` viewer の理由表示が UI から到達不能
+   - `skipped` はタブから除外、`missing` / `failed` は disabled タブ化されるため、`ViewerStatusMessage` の内容をユーザーが確認できない。
+   - 受け入れ条件と frontend summary の「理由表示」要件を未充足。
+
+#### 必須修正
+
+1. `missing` / `failed` / `skipped` viewer のいずれでも、ユーザーが理由メッセージを読める導線にする。
+   - 例: disabled にせず選択可能タブとして `ViewerStatusMessage` を表示する、またはタブ非表示の代わりに一覧メッセージを別枠で出す。
+
+#### 任意改善
+
+1. KiCanvas を本 Issue では placeholder 扱いにする方針なら、[docs/frontend/summary.md](docs/frontend/summary.md#L90) 付近と [docs/spec.md](docs/spec.md#L1995) 付近の説明との差分整理を残した方がよい。
+
+#### テスト不足
+
+1. `missing` / `failed` / `skipped` viewer で理由文言が実際に見えることを確認する component test がない。
+2. top-level tabs で disabled/hidden viewer を含む場合の表示分岐テストがない。
+
+#### ドキュメント更新漏れ
+
+1. 実装の暫定方針として KiCanvas placeholder を採るなら、spec / frontend summary / worklog の差分整理が未完了。
+
+#### plan / research / docs との不整合
+
+1. worklog の受け入れ条件では `available` 以外の status に対してメッセージ表示を求めているが、現実の UI は `missing` / `failed` / `skipped` で理由表示に到達できない。
+2. frontend summary は status に応じた理由表示を求めているが、現状は badge 表示に留まる。
+
+### 残リスク
+
+- viewer 欠損や失敗時の理由が見えないまま merge すると、artifact 不足と UI バグの切り分けが利用者にできない。
+
+---
+
+## ドキュメント確認結果（2026-05-02, docs review）
+
+### 総評
+
+- Issue #32 の現実の実装スコープは PDF / SVG / iBOM / Download に収束しており、KiCanvas は placeholder 扱いになっている。
+- この前提に対して、関連ドキュメントのうち [docs/frontend/summary.md](docs/frontend/summary.md#L90) と [docs/spec.md](docs/spec.md#L1094) はなお KiCanvas interactive preview を MVP 本体として読める記述を残している。
+- 加えて、[docs/spec.md](docs/spec.md#L1156) と [docs/backend/api.md](docs/backend/api.md#L821) 系の viewer-sources 記述は pcb_preview に pcb_pdf を含める例のままで、実装中の backend 契約と一致していない。
+- そのため、実装自体の方向性とは別に、ドキュメントは現時点で PR 作成可と判断できない。
+
+### docs_ready
+
+- `docs_ready: false`
+
+### 必須修正
+
+1. [docs/frontend/summary.md](docs/frontend/summary.md#L90) の Artifact 表示方針から、「Schematic / PCB Preview では KiCanvas を第一候補にする」と読める記述を、Issue #32 時点では placeholder / 将来対応であることが分かる表現に更新する。
+2. [docs/spec.md](docs/spec.md#L1098) 以降の viewer-sources 説明と [docs/spec.md](docs/spec.md#L2000) 以降の frontend 要件から、Issue #32 のスコープ外である KiCanvas interactive preview を MVP 必須要件として読める箇所を整理する。
+3. [docs/spec.md](docs/spec.md#L1156) の pcb_preview レスポンス例から pcb_pdf を外すか、別 viewer / 別 download artifact として扱う現契約に合わせて説明を修正する。
+4. [docs/backend/api.md](docs/backend/api.md#L821) の pcb_preview レスポンス例も同様に、backend 実装に合わせて SVG only へ直すか、契約変更予定があるなら未実装であることを明記する。
+
+### 任意改善
+
+1. [docs/logs/32/worklog.md](docs/logs/32/worklog.md#L520) 以降の最終レビュー所見には、現在の実装ではすでに前提が変わっている指摘が含まれるため、「当時のレビュー結果であり現状では一部 superseded」であることを補足すると追跡しやすい。
+2. KiCanvas placeholder の暫定仕様を [docs/frontend/summary.md](docs/frontend/summary.md#L90) と [docs/spec.md](docs/spec.md#L2000) の双方で同じ言い回しに寄せると、次 Issue の引き継ぎが容易になる。
+
+### 不整合のあるドキュメント
+
+1. [docs/frontend/summary.md](docs/frontend/summary.md#L90)
+2. [docs/spec.md](docs/spec.md#L1094)
+3. [docs/spec.md](docs/spec.md#L2000)
+4. [docs/backend/api.md](docs/backend/api.md#L821)
+5. [docs/logs/32/worklog.md](docs/logs/32/worklog.md#L520)
+
+### 不足しているドキュメント
+
+1. Issue #32 の暫定仕様として「KiCanvas は placeholder のみ、完全実装は別 Issue」「pcb_pdf は pcb_preview viewer ではなく別 artifact 扱い」という判断をまとめた明示的な追記が不足している。
+
+### 外部調査メモに関する指摘
+
+1. [docs/external/nextjs-iframe-artifact-viewer.md](docs/external/nextjs-iframe-artifact-viewer.md#L144) の「エラーハンドリング: 再取得失敗時はユーザーにページリロードを促す」は現実の実装と整合している。
+2. [docs/external/iframe-sandbox-ibom.md](docs/external/iframe-sandbox-ibom.md#L80) の sandbox 方針も現実の実装と整合している。
+3. 外部調査メモ自体に今回の必須修正はない。ズレは主に product/spec documentation 側にある。
+
+### 実装との照合メモ
+
+1. [boardflow/src/components/artifact-viewer/artifact-viewer-section.tsx](boardflow/src/components/artifact-viewer/artifact-viewer-section.tsx#L12) で KiCanvas は tab 定義には含まれるが、[boardflow/src/components/artifact-viewer/artifact-viewer-section.tsx](boardflow/src/components/artifact-viewer/artifact-viewer-section.tsx#L156) では placeholder 表示で止めている。
+2. [boardflow/src/components/artifact-viewer/svg-viewer.tsx](boardflow/src/components/artifact-viewer/svg-viewer.tsx#L13) は pcb_top_svg / pcb_bottom_svg のみを扱っており、PCB PDF 導線は持たない。
+3. backend 実装も [crates/api/src/routes/read.rs](crates/api/src/routes/read.rs#L1175) で pcb_top_svg / pcb_bottom_svg を pcb_preview として構成している。
+
+### worklog 整合性確認
+
+1. [docs/logs/32/worklog.md](docs/logs/32/worklog.md#L486) の「docs/backend/api.md Section 3.8 では pcb_preview は SVG のみ」という記述は、現行の [docs/backend/api.md](docs/backend/api.md#L821) と一致していない。
+2. [docs/logs/32/worklog.md](docs/logs/32/worklog.md#L520) 以降の最終レビューは当時の時点の指摘としては読めるが、現行の [boardflow/src/components/artifact-viewer/artifact-viewer-section.tsx](boardflow/src/components/artifact-viewer/artifact-viewer-section.tsx#L95) では `missing` / `failed` viewer を disabled にしていないため、現状の実装説明としては stale になっている。
+3. したがって worklog は「時系列ログとしては保持可」だが、現時点の判定は本 docs review 節を最新とみなすべき。
+
+### PR/完了結果
+
+- `docs_ready: false`
+- 理由: KiCanvas の扱いと pcb_preview / pcb_pdf 契約に関する主要ドキュメントが、Issue #32 の現実の実装と一致していないため。
+
+### 残リスク
+
+- この状態で PR を作ると、次の担当者が spec を読んで KiCanvas interactive preview と PCB PDF link が既に約束済みだと誤認する。
+- worklog 内に stale なレビュー結論が残っているため、レビュー履歴を拾う人が現状判定を取り違える可能性がある。

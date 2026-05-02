@@ -145,16 +145,15 @@ export function ArtifactViewerSection({
         <Tabs.List>
           {visibleTabs.map((tab) => {
             const viewer = viewers[tab.key]!
-            const isDisabled =
+            const isUnavailable =
               viewer.status === "missing" || viewer.status === "failed"
             return (
               <Tabs.Trigger
                 key={tab.key}
                 value={tab.key}
-                disabled={isDisabled}
               >
                 {tab.label}
-                {isDisabled && (
+                {isUnavailable && (
                   <Badge ml={1} size="xs" colorPalette="red">
                     {viewer.status}
                   </Badge>
