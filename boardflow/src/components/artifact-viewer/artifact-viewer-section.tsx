@@ -6,6 +6,7 @@ import type { ViewerEntry, ViewerSourcesResponse } from "@/lib/api/schema"
 import { PdfViewer } from "./pdf-viewer"
 import { SvgViewer } from "./svg-viewer"
 import { IbomViewer } from "./ibom-viewer"
+import { KiCanvasViewer } from "./kicanvas-viewer"
 import { DownloadList } from "./download-list"
 import { ViewerStatusMessage } from "./viewer-status-message"
 
@@ -180,19 +181,10 @@ function renderViewerContent(name: string, viewer: ViewerEntry) {
   }
 
   if (name === "kicanvas") {
-    return (
-      <Box p={4} bg="gray.50" borderWidth="1px" borderRadius="md">
-        <Text fontWeight="medium" mb={2}>
-          KiCanvas
-        </Text>
-        <Badge colorPalette="gray" mb={2}>
-          coming soon
-        </Badge>
-        <Text fontSize="sm" color="gray.500">
-          KiCanvas interactive viewer will be available in a future update.
-        </Text>
-      </Box>
-    )
+    if (!viewer.sources || viewer.sources.length === 0) {
+      return <ViewerStatusMessage status="missing" viewerName="kicanvas" />
+    }
+    return <KiCanvasViewer sources={viewer.sources} />
   }
 
   switch (name) {
