@@ -159,6 +159,17 @@ pub async fn sweep_expired_staging_bundles(
     s3_client: &aws_sdk_s3::Client,
     config: &WorkerConfig,
 ) {
+    // Self-healing: repair orphaned bundles from terminal runs
+    match artifact_bundle::repair_orphaned_staging_bundles(pool).await {
+        Ok(n) if n > 0 => {
+            tracing::info!(count = n, "Repaired orphaned staging bundles (set delete_after)");
+        }
+        Ok(_) => {}
+        Err(e) => {
+            tracing::error!(error = %e, "Failed to repair orphaned staging bundles");
+        }
+    }
+
     let bundles = match artifact_bundle::find_expired_staging(pool).await {
         Ok(b) => b,
         Err(e) => {

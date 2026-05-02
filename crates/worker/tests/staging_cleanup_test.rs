@@ -264,3 +264,66 @@ async fn test_timed_out_run_bundle_gets_delete_after() {
             .unwrap();
     assert!(bundle.delete_after.is_some());
 }
+
+/// Orphaned bundle (terminal run, no delete_after) gets repaired by repair_orphaned_staging_bundles.
+#[tokio::test]
+#[ignore]
+async fn test_repair_orphaned_staging_bundles() {
+    let pool = match get_pool().await {
+        Some(p) => p,
+        None => return,
+    };
+    let (_repo_id, bp_id) = setup_test_data(&pool).await;
+
+    // Insert a timed_out run with a bundle that has NO delete_after
+    let run_id = Uuid::now_v7();
+    sqlx::query(
+        r#"INSERT INTO board_runs
+        (id, board_project_id, commit_sha, branch, ref, github_run_id, github_run_attempt,
+         tree_hash, status, erc_errors, erc_warnings, drc_errors, drc_warnings,
+         review_status, diff_status, created_at, timed_out_at)
+        VALUES ($1, $2, 'abc123', 'main', 'refs/heads/main', $3, 1,
+                'treehash', 'timed_out', 0, 0, 0, 0, 'pending', 'pending',
+                NOW() - INTERVAL '13 hours', NOW())"#,
+    )
+    .bind(run_id)
+    .bind(bp_id)
+    .bind(rand::random::<i32>().unsigned_abs() as i64)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let bundle_id = Uuid::now_v7();
+    sqlx::query(
+        r#"INSERT INTO artifact_bundles
+        (id, board_run_id, intake_mode, staging_object_key, status, received_at)
+        VALUES ($1, $2, 'staging_s3', 'staging/orphaned/bundle.zip', 'pending', NOW())"#,
+    )
+    .bind(bundle_id)
+    .bind(run_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    // Before repair: should NOT appear in expired (no delete_after set)
+    let expired = boardflow_db::queries::artifact_bundle::find_expired_staging(&pool)
+        .await
+        .unwrap();
+    assert!(!expired.iter().any(|b| b.id == bundle_id));
+
+    // Run repair
+    let repaired =
+        boardflow_db::queries::artifact_bundle::repair_orphaned_staging_bundles(&pool)
+            .await
+            .unwrap();
+    assert!(repaired >= 1);
+
+    // After repair: delete_after should be set (7 days from now, so not expired yet)
+    let bundle: boardflow_domain::models::artifact_bundle::ArtifactBundle =
+        sqlx::query_as("SELECT * FROM artifact_bundles WHERE id = $1")
+            .bind(bundle_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert!(bundle.delete_after.is_some());
+}

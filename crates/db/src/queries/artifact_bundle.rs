@@ -173,3 +173,23 @@ pub async fn set_delete_after_for_timed_out_runs(
     .await?;
     Ok(result.rows_affected())
 }
+
+/// Repair orphaned staging bundles: set delete_after for bundles belonging to
+/// terminal runs (timed_out or failed) where delete_after is not yet set.
+/// This provides self-healing in case set_delete_after_for_timed_out_runs failed.
+pub async fn repair_orphaned_staging_bundles(
+    executor: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
+) -> Result<u64, sqlx::Error> {
+    let result = sqlx::query(
+        r#"UPDATE artifact_bundles ab
+        SET delete_after = NOW() + INTERVAL '7 days'
+        FROM board_runs br
+        WHERE ab.board_run_id = br.id
+        AND br.status IN ('timed_out', 'failed')
+        AND ab.staging_object_key IS NOT NULL
+        AND ab.delete_after IS NULL"#,
+    )
+    .execute(executor)
+    .await?;
+    Ok(result.rows_affected())
+}
