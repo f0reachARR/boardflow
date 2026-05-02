@@ -175,3 +175,21 @@ pub async fn find_repository_by_board_run_id(
     .fetch_optional(executor)
     .await
 }
+
+/// Find the previous completed run for a board_project (excluding the current run)
+pub async fn find_previous_completed(
+    executor: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
+    board_project_id: Uuid,
+    current_run_id: Uuid,
+) -> Result<Option<BoardRun>, sqlx::Error> {
+    sqlx::query_as::<_, BoardRun>(
+        r#"SELECT * FROM board_runs
+        WHERE board_project_id = $1 AND id != $2 AND status = 'completed'
+        ORDER BY completed_at DESC
+        LIMIT 1"#,
+    )
+    .bind(board_project_id)
+    .bind(current_run_id)
+    .fetch_optional(executor)
+    .await
+}

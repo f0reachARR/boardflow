@@ -1,10 +1,19 @@
 # PostgreSQL ジョブキューポーリング (Rust + SQLx)
 
-対象Issue: #7
+対象Issue: #7, #26
 
 ## 要約
 
-Import Worker は `github_jobs` テーブルから `artifact_bundle_import` ジョブをポーリングし、処理する。`SELECT ... FOR UPDATE SKIP LOCKED` パターンがデファクトスタンダードで、複数 worker インスタンスでの安全な並行処理が可能。既存の `github_jobs` スキーマに `run_after` と `attempts` カラムが存在するため、リトライとバックオフにそのまま利用できる。ポーリング間隔そのものは実装側で調整可能で、現行 worker は `POLL_INTERVAL_SECS` で上書きできる。
+Worker は `github_jobs` テーブルから複数のジョブタイプを優先度順にポーリングし処理する。`SELECT ... FOR UPDATE SKIP LOCKED` パターンがデファクトスタンダードで、複数 worker インスタンスでの安全な並行処理が可能。既存の `github_jobs` スキーマに `run_after` と `attempts` カラムが存在するため、リトライとバックオフにそのまま利用できる。ポーリング間隔そのものは実装側で調整可能で、現行 worker は `POLL_INTERVAL_SECS` で上書きできる。
+
+ポーリング対象ジョブタイプ（優先度順）:
+1. `artifact_bundle_import` — staging zip の検証・展開・保存
+2. `create_issue` — BoardProject の GitHub Issue 作成
+3. `create_dashboard_comment` — Dashboard コメント新規作成
+4. `update_dashboard_comment` — Dashboard コメント更新
+5. `create_run_result_comment` — Run Result コメント作成
+
+GitHub App 未設定時（`GITHUB_APP_ID` / `GITHUB_PRIVATE_KEY_PEM` なし）は GitHub API ジョブ（2〜5）をスキップし、`artifact_bundle_import` のみ処理する。
 
 ## 確認した情報
 

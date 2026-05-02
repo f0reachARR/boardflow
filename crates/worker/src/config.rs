@@ -6,6 +6,9 @@ pub struct WorkerConfig {
     pub s3_access_key: Option<String>,
     pub s3_secret_key: Option<String>,
     pub poll_interval_secs: u64,
+    pub github_app_id: Option<u64>,
+    pub github_private_key_pem: Option<String>,
+    pub app_base_url: String,
 }
 
 impl WorkerConfig {
@@ -23,6 +26,12 @@ impl WorkerConfig {
                 .ok()
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(2),
+            github_app_id: std::env::var("GITHUB_APP_ID")
+                .ok()
+                .and_then(|v| v.parse().ok()),
+            github_private_key_pem: std::env::var("GITHUB_PRIVATE_KEY_PEM").ok(),
+            app_base_url: std::env::var("APP_BASE_URL")
+                .unwrap_or_else(|_| "https://boardflow.example.com".into()),
         }
     }
 }

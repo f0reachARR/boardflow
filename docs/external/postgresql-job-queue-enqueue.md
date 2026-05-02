@@ -101,6 +101,7 @@ pub async fn enqueue_import_job(
 |---|---|---|
 | `artifact_bundle_import` | staging zip → 検証 → final bucket保存 → DB保存 | Import API |
 | `create_issue` | BoardProject の GitHub Issue 作成 | import 完了後 (worker) |
+| `create_dashboard_comment` | Dashboard コメント新規作成 | import 完了後 (worker) |
 | `update_dashboard_comment` | Dashboard コメント更新 | import 完了後 (worker) |
 | `create_run_result_comment` | Run Result コメント作成 | import 完了後 (worker) |
 

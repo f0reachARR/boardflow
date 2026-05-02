@@ -210,6 +210,70 @@ pub async fn get_latest_run_status(
     .await
 }
 
+/// Update issue info after creating an issue
+pub async fn update_issue_info(
+    executor: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
+    id: Uuid,
+    issue_number: i32,
+    issue_node_id: &str,
+    issue_url: &str,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "UPDATE board_projects SET issue_number = $2, issue_node_id = $3, issue_url = $4, issue_sync_status = 'synced', updated_at = NOW() WHERE id = $1",
+    )
+    .bind(id)
+    .bind(issue_number)
+    .bind(issue_node_id)
+    .bind(issue_url)
+    .execute(executor)
+    .await?;
+    Ok(())
+}
+
+/// Update dashboard_comment_id after creating a dashboard comment
+pub async fn update_dashboard_comment_id(
+    executor: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
+    id: Uuid,
+    comment_id: i64,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "UPDATE board_projects SET dashboard_comment_id = $2, updated_at = NOW() WHERE id = $1",
+    )
+    .bind(id)
+    .bind(comment_id)
+    .execute(executor)
+    .await?;
+    Ok(())
+}
+
+/// Clear dashboard_comment_id (e.g., when the comment is deleted or needs recreation)
+pub async fn clear_dashboard_comment_id(
+    executor: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
+    id: Uuid,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "UPDATE board_projects SET dashboard_comment_id = NULL, updated_at = NOW() WHERE id = $1",
+    )
+    .bind(id)
+    .execute(executor)
+    .await?;
+    Ok(())
+}
+
+/// Clear issue info (issue_number, issue_node_id, issue_url) when an issue is not found (404)
+pub async fn clear_issue_info(
+    executor: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
+    id: Uuid,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "UPDATE board_projects SET issue_number = NULL, issue_node_id = NULL, issue_url = NULL, dashboard_comment_id = NULL, issue_sync_status = 'pending', updated_at = NOW() WHERE id = $1",
+    )
+    .bind(id)
+    .execute(executor)
+    .await?;
+    Ok(())
+}
+
 /// Find the repository associated with a board_project
 pub async fn find_repository_by_board_project_id(
     executor: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
