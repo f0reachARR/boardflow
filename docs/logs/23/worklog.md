@@ -146,3 +146,85 @@
 ### 残リスク
 - 並列テスト実行時、`sweep_timed_out`がグローバルUPDATEのため他テストのRunも巻き込む可能性 → テストでは戻り値ではなく行状態を直接検証する方式で対策済み
 - タイムアウト通知機能は未実装（将来Issue）
+
+---
+
+## レビュー結果 (2026-05-02)
+
+### 総評
+- `sweep_timed_out` のSQL自体は仕様どおりで、`created` / `uploading` / `importing` のみを `timed_out` に一括更新し、terminal state を触らない点は妥当
+- 一方で、worker への統合方法は「約60秒ごとの独立した定期処理」になっておらず、`poll_and_dispatch` の完了タイミングと `poll_interval_secs` にスイープ間隔が従属している
+- さらに、毎分実行される想定のクエリに対して `board_runs(status, created_at)` 系の索引がなく、件数増加時に全表走査の定期負荷になる
+- 上記のため、この時点では `pr_ready: false`
+
+### 重大度順の指摘
+
+#### 1. High: スイープ実行間隔が `TIMEOUT_SWEEP_INTERVAL_SECS` を保証していない
+- [crates/worker/src/main.rs](crates/worker/src/main.rs#L73) で interval 値を作っているが、実際の判定は [crates/worker/src/main.rs](crates/worker/src/main.rs#L92-L93) のとおり `poll_and_dispatch` 完了後にしか行われない
+- `poll_and_dispatch` はジョブが無い場合に [crates/worker/src/dispatcher.rs](crates/worker/src/dispatcher.rs#L119-L120) で `poll_interval_secs` 分 sleep するため、`POLL_INTERVAL_SECS > TIMEOUT_SWEEP_INTERVAL_SECS` の設定では timeout sweep は設定値どおりに走らない
+- 同様に、長時間かかる import job が1件あるだけでも sweep はその完了まで止まる。Issue の受け入れ条件「約60秒に1回実行」「ジョブポーリングを妨げない」とは一致しない
+- 対応案: `tokio::time::interval` を `select!` に独立枝として追加するか、別 task で sweep を実行してジョブ処理と cadence を分離する
+
+#### 2. Medium: 定期 sweep SQL に対応する索引がなく、運用時に全表走査になりやすい
+- sweep クエリは [crates/db/src/queries/board_run.rs](crates/db/src/queries/board_run.rs#L199-L206) のとおり `status IN (...) AND created_at < NOW() - interval '12 hours'` で絞り込む
+- しかし現行スキーマで確認できる `board_runs` の索引は [crates/db/migrations/20260430000001_create_schema.up.sql](crates/db/migrations/20260430000001_create_schema.up.sql#L215) の `board_project_id` のみで、この条件に効く索引がない
+- worker が 60 秒ごとにこの UPDATE を打つ想定なら、件数増加に伴って毎回 seq scan になりやすい
+- 対応案: `created_at` 先頭の partial index 例 `WHERE status IN ('created','uploading','importing')` を追加し、timeout 対象集合だけを引けるようにする
+
+### 必須修正
+- timeout sweep を job loop から独立した cadence で実行するように変更する
+- 上記変更後、`POLL_INTERVAL_SECS` や長時間 job に引きずられず sweep が動くことを確認するテストを追加する
+
+### 任意改善
+- `board_runs` の timeout sweep 用 partial index を追加する
+- `sweep_timed_out_runs` で件数だけでなく代表 ID か elapsed time を debug ログに残し、運用時の観測性を上げる
+
+### テスト不足
+- [crates/worker/tests/timeout_sweep_test.rs](crates/worker/tests/timeout_sweep_test.rs#L111) から [crates/worker/tests/timeout_sweep_test.rs](crates/worker/tests/timeout_sweep_test.rs#L177) は DB クエリの結果検証に留まっており、main loop 統合後のスケジューリングは検証していない
+- ちょうど12時間境界のケースが無い。仕様文言が「12時間以内」「12時間を超えた」で分かれているため、`=` 境界を固定しておくと将来の解釈ブレを防げる
+- テストは全て `#[ignore]` で [crates/worker/tests/timeout_sweep_test.rs](crates/worker/tests/timeout_sweep_test.rs#L3-L4) のとおり外部 DB 前提。通常の `cargo test` ではこの変更の主機能が自動では担保されない
+
+### ドキュメント確認
+- 実装で [crates/worker/src/config.rs](crates/worker/src/config.rs#L30) に `TIMEOUT_SWEEP_INTERVAL_SECS` が追加されているが、Worker 環境変数一覧は [README.md](README.md#L19-L32) にまだ記載がない
+- `docs/spec.md` の timeout 要件との整合は取れている
+
+### plan / research / docs との不整合
+- 計画上の「約60秒に1回実行」は実装では保証されていない
+- `docs/external/postgresql-job-queue-polling.md` が示す polling loop は job dequeue cadence の話であり、今回の timeout sweep を同じ戻りタイミングに束ねると責務が結合する
+- ドキュメント更新対象を「不要」としているが、実際には README の環境変数一覧更新が必要
+
+### PR/完了結果
+- `pr_ready: false`
+- レビュー担当としては、少なくとも sweep cadence の独立化とその確認テストまでは反映後に再レビューが必要
+
+### 残リスク
+- partial index を追加しない場合、BoardRun 蓄積後に worker の定期 sweep が DB 負荷要因になる
+- タイムアウト処理が job handler 実行時間に依存したままだと、障害時に本来 timeout 扱いにすべき run の遷移がさらに遅れる
+
+---
+
+## レビュー指摘修正 (2026-05-02)
+
+### 修正内容
+
+| ファイル | 変更内容 |
+|---------|---------|
+| `crates/worker/src/main.rs` | `last_sweep` + elapsed比較 → `tokio::time::interval` + 独立 `select!` branch に変更。sweep が `poll_and_dispatch` の完了タイミングに依存しなくなった |
+| `crates/db/migrations/20260502000000_add_board_runs_timeout_sweep_index.up.sql` | 新規: `idx_board_runs_timeout_sweep` 部分インデックス (`created_at WHERE status IN (...)`) |
+| `crates/db/migrations/20260502000000_add_board_runs_timeout_sweep_index.down.sql` | 新規: 上記インデックスの DROP |
+| `README.md` | Worker環境変数表に `TIMEOUT_SWEEP_INTERVAL_SECS` を追加 |
+
+### 指摘への対応
+
+1. **High: sweep実行間隔が保証されない** → `tokio::time::interval` を `select!` の独立ブランチにし、`poll_and_dispatch` やジョブ実行時間に依存しなくなった
+2. **Medium: 定期sweep SQLに索引がない** → `board_runs(created_at) WHERE status IN ('created','uploading','importing')` の部分インデックスを追加
+3. **ドキュメント: README環境変数未記載** → `TIMEOUT_SWEEP_INTERVAL_SECS` を追加
+
+### テスト結果
+- `cargo check --workspace` ✅ 成功
+- `cargo test -p boardflow-worker --lib` ✅ 21テスト全パス
+- `cargo test -p boardflow-worker --test timeout_sweep_test -- --ignored` ✅ 3テスト全パス
+
+### 残リスク
+- main loop統合後のスケジューリング検証テストは未追加（`select!` の非同期動作を単体テストで検証するのは困難。実際のタイミング保証は運用レベルで確認）
+- ちょうど12時間境界のテストケースは未追加（既存SQLが `<` 比較のため12h丁度はタイムアウト対象外。仕様と整合）
