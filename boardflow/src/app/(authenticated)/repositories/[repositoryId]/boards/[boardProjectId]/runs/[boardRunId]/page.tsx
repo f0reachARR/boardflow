@@ -4,6 +4,7 @@ import { notFound } from "next/navigation"
 import { createServerClient } from "@/lib/api/server"
 import type { Artifact, ViewerEntry, DiffResponse } from "@/lib/api/schema"
 import { Breadcrumb } from "@/components/ui/breadcrumb"
+import { ArtifactViewerSection } from "@/components/artifact-viewer/artifact-viewer-section"
 
 function statusColor(status: string): string {
   switch (status) {
@@ -33,23 +34,6 @@ function artifactStatusColor(status: string): string {
   switch (status) {
     case "available":
       return "green"
-    case "missing":
-      return "orange"
-    case "failed":
-      return "red"
-    case "skipped":
-      return "gray"
-    default:
-      return "gray"
-  }
-}
-
-function viewerStatusColor(status: string): string {
-  switch (status) {
-    case "available":
-      return "green"
-    case "partial":
-      return "yellow"
     case "missing":
       return "orange"
     case "failed":
@@ -316,78 +300,11 @@ export default async function RunDetailPage({ params }: Props) {
         )}
 
         {/* Viewers */}
-        {Object.keys(viewers).length > 0 && (
-          <Box>
-            <Heading size="md" mb={3}>Viewers</Heading>
-            <VStack align="stretch" gap={3}>
-              {Object.entries(viewers).map(([name, viewer]) => (
-                <Box
-                  key={name}
-                  borderWidth="1px"
-                  borderRadius="md"
-                  p={4}
-                  bg="white"
-                >
-                  <HStack justify="space-between" mb={2}>
-                    <Text fontWeight="medium" textTransform="capitalize">
-                      {name.replace(/_/g, " ")}
-                    </Text>
-                    <Badge colorPalette={viewerStatusColor(viewer.status)}>
-                      {viewer.status}
-                    </Badge>
-                  </HStack>
-                  {viewer.status === "available" && viewer.primary && (
-                    <a
-                      href={viewer.primary.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                    >
-                      <Text color="blue.600" fontSize="sm" _hover={{ textDecoration: "underline" }}>
-                        Open {viewer.primary.artifact_type ?? name}
-                      </Text>
-                    </a>
-                  )}
-                  {viewer.status === "available" && viewer.iframe_url && (
-                    <a
-                      href={viewer.iframe_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                    >
-                      <Text color="blue.600" fontSize="sm" _hover={{ textDecoration: "underline" }}>
-                        Open {name}
-                      </Text>
-                    </a>
-                  )}
-                  {viewer.downloads && viewer.downloads.length > 0 && (
-                    <HStack gap={2} mt={1}>
-                      {viewer.downloads
-                        .filter((d) => d.url)
-                        .map((d) => (
-                          <a
-                            key={d.artifact_id ?? d.artifact_type}
-                            href={d.url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                          >
-                            <Text color="blue.600" fontSize="sm" _hover={{ textDecoration: "underline" }}>
-                              Download {d.artifact_type}
-                            </Text>
-                          </a>
-                        ))}
-                    </HStack>
-                  )}
-                  {(viewer.status === "missing" || viewer.status === "failed") && (
-                    <Text fontSize="sm" color="gray.500">
-                      {viewer.status === "missing"
-                        ? "Required sources are not available."
-                        : "Failed to generate viewer sources."}
-                    </Text>
-                  )}
-                </Box>
-              ))}
-            </VStack>
-          </Box>
-        )}
+        <ArtifactViewerSection
+          viewers={viewers}
+          expiresAt={viewerRes.data?.expires_at}
+          boardRunId={boardRunId}
+        />
       </VStack>
     </Box>
   )
