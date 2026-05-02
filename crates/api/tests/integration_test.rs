@@ -1,3 +1,4 @@
+use serial_test::serial;
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use boardflow_api::create_app;
@@ -7,6 +8,7 @@ use tower::ServiceExt;
 
 /// OpenAPI JSONエンドポイントが200を返し、有効なJSONを含むことを確認
 #[tokio::test]
+#[serial]
 async fn test_openapi_endpoint_returns_json() {
     // SAFETY: tests run sequentially via #[tokio::test] default single-thread;
     // no other thread reads this var concurrently at this point.
@@ -42,6 +44,7 @@ async fn test_openapi_endpoint_returns_json() {
 
 /// healthzエンドポイントがDB接続成功時に200を返すことを確認
 #[tokio::test]
+#[serial]
 async fn test_healthz_returns_ok_with_db() {
     // SAFETY: tests run sequentially via #[tokio::test] default single-thread;
     // no other thread reads this var concurrently at this point.

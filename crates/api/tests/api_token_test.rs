@@ -1,3 +1,4 @@
+use serial_test::serial;
 use std::sync::Arc;
 
 use axum::body::Body;
@@ -98,6 +99,7 @@ async fn create_test_repository(pool: &PgPool, github_repository_id: i64) -> Uui
 // ─── Test: token creation returns 201 with plaintext and correct hash ────────
 
 #[tokio::test]
+#[serial]
 async fn test_create_api_token_success() {
     let Some(pool) = setup_pool().await else {
         return;
@@ -153,6 +155,7 @@ async fn test_create_api_token_success() {
 // ─── Test: token list returns created tokens without hash ────────────────────
 
 #[tokio::test]
+#[serial]
 async fn test_list_api_tokens() {
     let Some(pool) = setup_pool().await else {
         return;
@@ -208,6 +211,7 @@ async fn test_list_api_tokens() {
 // ─── Test: revoke sets revoked_at ────────────────────────────────────────────
 
 #[tokio::test]
+#[serial]
 async fn test_revoke_api_token() {
     let Some(pool) = setup_pool().await else {
         return;
@@ -254,6 +258,7 @@ async fn test_revoke_api_token() {
 // ─── Test: re-revoking is idempotent (preserves original revoked_at) ─────────
 
 #[tokio::test]
+#[serial]
 async fn test_revoke_idempotent() {
     let Some(pool) = setup_pool().await else {
         return;
@@ -300,6 +305,7 @@ async fn test_revoke_idempotent() {
 // ─── Test: unauthenticated request returns 401 ───────────────────────────────
 
 #[tokio::test]
+#[serial]
 async fn test_create_api_token_unauthenticated() {
     let Some(pool) = setup_pool().await else {
         return;
@@ -324,6 +330,7 @@ async fn test_create_api_token_unauthenticated() {
 // ─── Test: non-existent repository returns 404 ───────────────────────────────
 
 #[tokio::test]
+#[serial]
 async fn test_create_api_token_repo_not_found() {
     let Some(pool) = setup_pool().await else {
         return;
@@ -349,6 +356,7 @@ async fn test_create_api_token_repo_not_found() {
 // ─── Test: access denied returns 404 (information hiding) ────────────────────
 
 #[tokio::test]
+#[serial]
 async fn test_create_api_token_access_denied() {
     let Some(pool) = setup_pool().await else {
         return;
@@ -376,6 +384,7 @@ async fn test_create_api_token_access_denied() {
 // ─── Test: name validation (empty name) ──────────────────────────────────────
 
 #[tokio::test]
+#[serial]
 async fn test_create_api_token_empty_name() {
     let Some(pool) = setup_pool().await else {
         return;
@@ -403,6 +412,7 @@ async fn test_create_api_token_empty_name() {
 // ─── Test: name validation (too long) ────────────────────────────────────────
 
 #[tokio::test]
+#[serial]
 async fn test_create_api_token_name_too_long() {
     let Some(pool) = setup_pool().await else {
         return;
@@ -431,6 +441,7 @@ async fn test_create_api_token_name_too_long() {
 // ─── Test: revoke token from different repo returns 404 ──────────────────────
 
 #[tokio::test]
+#[serial]
 async fn test_revoke_token_wrong_repo() {
     let Some(pool) = setup_pool().await else {
         return;
@@ -475,6 +486,7 @@ async fn test_revoke_token_wrong_repo() {
 // ─── Test: cursor pagination (multi-page) ────────────────────────────────────
 
 #[tokio::test]
+#[serial]
 async fn test_list_api_tokens_cursor_pagination() {
     let Some(pool) = setup_pool().await else {
         return;
@@ -551,6 +563,7 @@ async fn test_list_api_tokens_cursor_pagination() {
 // ─── Test: list access denied returns 404 ────────────────────────────────────
 
 #[tokio::test]
+#[serial]
 async fn test_list_api_tokens_access_denied() {
     let Some(pool) = setup_pool().await else {
         return;
@@ -576,6 +589,7 @@ async fn test_list_api_tokens_access_denied() {
 // ─── Test: revoke access denied returns 404 ──────────────────────────────────
 
 #[tokio::test]
+#[serial]
 async fn test_revoke_api_token_access_denied() {
     let Some(pool) = setup_pool().await else {
         return;
@@ -614,6 +628,7 @@ async fn test_revoke_api_token_access_denied() {
 // ─── Test: create with malformed JSON returns validation_failed + request_id ─
 
 #[tokio::test]
+#[serial]
 async fn test_create_api_token_malformed_json() {
     let Some(pool) = setup_pool().await else {
         return;
@@ -653,6 +668,7 @@ async fn test_create_api_token_malformed_json() {
 // ─── Test: revoke with invalid token_id returns validation_failed + request_id ─
 
 #[tokio::test]
+#[serial]
 async fn test_revoke_api_token_invalid_token_id() {
     let Some(pool) = setup_pool().await else {
         return;

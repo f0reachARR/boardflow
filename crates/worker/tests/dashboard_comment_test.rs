@@ -11,6 +11,7 @@ use chrono::Utc;
 use secrecy::SecretString;
 use sqlx::PgPool;
 use uuid::Uuid;
+use serial_test::serial;
 
 /// Mock GitHub client with configurable results for dashboard comment tests.
 struct MockGitHubClient {
@@ -277,6 +278,7 @@ async fn cleanup_test_data(pool: &PgPool, repo_id: Uuid, bp_id: Uuid) {
 
 #[tokio::test]
 #[ignore]
+#[serial]
 async fn test_create_dashboard_comment_success() {
     let Some(pool) = get_pool().await else { return };
     let (repo_id, bp_id, run_id, installation_id) = setup_with_issue(&pool).await;
@@ -311,6 +313,7 @@ async fn test_create_dashboard_comment_success() {
 
 #[tokio::test]
 #[ignore]
+#[serial]
 async fn test_create_dashboard_comment_idempotent() {
     let Some(pool) = get_pool().await else { return };
     let (repo_id, bp_id, run_id, installation_id) = setup_with_issue(&pool).await;
@@ -393,6 +396,7 @@ async fn test_create_dashboard_comment_idempotent() {
 
 #[tokio::test]
 #[ignore]
+#[serial]
 async fn test_create_dashboard_comment_no_issue() {
     let Some(pool) = get_pool().await else { return };
     // setup_test_data does NOT set issue_number
@@ -430,6 +434,7 @@ async fn test_create_dashboard_comment_no_issue() {
 
 #[tokio::test]
 #[ignore]
+#[serial]
 async fn test_create_dashboard_comment_missing_board_project_id() {
     let Some(pool) = get_pool().await else { return };
 
@@ -451,6 +456,7 @@ async fn test_create_dashboard_comment_missing_board_project_id() {
 
 #[tokio::test]
 #[ignore]
+#[serial]
 async fn test_create_dashboard_comment_missing_board_run_id() {
     let Some(pool) = get_pool().await else { return };
 
@@ -472,6 +478,7 @@ async fn test_create_dashboard_comment_missing_board_run_id() {
 
 #[tokio::test]
 #[ignore]
+#[serial]
 async fn test_create_dashboard_comment_project_not_found() {
     let Some(pool) = get_pool().await else { return };
 
@@ -503,6 +510,7 @@ async fn test_create_dashboard_comment_project_not_found() {
 
 #[tokio::test]
 #[ignore]
+#[serial]
 async fn test_update_dashboard_comment_success() {
     let Some(pool) = get_pool().await else { return };
     let (repo_id, bp_id, run_id, installation_id) = setup_with_issue(&pool).await;
@@ -559,6 +567,7 @@ async fn test_update_dashboard_comment_success() {
 
 #[tokio::test]
 #[ignore]
+#[serial]
 async fn test_update_dashboard_comment_fallback_create() {
     let Some(pool) = get_pool().await else { return };
     let (repo_id, bp_id, run_id, installation_id) = setup_with_issue(&pool).await;
@@ -595,6 +604,7 @@ async fn test_update_dashboard_comment_fallback_create() {
 
 #[tokio::test]
 #[ignore]
+#[serial]
 async fn test_update_dashboard_comment_404_recreate() {
     let Some(pool) = get_pool().await else { return };
     let (repo_id, bp_id, run_id, installation_id) = setup_with_issue(&pool).await;
@@ -639,6 +649,7 @@ async fn test_update_dashboard_comment_404_recreate() {
 
 #[tokio::test]
 #[ignore]
+#[serial]
 async fn test_update_dashboard_comment_no_issue() {
     let Some(pool) = get_pool().await else { return };
     // setup_test_data does NOT set issue_number
@@ -678,6 +689,7 @@ async fn test_update_dashboard_comment_no_issue() {
 
 #[tokio::test]
 #[ignore]
+#[serial]
 async fn test_create_dashboard_comment_issue_closed_recreate_tree_hash_changed() {
     let Some(pool) = get_pool().await else { return };
     let (repo_id, bp_id, _prev_run_id, current_run_id, installation_id) =
@@ -751,6 +763,7 @@ async fn test_create_dashboard_comment_issue_closed_recreate_tree_hash_changed()
 
 #[tokio::test]
 #[ignore]
+#[serial]
 async fn test_create_dashboard_comment_issue_closed_tree_hash_unchanged() {
     let Some(pool) = get_pool().await else { return };
     let (repo_id, bp_id, _prev_run_id, current_run_id, installation_id) =
@@ -794,6 +807,7 @@ async fn test_create_dashboard_comment_issue_closed_tree_hash_unchanged() {
 
 #[tokio::test]
 #[ignore]
+#[serial]
 async fn test_create_dashboard_comment_issue_closed_no_recreate() {
     let Some(pool) = get_pool().await else { return };
     let (repo_id, bp_id, run_id, installation_id) = setup_with_issue(&pool).await;
@@ -834,6 +848,7 @@ async fn test_create_dashboard_comment_issue_closed_no_recreate() {
 
 #[tokio::test]
 #[ignore]
+#[serial]
 async fn test_create_dashboard_comment_issue_404() {
     let Some(pool) = get_pool().await else { return };
     let (repo_id, bp_id, run_id, installation_id) = setup_with_issue(&pool).await;
@@ -899,6 +914,7 @@ async fn test_create_dashboard_comment_issue_404() {
 
 #[tokio::test]
 #[ignore]
+#[serial]
 async fn test_create_dashboard_comment_uses_latest_completed_run() {
     let Some(pool) = get_pool().await else { return };
     let (repo_id, bp_id, old_run_id, _new_run_id, installation_id) =
@@ -954,6 +970,7 @@ async fn test_create_dashboard_comment_uses_latest_completed_run() {
 
 #[tokio::test]
 #[ignore]
+#[serial]
 async fn test_update_dashboard_comment_issue_closed_no_recreate() {
     let Some(pool) = get_pool().await else { return };
     let (repo_id, bp_id, run_id, installation_id) = setup_with_issue(&pool).await;
@@ -997,6 +1014,7 @@ async fn test_update_dashboard_comment_issue_closed_no_recreate() {
 
 #[tokio::test]
 #[ignore]
+#[serial]
 async fn test_update_dashboard_comment_issue_404() {
     let Some(pool) = get_pool().await else { return };
     let (repo_id, bp_id, run_id, installation_id) = setup_with_issue(&pool).await;

@@ -1,3 +1,4 @@
+use serial_test::serial;
 use axum::Router;
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
@@ -11,6 +12,7 @@ use boardflow_api::error::{AppError, ErrorCode, ErrorResponse, RequestId};
 use boardflow_api::middleware::request_id::request_id_middleware;
 
 #[tokio::test]
+#[serial]
 async fn request_id_header_is_present() {
     let app = Router::new()
         .route("/ping", get(|| async { "pong" }))
@@ -33,6 +35,7 @@ async fn request_id_header_is_present() {
 }
 
 #[tokio::test]
+#[serial]
 async fn request_id_is_uuid_v7_format() {
     let app = Router::new()
         .route("/ping", get(|| async { "pong" }))
@@ -94,6 +97,7 @@ fn error_code_as_str() {
 }
 
 #[tokio::test]
+#[serial]
 async fn app_error_into_response_format() {
     let error = AppError::new(ErrorCode::NotFound, "resource not found", "req-123");
     let response = error.into_response();
@@ -110,6 +114,7 @@ async fn app_error_into_response_format() {
 }
 
 #[tokio::test]
+#[serial]
 async fn app_error_unauthorized_response() {
     let error = AppError::unauthorized("invalid token", "req-456");
     let response = error.into_response();
@@ -125,6 +130,7 @@ async fn app_error_unauthorized_response() {
 }
 
 #[tokio::test]
+#[serial]
 async fn app_error_internal_error_response() {
     let error = AppError::internal_error("something went wrong", "req-789");
     let response = error.into_response();

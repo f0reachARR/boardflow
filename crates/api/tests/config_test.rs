@@ -1,8 +1,10 @@
+use serial_test::serial;
 use boardflow_api::config::{AppConfig, ConfigError};
 
 /// 環境変数テストは process-global な状態を変更するため、
 /// 単一テスト内で順次実行する。
 #[test]
+#[serial]
 fn test_app_config_from_env() {
     // 1. DATABASE_URL が未設定の場合はエラーを返す
     unsafe {

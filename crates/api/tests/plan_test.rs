@@ -1,3 +1,4 @@
+use serial_test::serial;
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use boardflow_api::create_app;
@@ -136,6 +137,7 @@ fn plan_request_body(github_repository_id: &str) -> serde_json::Value {
 
 /// 正常系: 新規プロジェクト → build / new_project
 #[tokio::test]
+#[serial]
 async fn plan_new_project_returns_build_new_project() {
     let pool = match setup_pool().await {
         Some(p) => p,
@@ -186,6 +188,7 @@ async fn plan_new_project_returns_build_new_project() {
 
 /// 正常系: mode=all → build / manual_dispatch
 #[tokio::test]
+#[serial]
 async fn plan_mode_all_returns_build_manual_dispatch() {
     let pool = match setup_pool().await {
         Some(p) => p,
@@ -225,6 +228,7 @@ async fn plan_mode_all_returns_build_manual_dispatch() {
 
 /// 異常系: 認証なし → 401
 #[tokio::test]
+#[serial]
 async fn plan_without_auth_returns_401() {
     let pool = match setup_pool().await {
         Some(p) => p,
@@ -251,6 +255,7 @@ async fn plan_without_auth_returns_401() {
 
 /// 異常系: 認可失敗(別repository) → 403
 #[tokio::test]
+#[serial]
 async fn plan_wrong_repository_returns_403() {
     let pool = match setup_pool().await {
         Some(p) => p,
@@ -292,6 +297,7 @@ async fn plan_wrong_repository_returns_403() {
 
 /// 異常系: 不正な github_repository_id → 400
 #[tokio::test]
+#[serial]
 async fn plan_invalid_github_repository_id_returns_400() {
     let pool = match setup_pool().await {
         Some(p) => p,
@@ -328,6 +334,7 @@ async fn plan_invalid_github_repository_id_returns_400() {
 
 /// 異常系: JSONパースエラー → 400 with ErrorResponse body
 #[tokio::test]
+#[serial]
 async fn plan_invalid_json_returns_400() {
     let pool = match setup_pool().await {
         Some(p) => p,
@@ -365,6 +372,7 @@ async fn plan_invalid_json_returns_400() {
 
 /// 異常系: 重複project_path → decision: error
 #[tokio::test]
+#[serial]
 async fn plan_duplicate_project_path_returns_error() {
     let pool = match setup_pool().await {
         Some(p) => p,
@@ -439,6 +447,7 @@ async fn plan_duplicate_project_path_returns_error() {
 
 /// 異常系: 空のproject_path → decision: error / invalid_project_path
 #[tokio::test]
+#[serial]
 async fn plan_empty_project_path_returns_error() {
     let pool = match setup_pool().await {
         Some(p) => p,
@@ -502,6 +511,7 @@ async fn plan_empty_project_path_returns_error() {
 
 /// 異常系: project_pathが.kicad_proで終わらない → decision: error / invalid_project_path
 #[tokio::test]
+#[serial]
 async fn plan_invalid_project_path_extension_returns_error() {
     let pool = match setup_pool().await {
         Some(p) => p,
@@ -565,6 +575,7 @@ async fn plan_invalid_project_path_extension_returns_error() {
 
 /// 異常系: project_pathにパストラバーサル → decision: error / invalid_project_path
 #[tokio::test]
+#[serial]
 async fn plan_path_traversal_project_path_returns_error() {
     let pool = match setup_pool().await {
         Some(p) => p,
@@ -628,6 +639,7 @@ async fn plan_path_traversal_project_path_returns_error() {
 
 /// 異常系: config_pathにパストラバーサル → decision: error / invalid_config_path
 #[tokio::test]
+#[serial]
 async fn plan_path_traversal_config_path_returns_error() {
     let pool = match setup_pool().await {
         Some(p) => p,
@@ -691,6 +703,7 @@ async fn plan_path_traversal_config_path_returns_error() {
 
 /// 異常系: 空のtree_hash → decision: error / invalid_tree_hash
 #[tokio::test]
+#[serial]
 async fn plan_empty_tree_hash_returns_error() {
     let pool = match setup_pool().await {
         Some(p) => p,
@@ -754,6 +767,7 @@ async fn plan_empty_tree_hash_returns_error() {
 
 /// 異常系: 空のconfig_path → decision: error / invalid_config_path
 #[tokio::test]
+#[serial]
 async fn plan_empty_config_path_returns_error() {
     let pool = match setup_pool().await {
         Some(p) => p,
@@ -817,6 +831,7 @@ async fn plan_empty_config_path_returns_error() {
 
 /// 正常系: 既存プロジェクトでtree_hash変更 → build / hash_changed
 #[tokio::test]
+#[serial]
 async fn plan_existing_project_hash_changed() {
     let pool = match setup_pool().await {
         Some(p) => p,
@@ -859,6 +874,7 @@ async fn plan_existing_project_hash_changed() {
 
 /// 正常系: 既存プロジェクトでtree_hash一致 → skip / unchanged
 #[tokio::test]
+#[serial]
 async fn plan_existing_project_unchanged() {
     let pool = match setup_pool().await {
         Some(p) => p,
@@ -902,6 +918,7 @@ async fn plan_existing_project_unchanged() {
 
 /// 正常系: 既存プロジェクトでlatest_tree_hash=NULL → build / no_previous_snapshot
 #[tokio::test]
+#[serial]
 async fn plan_existing_project_no_previous_snapshot() {
     let pool = match setup_pool().await {
         Some(p) => p,

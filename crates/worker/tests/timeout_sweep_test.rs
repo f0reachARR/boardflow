@@ -5,6 +5,7 @@
 
 use sqlx::PgPool;
 use uuid::Uuid;
+use serial_test::serial;
 
 async fn get_pool() -> Option<PgPool> {
     let database_url = match std::env::var("DATABASE_URL") {
@@ -107,7 +108,8 @@ async fn get_run_status(pool: &PgPool, id: Uuid) -> (String, bool) {
 }
 
 #[tokio::test]
-#[ignore] // Requires DATABASE_URL; run with --ignored
+#[ignore]
+#[serial]
 async fn test_sweep_marks_stale_runs_as_timed_out() {
     let Some(pool) = get_pool().await else { return };
     let (repo_id, bp_id) = setup_test_data(&pool).await;
@@ -148,7 +150,8 @@ async fn test_sweep_marks_stale_runs_as_timed_out() {
 }
 
 #[tokio::test]
-#[ignore] // Requires DATABASE_URL; run with --ignored
+#[ignore]
+#[serial]
 async fn test_sweep_does_not_affect_recent_runs() {
     let Some(pool) = get_pool().await else { return };
     let (repo_id, bp_id) = setup_test_data(&pool).await;
@@ -191,7 +194,8 @@ async fn test_sweep_does_not_affect_recent_runs() {
 }
 
 #[tokio::test]
-#[ignore] // Requires DATABASE_URL; run with --ignored
+#[ignore]
+#[serial]
 async fn test_sweep_does_not_affect_terminal_states() {
     let Some(pool) = get_pool().await else { return };
     let (repo_id, bp_id) = setup_test_data(&pool).await;

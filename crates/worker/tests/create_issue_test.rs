@@ -12,6 +12,7 @@ use chrono::Utc;
 use secrecy::SecretString;
 use sqlx::PgPool;
 use uuid::Uuid;
+use serial_test::serial;
 
 /// Simple mock GitHub client for testing.
 struct MockGitHubClient {
@@ -192,7 +193,8 @@ async fn cleanup_test_data(pool: &PgPool, repo_id: Uuid, bp_id: Uuid) {
 }
 
 #[tokio::test]
-#[ignore] // Requires DATABASE_URL; run with --ignored
+#[ignore]
+#[serial]
 async fn test_create_issue_success() {
     let Some(pool) = get_pool().await else { return };
 
@@ -249,7 +251,8 @@ async fn test_create_issue_success() {
 }
 
 #[tokio::test]
-#[ignore] // Requires DATABASE_URL; run with --ignored
+#[ignore]
+#[serial]
 async fn test_create_issue_idempotent() {
     let Some(pool) = get_pool().await else { return };
 
@@ -326,7 +329,8 @@ async fn test_create_issue_idempotent() {
 }
 
 #[tokio::test]
-#[ignore] // Requires DATABASE_URL; run with --ignored
+#[ignore]
+#[serial]
 async fn test_create_issue_board_project_not_found() {
     let Some(pool) = get_pool().await else { return };
 
@@ -349,7 +353,8 @@ async fn test_create_issue_board_project_not_found() {
 }
 
 #[tokio::test]
-#[ignore] // Requires DATABASE_URL; run with --ignored
+#[ignore]
+#[serial]
 async fn test_create_issue_github_rate_limited() {
     let Some(pool) = get_pool().await else { return };
 
