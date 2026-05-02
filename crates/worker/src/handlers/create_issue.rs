@@ -125,3 +125,160 @@ fn handle_github_error(e: GitHubClientError, attempts: i32) -> HandlerResult {
         },
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use boardflow_domain::models::github_job::{GithubJob, GithubJobStatus};
+    use chrono::Utc;
+    use uuid::Uuid;
+
+    fn make_job(board_project_id: Option<Uuid>) -> GithubJob {
+        GithubJob {
+            id: Uuid::now_v7(),
+            installation_id: 12345,
+            repository_id: Uuid::now_v7(),
+            board_project_id,
+            board_run_id: Some(Uuid::now_v7()),
+            r#type: "create_issue".into(),
+            payload_json: serde_json::json!({}),
+            status: GithubJobStatus::Running,
+            attempts: 1,
+            run_after: Utc::now(),
+            last_error: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        }
+    }
+
+    #[test]
+    fn test_handle_github_error_rate_limited_with_retry_after() {
+        let err = GitHubClientError::RateLimited {
+            retry_after_secs: Some(120),
+        };
+        let result = handle_github_error(err, 1);
+        match result {
+            HandlerResult::Reschedule { reason, backoff_secs } => {
+                assert!(reason.contains("Rate limited"));
+                assert_eq!(backoff_secs, 120.0);
+            }
+            _ => panic!("Expected Reschedule"),
+        }
+    }
+
+    #[test]
+    fn test_handle_github_error_rate_limited_without_retry_after() {
+        let err = GitHubClientError::RateLimited {
+            retry_after_secs: None,
+        };
+        let result = handle_github_error(err, 2);
+        match result {
+            HandlerResult::Reschedule { reason, backoff_secs } => {
+                assert!(reason.contains("Rate limited"));
+                // backoff = BASE_BACKOFF_SECS * 3^attempts * 2 = 10 * 9 * 2 = 180
+                assert_eq!(backoff_secs, boardflow_jobs::backoff_secs(2) * 2.0);
+            }
+            _ => panic!("Expected Reschedule"),
+        }
+    }
+
+    #[test]
+    fn test_handle_github_error_auth() {
+        let err = GitHubClientError::Auth("token expired".into());
+        let result = handle_github_error(err, 1);
+        match result {
+            HandlerResult::Reschedule { reason, .. } => {
+                assert!(reason.contains("Auth error"));
+            }
+            _ => panic!("Expected Reschedule"),
+        }
+    }
+
+    #[test]
+    fn test_handle_github_error_api() {
+        let err = GitHubClientError::Api("server error".into());
+        let result = handle_github_error(err, 3);
+        match result {
+            HandlerResult::Reschedule { reason, backoff_secs } => {
+                assert!(reason.contains("GitHub API error"));
+                assert_eq!(backoff_secs, boardflow_jobs::backoff_secs(3));
+            }
+            _ => panic!("Expected Reschedule"),
+        }
+    }
+
+    #[test]
+    fn test_handle_github_error_not_found() {
+        let err = GitHubClientError::NotFound("issue not found".into());
+        let result = handle_github_error(err, 1);
+        match result {
+            HandlerResult::Reschedule { reason, .. } => {
+                assert!(reason.contains("GitHub API error"));
+            }
+            _ => panic!("Expected Reschedule"),
+        }
+    }
+
+    /// Test that missing board_project_id results in Failed.
+    /// This test validates the early return without needing a DB pool.
+    #[tokio::test]
+    async fn test_handle_missing_board_project_id() {
+        // We need a pool but it won't be used because the handler returns early.
+        // Use connect_lazy with a dummy URL — no actual connection is established.
+        let pool = sqlx::PgPool::connect_lazy("postgres://dummy:dummy@localhost/dummy")
+            .expect("connect_lazy should not fail");
+
+        let config = WorkerConfig {
+            database_url: String::new(),
+            staging_bucket: String::new(),
+            artifacts_bucket: String::new(),
+            s3_endpoint: None,
+            s3_access_key: None,
+            s3_secret_key: None,
+            poll_interval_secs: 2,
+            github_app_id: None,
+            github_private_key_pem: None,
+            app_base_url: "https://test.example.com".into(),
+        };
+
+        // Minimal mock that should never be called
+        struct NeverCalledClient;
+        #[async_trait::async_trait]
+        impl GitHubAppClient for NeverCalledClient {
+            async fn get_installation_token(&self, _: u64) -> Result<secrecy::SecretString, GitHubClientError> {
+                panic!("should not be called")
+            }
+            async fn create_issue(&self, _: u64, _: &str, _: &str, _: &str, _: &str) -> Result<boardflow_github::CreatedIssue, GitHubClientError> {
+                panic!("should not be called")
+            }
+            async fn get_issue(&self, _: u64, _: &str, _: &str, _: u64) -> Result<boardflow_github::IssueInfo, GitHubClientError> {
+                panic!("should not be called")
+            }
+            async fn create_comment(&self, _: u64, _: &str, _: &str, _: u64, _: &str) -> Result<boardflow_github::CreatedComment, GitHubClientError> {
+                panic!("should not be called")
+            }
+            async fn update_comment(&self, _: u64, _: &str, _: &str, _: u64, _: &str) -> Result<(), GitHubClientError> {
+                panic!("should not be called")
+            }
+        }
+
+        let client = NeverCalledClient;
+        let job = make_job(None); // No board_project_id
+
+        let result = handle(&pool, &client, &config, &job).await;
+        match result {
+            HandlerResult::Failed { reason } => {
+                assert_eq!(reason, "job missing board_project_id");
+            }
+            _ => panic!("Expected Failed, got {:?}", result_variant(&result)),
+        }
+    }
+
+    fn result_variant(r: &HandlerResult) -> &'static str {
+        match r {
+            HandlerResult::Completed => "Completed",
+            HandlerResult::Reschedule { .. } => "Reschedule",
+            HandlerResult::Failed { .. } => "Failed",
+        }
+    }
+}

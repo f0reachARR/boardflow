@@ -246,3 +246,37 @@ test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
 ## 残リスク
 
 (後続で記録)
+
+## レビューフェーズ (2026-05-02)
+
+### レビュー結果
+
+- PR作成可否: `pr_ready: false`
+- 重大指摘1: `create_issue` ハンドラのテスト追加が受け入れ条件に含まれているが、実装差分には `crates/worker/src/handlers/create_issue.rs` または `crates/worker/tests/` のテスト追加が存在しない。実際に追加されたのは `crates/worker/src/comment_body.rs` の本文生成テスト3件のみで、`create_issue` の正常系・冪等性・RateLimit・DB error 分岐は未検証のまま。
+- 重大指摘2: closed / 404 を検出して `clear_issue_info` を行う経路は `update_dashboard_comment` と `create_run_result_comment` だけでなく `create_dashboard_comment` にも存在するが、こちらには `board_project_issue_history` 記録が入っていない。そのため `create_dashboard_comment` が先に旧Issueを検出した場合、仕様 10.13 / 11.7 の「旧Issueは履歴として保持する」を満たせず、履歴が失われる。
+
+### ドキュメント確認
+
+- `docs/spec.md` 10.13, 11.7, 13.1 を確認。
+- `docs/backend/summary.md` にも closed 済み Issue の履歴保持方針が記載されていることを確認。
+- `docs/logs/20/worklog.md` の計画には `create_issue` テスト追加と統合テスト案があるが、実装結果は一致していない。
+
+### テスト結果
+
+- 実環境で `cargo test -p boardflow-worker` と `cargo check -p boardflow-worker` を試行したが、この環境の Cargo 1.75.0 では `crates/api/Cargo.toml` の `edition2024` を解釈できず、ワークスペース全体の manifest 読み込みで失敗した。
+- そのため、ユーザー提示のテスト結果自体は再現確認できていない。実装レビューはコード差分と仕様整合を中心に実施した。
+
+### 必須修正
+
+1. `create_issue` ハンドラ本体のテストを追加し、受け入れ条件4で列挙された分岐を直接検証する。
+2. `crates/worker/src/handlers/create_dashboard_comment.rs` の closed / 404 経路でも、`clear_issue_info` 前に `insert_issue_history` を追加し、失敗時は既存方針どおり `warn` ログで扱う。
+
+### 任意改善
+
+1. `insert_issue_history` の `reason` は DB の CHECK 制約で守られているが、Rust 側でも enum 化すると誤字混入を減らせる。
+2. worklog の「実装内容」「テスト結果」は実際の差分に合わせて更新し、`create_issue` テスト追加済みと読める記述を整理した方がよい。
+
+### 残リスク
+
+- ジョブ実行順によっては `create_dashboard_comment` が最初に旧Issueを検出し、履歴未保存のまま active issue 情報を消す可能性がある。
+- `create_issue` の分岐テスト未整備により、RateLimit / DB error / idempotency の回帰が今後混入しても検知しにくい。
