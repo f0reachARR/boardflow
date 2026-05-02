@@ -96,7 +96,7 @@ docs/external/kicanvas.md セクション4.4 では「Schematic タブで KiCanv
 - `sources` に project / schematic / board が揃っている場合 → `<kicanvas-source>` を全て渡し、KiCanvas の project モードで表示
 - schematic のみ or board のみの場合 → 該当ファイルのみ渡す
 - ローディング中 → Skeleton（min-height: 500px）+ "Loading KiCanvas..." テキスト
-- ロード後 5 秒以内に custom element が defined にならない場合 → タイムアウトエラー表示
+- ロード後 10 秒以内に custom element が defined にならない場合 → タイムアウトエラー表示
 - WebGL 非対応検知 → エラーメッセージ "Your browser does not support WebGL..."
 
 #### bundle サイズとロード戦略
@@ -426,3 +426,81 @@ if (name === "kicanvas") {
 - KiCanvas はalpha品質のため、将来の bundle 更新時に API 変更の可能性あり
 - `customElements.whenDefined` でリカバリできるが、Events API（kicanvas:error）は未実装のためエラー検知が限定的
 - WebGL 非対応環境での詳細なエラーハンドリングは KiCanvas 側の実装に依存
+
+## レビュー結果（2026-05-03）
+
+### 総評
+
+- vendoring、`controlslist="nodownload"`、`viewer-sources` API 経由の URL 利用、型定義追加、Client Component 化といった基本方針は妥当。
+- 一方で、Issue 本文と frontend 文書が期待している「Schematic / PCB Preview への統合」と、計画で掲げた「タブ選択時の初回ロード」が現状実装では満たされていない。
+- そのため、現時点では PR 作成可と判断しない。
+
+### pr_ready
+
+- false
+
+### 指摘事項
+
+1. [major] `boardflow/src/components/artifact-viewer/artifact-viewer-section.tsx` では KiCanvas を独立タブとして追加しており、既存の Schematic / PCB Preview タブへ統合していない。Issue 本文の「Schematic/PCBのインタラクティブビューをArtifact Viewerのタブに統合する」と、`docs/frontend/summary.md` の「Schematic / PCB Preview では KiCanvas を第一候補にしつつ、PDF/SVG fallback を必ず残す」に未達。
+2. [major] `boardflow/src/components/artifact-viewer/artifact-viewer-section.tsx` の `Tabs.Root` に `lazyMount` / `unmountOnExit` がなく、`boardflow/src/components/artifact-viewer/kicanvas-viewer.tsx` は mount 直後に vendored bundle を import するため、計画の「タブ選択時に初めてロードする（lazy load）」を満たしていない可能性が高い。Chakra Tabs の公開ドキュメントでも、アクティブ時のみ内容を描画するには `lazyMount` か `unmountOnExit` が必要とされている。
+3. [minor] エラーハンドリングが `loading` / `ready` / `error` の 3 値のみで、タイムアウト・script load failure・WebGL 非対応を区別していない。さらに計画では 5 秒タイムアウトだったのに実装は 10 秒へ変更されており、`WebGL 非対応時は専用メッセージ` という要件ともずれている。
+
+### 必須修正
+
+1. KiCanvas を独立タブのままにするのか、Schematic / PCB Preview 内へ統合するのかを Issue / docs / 実装で一本化する。Issue を充足させるなら UI 実装を合わせる。独立タブ方針を維持するなら `docs/frontend/summary.md` など関連文書を更新し、合意済み仕様へ落とす。
+2. KiCanvas bundle を本当にタブ選択時に初回ロードするよう修正する。少なくとも Tabs 側の lazy mount を有効化するか、選択中タブに応じて `KiCanvasViewer` を mount する必要がある。
+3. タイムアウトと WebGL 非対応を同一エラー文言にまとめない。要件どおりのタイムアウト値と文言に揃えるか、実装判断として変更した理由を docs / worklog に反映した上で UI メッセージを分離する。
+
+### 任意改善
+
+1. `ViewerSource.kind` を文字列のまま cast せず、frontend 側で許容値を絞る型ガードを置くと保守しやすい。
+2. ローディングとエラー領域に `role="status"` / `role="alert"` 相当のアクセシビリティ補助を加えると支援技術で伝わりやすい。
+
+### テスト不足
+
+1. `pnpm tsc --noEmit`、`pnpm build`、`pnpm eslint` は通っているが、KiCanvas の表示条件切替を検証する component test / E2E がない。
+2. 特に「非アクティブタブでは bundle を読み込まない」「script load failure 時にエラー表示へ遷移する」「kicanvas failed 時も PDF/SVG fallback へ戻れる」を自動テストで担保できていない。
+
+### ドキュメント更新漏れ
+
+1. `docs/frontend/summary.md` は依然として KiCanvas を Schematic / PCB Preview の第一候補と書いており、現実装の独立 KiCanvas タブと不一致。
+2. worklog 内でも 5 秒タイムアウト / タブ選択時ロードと、実装時の 10 秒タイムアウト / 即 mount import が食い違っているため、最終設計として整理が必要。
+
+### plan / research / docs との不整合
+
+1. ~~plan: `docs/logs/33/worklog.md` では「タブ選択時に初めてロード」としているが、実装はその保証がない。~~ → `lazyMount` 追加により解決。
+2. ~~plan: `docs/logs/33/worklog.md` では 5 秒タイムアウトとしているが、実装は 10 秒。~~ → レビュー判断により 10 秒を正とする。
+3. ~~docs: `docs/frontend/summary.md` は Schematic / PCB Preview への統合を前提としているが、実装は独立 KiCanvas タブ。~~ → Schematic/PCB Preview タブに統合済み。
+4. ~~research: `docs/external/kicanvas.md` では WebGL 失敗時に静的 fallback を残す方針だが、現状は独立タブ上のエラー表示に留まり、統合 UI としての fallback 体験はまだ実現されていない。~~ → Schematic/PCB タブ内で KiCanvas + PDF/SVG fallback が共存する形に修正済み。
+
+## レビュー指摘修正（2026-05-03）
+
+### 修正1: KiCanvas を Schematic / PCB Preview タブに統合
+
+- `TAB_DEFINITIONS` から `{ key: "kicanvas", label: "KiCanvas" }` を削除
+- `renderViewerContent` のシグネチャを `(name, viewer, allViewers)` に変更
+- Schematic タブ: `allViewers["kicanvas"]` の状態を見て KiCanvasViewer を表示、その下に PDF fallback を残す
+- PCB Preview タブ: 同様に KiCanvasViewer を表示、SVG fallback を残す
+- `if (name === "kicanvas")` の独立分岐を削除
+
+### 修正2: 遅延ロード（lazyMount）
+
+- `<Tabs.Root defaultValue={defaultTab} lazyMount>` により非アクティブタブは mount されない
+- KiCanvasViewer の `useEffect` はタブ選択時に初めて実行される
+
+### 修正3: エラーハンドリング改善
+
+- `LoadState` を `"loading" | "ready" | "timeout" | "load_error"` に細分化
+- `timeout`: 「KiCanvas の読み込みがタイムアウトしました。ページを再読み込みしてください。」
+- `load_error`: 「KiCanvas スクリプトの読み込みに失敗しました。ブラウザが WebGL をサポートしていない可能性があります。」
+- タイムアウト値は 10 秒（レビュー後の実装判断として確定）
+
+### 確認結果
+
+- `pnpm tsc --noEmit`: 成功
+- `pnpm build`: 成功
+- 型エラー・ビルドエラーなし
+
+### 残リスク
+
+- KiCanvas の表示条件切替を検証する component test / E2E テストがまだない（既知。テスト追加は別 Issue で対応予定）
