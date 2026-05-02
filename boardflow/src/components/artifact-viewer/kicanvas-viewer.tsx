@@ -4,7 +4,7 @@ import { useEffect, useState } from "react"
 import { Box, Text, Spinner } from "@chakra-ui/react"
 import type { ViewerSource } from "@/lib/api/schema"
 
-type LoadState = "loading" | "ready" | "error"
+type LoadState = "loading" | "ready" | "timeout" | "load_error"
 
 interface KiCanvasViewerProps {
   sources: ViewerSource[]
@@ -17,7 +17,7 @@ export function KiCanvasViewer({ sources }: KiCanvasViewerProps) {
     let cancelled = false
     const timeout = setTimeout(() => {
       if (!cancelled && !customElements.get("kicanvas-embed")) {
-        setLoadState("error")
+        setLoadState("timeout")
       }
     }, 10000)
 
@@ -40,7 +40,7 @@ export function KiCanvasViewer({ sources }: KiCanvasViewerProps) {
       })
       .catch(() => {
         if (!cancelled) {
-          setLoadState("error")
+          setLoadState("load_error")
           clearTimeout(timeout)
         }
       })
@@ -51,14 +51,21 @@ export function KiCanvasViewer({ sources }: KiCanvasViewerProps) {
     }
   }, [])
 
-  if (loadState === "error") {
+  if (loadState === "timeout") {
     return (
       <Box p={4} bg="red.50" borderWidth="1px" borderRadius="md" borderColor="red.200">
         <Text fontWeight="medium" color="red.700">
-          KiCanvas の読み込みに失敗しました
+          KiCanvas の読み込みがタイムアウトしました。ページを再読み込みしてください。
         </Text>
-        <Text fontSize="sm" color="red.600" mt={1}>
-          ブラウザが WebGL をサポートしていないか、スクリプトの読み込みに失敗しました。
+      </Box>
+    )
+  }
+
+  if (loadState === "load_error") {
+    return (
+      <Box p={4} bg="red.50" borderWidth="1px" borderRadius="md" borderColor="red.200">
+        <Text fontWeight="medium" color="red.700">
+          KiCanvas スクリプトの読み込みに失敗しました。ブラウザが WebGL をサポートしていない可能性があります。
         </Text>
       </Box>
     )
