@@ -605,3 +605,51 @@ test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
 - `cargo test --workspace` → 全テスト通過
 - `cargo clippy --workspace --all-targets -- -D warnings` → 警告なし
 - コミット: `8c47a0b` → push済み
+
+---
+
+## serial_test crate 導入（2026-05-02）
+
+### 背景
+
+- CI レースコンディションの根本原因は DB 統合テストの並列実行
+- 前回の status 変更ワークアラウンドでは不十分（他テストでも同様の問題が発生し得る）
+- `serial_test` crate で全 DB 統合テストを直列化することで根本対処
+
+### 実装内容
+
+| 変更 | ファイル | 内容 |
+|---|---|---|
+| workspace dep追加 | `Cargo.toml` | `serial_test = "3"` |
+| worker dev-dep追加 | `crates/worker/Cargo.toml` | `serial_test = { workspace = true }` |
+| api dev-dep追加 | `crates/api/Cargo.toml` | `serial_test = { workspace = true }` |
+| worker テスト | 4ファイル (30テスト) | `use serial_test::serial;` + `#[serial]` |
+| api テスト | 8ファイル (132テスト) | `use serial_test::serial;` + `#[serial]` |
+| revert | `staging_cleanup_test.rs` | status `'uploading'` → `'timed_out'` に戻す |
+
+### テスト結果
+
+- `cargo check --workspace --tests` → 成功
+- `cargo clippy --workspace --all-targets -- -D warnings` → 成功
+- `cargo test -p boardflow-worker --lib` → 21 tests passed
+
+### レビュー結果
+
+- `pr_ready: true`
+- 必須修正: なし
+- 全テストに漏れなく `#[serial]` 適用確認済み
+
+### ドキュメント確認
+
+- `docs_ready: true`
+- テストインフラ改善のみでアプリケーション仕様・技術ドキュメントに変更不要
+
+### コミット
+
+- `eb415f4` — `feat(#21): serial_test crateを導入してDB統合テストを直列実行化`
+- push済み → PR #49 に反映
+
+### 残リスク
+
+- `auth_test.rs` の一部テストはDB不使用だが一律 `#[serial]` 適用（害なし）
+- import順序が慣例と異なる箇所あり（cargo fmt 通過済み、機能影響なし）
