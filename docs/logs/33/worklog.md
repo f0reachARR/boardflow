@@ -575,3 +575,138 @@ if (name === "kicanvas") {
 
 - component test / E2E テストは未追加（別 Issue 対応予定）
 - KiCanvas alpha 品質のため bundle 更新時に API 変更リスクあり（PDF/SVG fallback で軽減）
+
+## 3回目レビュー結果（2026-05-03）
+
+### 総評
+
+- 前回 2 件の major 指摘は現行コードで解消されている。
+- `artifact-viewer-section.tsx` は Schematic タブへ `schematic + project`、PCB Preview タブへ `board + project` のみを渡すようになっており、タブごとの初期表示対象が分離されている。
+- static viewer が `missing` / `failed` でも、`kicanvas` viewer に該当 kind の source があればタブを表示し、KiCanvas を優先表示する挙動になっている。
+- `kicanvas-viewer.tsx` は vendored bundle を client 側で読み込み、`controlslist="nodownload"` を維持しており、`docs/frontend/summary.md` と `docs/external/kicanvas.md` の採用方針・セキュリティ方針と整合している。
+
+### pr_ready
+
+- true
+
+### 指摘事項
+
+- なし
+
+### 必須修正
+
+- なし
+
+### 任意改善
+
+1. static viewer が `missing` / `failed` でも KiCanvas で表示可能なケースでは、タブ見出しに `missing` バッジが残るため、静的 preview の欠損とタブ全体の利用可否が少し分かりにくい。将来的にはタブ表示用の集約 status を導入すると UI の意味が明確になる。
+
+### テスト不足
+
+1. 「Schematic に `board` source のみがある場合は KiCanvas を表示しない」「PCB Preview に `schematic` source のみがある場合は表示しない」の分岐を固定化する component test がない。
+2. 「static viewer が `missing` / `failed` でも `kicanvas` が `available` ならタブ表示と KiCanvas 表示を継続する」分岐を固定化する component test / E2E がない。
+
+### ドキュメント確認
+
+- `docs/frontend/summary.md` の「KiCanvas を第一候補にしつつ、PDF/SVG fallback を必ず残す」は、Schematic / PCB Preview 内で KiCanvas を先に描画しつつ静的 viewer を残す実装と一致している。
+- `docs/external/kicanvas.md` セクション 3.1 の「Schematic と PCB Preview に入れるのが自然」は満たされている。
+- `docs/external/kicanvas.md` セクション 5 の security 要件のうち、この Issue のレビュー対象範囲にある `nodownload` と vendored bundle 利用は満たされている。
+
+### plan / research / docs との整合
+
+- 前回までの不整合だった「独立 KiCanvas タブ」は解消済み。
+- source のタブ別フィルタと static viewer 欠損時の KiCanvas 継続表示により、research と frontend 方針の差分は現レビュー対象ファイル上では解消している。
+
+### PR/完了結果
+
+- Issue #33 の 3 回目レビューとして、前回 2 件の major 指摘が修正済みであることを確認した。
+- 現時点では PR 作成可と判断する。
+
+### 残リスク
+
+- 表示条件分岐に対する自動テストが未整備のため、今後の refactor で退行しても即検知しづらい。
+- KiCanvas 自体は alpha 品質のため、bundle 更新時の挙動変化リスクは引き続きある。
+
+## ドキュメント確認（2026-05-03）
+
+### 総評
+
+- `docs/frontend/summary.md` の KiCanvas 方針と `docs/external/kicanvas.md` の統合方針は、現行実装と整合している。
+- 一方で `docs/external/nextjs-web-components-integration.md` は、BoardFlow で最終採用した実装方針より強い断定を残しており、research 成果物としては最終状態と不一致になっている。
+- そのため、ドキュメント観点では PR 作成可の状態とはまだ判断しない。
+
+### docs_ready
+
+- false
+
+### 必須修正
+
+1. `docs/external/nextjs-web-components-integration.md` の BoardFlow 向け採用判断を最終実装に合わせて更新する。現状は `declare module "react/jsx-runtime"` を推奨・確立済みパターンとして記載し、さらに `next/dynamic` + `ssr: false` ラッパーを採用案として固定しているが、Issue #33 の最終判断は `declare module "react"` の採用と、既存の Client Component ツリー内では `next/dynamic` ラッパー不要という整理になっている。
+
+### 任意改善
+
+1. `docs/external/nextjs-web-components-integration.md` は「一般論として有効な案」と「BoardFlow で採用した案」を分けて書くと、次回の再調査時に誤読されにくい。
+
+### 不整合のあるドキュメント
+
+- `docs/external/nextjs-web-components-integration.md`
+
+### 不足しているドキュメント
+
+- なし。KiCanvas bundle の vendoring は開発手順や運用手順の追加を要する変更ではなく、README への追記は現時点では不要。
+
+### 外部調査メモに関する指摘
+
+- `docs/external/kicanvas-bundle-vendoring.md` は vendoring 前提と `nodownload` 方針に矛盾なし。
+- `docs/external/kicanvas-embed-api.md` は `controls="full"` と `controlslist="nodownload"` の採用、Events API 未実装という前提が実装と一致している。
+- `docs/external/nextjs-web-components-integration.md` だけが、research 時点の推奨をそのまま「採用済みの実装方針」として残している。
+
+### PR/完了結果
+
+- ドキュメント観点では 1 件の必須修正が残るため、Issue #33 は docs_ready: false と判定する。
+
+### 残リスク
+
+- 外部調査メモと最終採用判断がずれたまま残ると、次回の同種実装で `react/jsx-runtime` 拡張や `next/dynamic` ラッパーを必須と誤認する可能性がある。
+
+## ドキュメント修正
+
+### 修正日
+
+2026-05-03
+
+### 対象
+
+`docs/external/nextjs-web-components-integration.md`
+
+### 修正内容
+
+1. **要約セクション**: `declare module "react/jsx-runtime"` → `declare module "react"` に修正。BoardFlow での採用方針サマリーを追記。
+
+2. **パターン 3 (next/dynamic)**: 「代替案」として明記し、Client Component ツリー + `lazyMount` がある場合は不要である旨を注意書きとして追加。
+
+3. **TypeScript 型定義セクション**: 
+   - 旧「推奨パターン」を「パターン A: `declare module "react"`（BoardFlow で採用）」に改名し、実装と一致するコードを掲載
+   - `declare module "react/jsx-runtime"` を「パターン B（代替案）」として分離
+   - 注意点を両パターン共通の形に整理
+
+4. **BoardFlow への示唆セクション** → **「BoardFlow での採用」セクション** に全面改訂:
+   - 採用理由（Client Component ツリー + `lazyMount` で `next/dynamic` 不要）
+   - 型定義の採用判断（`declare module "react"` で解決）
+   - 実際のアーキテクチャ図（`Tabs.Root lazyMount` → `KiCanvasViewer` 直接 import）
+   - 不採用手法の一覧表
+   - 実際のスクリプト読み込みコード例
+
+5. **採用/不採用判断セクション** → **「一般的な採用判断ガイドライン」** に改訂:
+   - 特定の推奨を断定するのではなく、ユースケース別の選択指針に変更
+   - BoardFlow 固有の判断は上記セクションに委譲
+
+### 検証
+
+- `boardflow/src/types/kicanvas.d.ts` の実際の内容（`declare module "react"`）とドキュメントのパターン A が一致することを確認
+- `artifact-viewer-section.tsx` で `next/dynamic` が使用されていないこと（grep で 0 件）を確認
+- `Tabs.Root lazyMount` による遅延マウントが採用されていることを確認
+
+### 結論
+
+docs_ready: true（ドキュメントと実装の不整合は解消済み）

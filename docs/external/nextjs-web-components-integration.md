@@ -2,7 +2,9 @@
 
 ## 要約
 
-Next.js App Router で Web Components（custom elements）を使うには、Client Component に閉じ込め、`useEffect` 内で動的に script をロードする。TypeScript では `declare module "react/jsx-runtime"` で JSX.IntrinsicElements を拡張する。`next/script` の `strategy="afterInteractive"` も有効だが、vendored script の場合は `useEffect` + dynamic import の方が制御しやすい。
+Next.js App Router で Web Components（custom elements）を使うには、Client Component に閉じ込め、`useEffect` 内で動的に script をロードする。TypeScript では `declare module "react"` で JSX.IntrinsicElements を拡張する。`next/script` の `strategy="afterInteractive"` も有効だが、vendored script の場合は `useEffect` + dynamic import の方が制御しやすい。
+
+> **BoardFlow での採用**: `declare module "react"` + Client Component 直接 import + `Tabs.Root lazyMount` による遅延マウントを採用。`next/dynamic` + `ssr: false` は不使用。詳細は末尾「BoardFlow での採用」セクション参照。
 
 ## 確認した情報
 
@@ -69,7 +71,7 @@ export function KiCanvasViewer({ src }: { src: string }) {
 - `next/script` は `type="module"` をそのまま forward する
 - KiCanvas bundle は ESM format なので `type="module"` が必須
 
-### パターン 3: `next/dynamic` with `ssr: false`
+### パターン 3: `next/dynamic` with `ssr: false`（代替案）
 
 ```tsx
 import dynamic from "next/dynamic";
@@ -84,11 +86,16 @@ const KiCanvasViewer = dynamic(() => import("./KiCanvasViewer"), {
 - SSR を完全にスキップ
 - loading 状態を declarative に定義できる
 
+注意:
+- コンポーネントが既に Client Component ツリー内にある場合は不要（Client Component は SSR しないため）
+- Chakra UI `Tabs.Root lazyMount` など親コンポーネントで遅延マウントできる場合は、追加のラッパーなしで同等の効果が得られる
+- BoardFlow では不採用（後述の「BoardFlow での採用」セクション参照）
+
 ### TypeScript JSX.IntrinsicElements 型定義
 
 React 19 以降は custom elements をネイティブサポートするが、TypeScript の型チェックには明示的な定義が必要。
 
-#### 推奨パターン（React + Next.js）
+#### パターン A: `declare module "react"`（BoardFlow で採用）
 
 ```typescript
 // types/kicanvas.d.ts
@@ -108,7 +115,7 @@ interface KiCanvasSourceAttributes {
   name?: string;
 }
 
-declare module "react/jsx-runtime" {
+declare module "react" {
   namespace JSX {
     interface IntrinsicElements {
       "kicanvas-embed": DetailedHTMLProps<
@@ -126,11 +133,28 @@ declare module "react/jsx-runtime" {
 
 この `types/kicanvas.d.ts` を `tsconfig.json` の `include` に含めるか、Next.js のプロジェクトルートに置くことで型が認識される。
 
+#### パターン B: `declare module "react/jsx-runtime"`（代替案）
+
+```typescript
+declare module "react/jsx-runtime" {
+  namespace JSX {
+    interface IntrinsicElements {
+      "kicanvas-embed": DetailedHTMLProps<
+        HTMLAttributes<HTMLElement> & KiCanvasEmbedAttributes,
+        HTMLElement
+      >;
+    }
+  }
+}
+```
+
+React 18+ の jsx transform に対応する形式。`@types/react` のバージョンや `tsconfig.json` の `jsx` 設定によってはこちらが必要になるケースもあるが、BoardFlow では `declare module "react"` で問題なく型が解決されたためパターン A を採用した。
+
 #### 注意点
 
-- `declare namespace JSX` ではなく `declare module "react/jsx-runtime"` を使う（React 18+ / Next.js App Router の jsx transform に対応）
-- `@types/react` が JSX.IntrinsicElements を定義しているため、単純な namespace 再宣言は機能しない
+- `declare namespace JSX` は単独では機能しない（`@types/react` が JSX.IntrinsicElements を定義しているため、module augmentation が必要）
 - `DetailedHTMLProps` を使うことで `key`、`ref`、`className` などの React 標準 props も通る
+- どちらのパターンでも `tsconfig.json` の `include` にファイルが含まれている必要がある
 
 ### `next/script` の strategy オプション
 
@@ -141,22 +165,38 @@ declare module "react/jsx-runtime" {
 | `lazyOnload` | ブラウザ idle 時に読み込み | タブ切り替え時に遅延が目立つ可能性 |
 | `worker` | Web Worker で実行（experimental） | KiCanvas は DOM/Canvas 必須なので不可 |
 
-## BoardFlow への示唆
+## BoardFlow での採用
 
-### 推奨アーキテクチャ
+### 採用した手法
+
+**パターン 1（`useEffect` + import）を Client Component 内で直接使用。`next/dynamic` ラッパーは不使用。**
+
+理由:
+- `artifact-viewer-section.tsx` は `"use client"` の Client Component ツリー内にあり、SSR は発生しない
+- `Tabs.Root lazyMount` により、KiCanvas タブが選択されるまでコンポーネント自体がマウントされない → `next/dynamic` の `ssr: false` と同等の遅延効果が得られる
+- ラッパーコンポーネントが不要になりファイル数が減る
+
+### 型定義
+
+`declare module "react"` パターンを採用（パターン A）。`declare module "react/jsx-runtime"` ではない。
+Next.js 15 + `@types/react` 19 環境で問題なく型解決されることを確認済み。
+
+### 実際のアーキテクチャ
 
 ```
 Server Component (page.tsx)
   └─ fetch viewer-sources API（サーバーサイド）
-  └─ viewer status / URL を props で渡す
-      └─ next/dynamic で ssr: false ラップ
-          └─ Client Component (KiCanvasViewer)
-              ├─ useEffect で kicanvas.js を import
-              ├─ <kicanvas-embed> をレンダリング
-              └─ loading / error / fallback 表示
+      └─ viewer status / URL を props で渡す
+          └─ artifact-viewer-section.tsx ("use client")
+              └─ Tabs.Root lazyMount
+                  └─ KiCanvasViewer (Client Component, 直接 import)
+                      ├─ useEffect で /vendor/kicanvas/kicanvas.js を import
+                      ├─ customElements.whenDefined で定義待ち
+                      ├─ <kicanvas-embed> をレンダリング
+                      └─ loading / error / timeout 表示
 ```
 
-### 具体的なファイル構成案
+### 具体的なファイル構成
 
 ```
 boardflow/
@@ -167,33 +207,47 @@ boardflow/
         VERSION               # 取得日時と commit hash
   src/
     types/
-      kicanvas.d.ts           # JSX IntrinsicElements 型定義
+      kicanvas.d.ts           # JSX IntrinsicElements 型定義 (declare module "react")
     components/
-      KiCanvasViewer.tsx      # Client Component
-      KiCanvasViewerLazy.tsx  # next/dynamic ラッパー（ssr: false）
+      artifact-viewer/
+        kicanvas-viewer.tsx   # Client Component（直接 import される）
 ```
+
+### 不採用とした手法
+
+| 手法 | 理由 |
+|---|---|
+| `next/dynamic` + `ssr: false` ラッパー | Client Component ツリー + `lazyMount` で十分。追加のラッパーファイルは冗長 |
+| `declare module "react/jsx-runtime"` | `declare module "react"` で型解決できたため不要 |
+| `next/script` | vendored script の動的 import で制御できており、`next/script` の最適化は不要 |
 
 ### Script 読み込みの重複防止
 
-KiCanvas の custom element 定義は一度だけ行えばよい。`next/script` は同一 `src` の重複挿入を防ぐ機構がある。`useEffect` パターンの場合は、以下のガードを入れる:
+KiCanvas の custom element 定義は一度だけ行えばよい。`useEffect` パターンで以下のガードを入れている:
 
 ```tsx
 useEffect(() => {
-  if (!customElements.get("kicanvas-embed")) {
-    import("/vendor/kicanvas/kicanvas.js");
+  if (customElements.get("kicanvas-embed")) {
+    setLoadState("ready")
+    return
   }
-}, []);
+  import(/* webpackIgnore: true */ "/vendor/kicanvas/kicanvas.js")
+    .then(() => customElements.whenDefined("kicanvas-embed"))
+    .then(() => setLoadState("ready"))
+    .catch(() => setLoadState("load_error"))
+}, [])
 ```
 
-## 採用/不採用判断
+## 一般的な採用判断ガイドライン
 
-**採用**: パターン 1（`useEffect` + import）+ `next/dynamic` ssr:false ラッパーの組み合わせを推奨。
+以下は一般的な Next.js プロジェクトでの選択指針。BoardFlow での具体的な判断は上記「BoardFlow での採用」セクションを参照。
 
-理由:
-- vendored file の読み込みに最も適している
-- SSR 回避が明示的で安全
-- `next/script` は追加で使ってもよいが、必須ではない
-- TypeScript 型定義は `declare module "react/jsx-runtime"` パターンで確立
+- **Client Component ツリー内 + UI ライブラリの遅延マウント機能あり** → パターン 1（`useEffect` + import）のみで十分
+- **Server Component から直接使いたい** → パターン 3（`next/dynamic` + `ssr: false`）が必要
+- **外部 CDN からロード** → パターン 2（`next/script`）が最適化の面で有利
+- **vendored bundle** → パターン 1 が最も制御しやすい
+
+TypeScript 型定義は `declare module "react"` をまず試し、環境次第で `"react/jsx-runtime"` に切り替える。
 
 ## 制約と pitfall
 
