@@ -1,0 +1,271 @@
+# Issue #32: Frontend Artifact Viewer 実装 - 調査ログ
+
+## 基本情報
+
+- **Issue ID**: #32
+- **Title**: Frontend: Artifact Viewer実装（PDF/SVG/iBOM/Download）
+- **担当フェーズ**: research
+- **日時**: 2026-05-02
+
+## Issueまでの経緯
+
+- Artifact Proxy API (#18) が実装済み前提
+- Backend の viewer-sources API がviewer単位でURL（短命トークン付き）を返す仕様
+- iBOMはartifact domain上で配信し、app domainとは分離する方針
+- KiCanvasは将来対応。今回はPDF/SVG/iBOM/Downloadに集中
+
+## ユーザー要望
+
+docs以下の仕様に基づいてArtifact Viewerフロントエンドを一通り実装する。
+
+## 調査対象
+
+1. iframe sandbox属性のベストプラクティス（iBOM HTML向け）
+2. Next.js App Router での Client Component 内 iframe パターン
+
+## 調査結果
+
+### 1. iframe sandbox属性（iBOM HTML向け）
+
+**結論**: `sandbox="allow-scripts allow-same-origin"` を採用。
+
+- iBOM HTMLは自己完結型で外部通信なし。JavaScript必須（Canvas描画、BOM操作）
+- localStorage を使用するが graceful degradation 実装済み（利用不可でも動作する）
+- `allow-scripts` + `allow-same-origin` の組み合わせは同一オリジンでは危険（sandbox除去攻撃）だが、BoardFlowではクロスオリジン配信（app domain ≠ artifact domain）のためリスク軽減
+- サーバー側 CSP ヘッダで多層防御を推奨
+- 詳細: `docs/external/iframe-sandbox-ibom.md`
+
+### 2. Next.js App Router iframe パターン
+
+**結論**: Server Component → Client Component props渡し + Route Handler 再取得パターン。
+
+- Server Component で viewer-sources API を呼び出し（cookie認証転送）
+- 結果を Client Component に props で渡す
+- Client Component で iframe 表示、タブ切り替え、URL期限管理を担当
+- URL 再取得は Next.js Route Handler 経由でプロキシ
+- 各 viewer type (PDF/SVG/iBOM/Download) ごとに表示コンポーネントを分離
+- viewer status (available/partial/missing/failed/skipped) に応じたUI分岐が必要
+- 詳細: `docs/external/nextjs-iframe-artifact-viewer.md`
+
+## 結論ステータス
+
+**`implementation_required`**
+
+調査は完了。2つの外部トピックについて十分な情報が得られた。実装に進むべき。
+
+---
+
+## 実装計画（Plan フェーズ）
+
+**日時**: 2026-05-02  
+**担当フェーズ**: plan
+
+### 目的
+
+Run詳細ページのViewersセクションを拡張し、成果物のインラインプレビュー（PDF/SVG/iBOM）とダウンロード機能を実装する。
+
+### 非目的
+
+- KiCanvas viewer の実装（将来Issue）
+- artifact proxy の CSP ヘッダ変更（バックエンド側、既存 #18 で対応済み前提）
+- PDF/SVG の画像比較UI
+- E2E テスト（本Issueではコンポーネント構造とインタラクションの正しさに集中）
+
+### 受け入れ条件
+
+1. Run詳細ページで schematic viewer (PDF) が iframe によりインラインプレビューされる
+2. PDF表示の横にダウンロードリンクが常に表示される
+3. pcb_preview (SVG) が Tab UI（Top/Bottom）で切替表示できる
+4. iBOM viewer が `sandbox="allow-scripts allow-same-origin"` 付き iframe で表示される
+5. fabrication / bom の downloads がダウンロードリンク一覧で表示される
+6. viewer status が available 以外の場合、適切なフォールバックメッセージが表示される
+7. URL 期限切れ前にバックグラウンドで再取得する仕組みがある
+8. TypeScript 型エラーなし、lint pass
+
+### 詳細要件
+
+#### Viewer 種別ごとの表示仕様
+
+| Viewer | status=available | status=partial | status=missing/failed/skipped |
+|---|---|---|---|
+| schematic | iframe (PDF) + Download link | Download link only (primary欠損時) | メッセージ表示 |
+| pcb_preview | Tab(Top/Bottom) iframe (SVG) + Download links | 利用可能な source のみ Tab 表示 | メッセージ表示 |
+| ibom | sandboxed iframe | — | メッセージ表示 |
+| bom | ダウンロードリンク一覧 | 利用可能なもののみ表示 | メッセージ表示 |
+| fabrication | ダウンロードリンク一覧 | 利用可能なもののみ + 欠損警告 | メッセージ表示 |
+| kicanvas | (今回スキップ) | — | — |
+
+#### iframe 属性
+
+- PDF: `sandbox` なし（ブラウザ内蔵ビューア）
+- SVG: `sandbox=""` (スクリプト完全ブロック)
+- iBOM: `sandbox="allow-scripts allow-same-origin"`
+
+#### URL 期限管理
+
+- `expires_at` の5分前に Route Handler 経由で再取得
+- 再取得失敗時はリロード促進メッセージ
+
+### 影響範囲
+
+- `boardflow/src/app/(authenticated)/.../runs/[boardRunId]/page.tsx` — Viewers セクションを Client Component に差し替え
+- `boardflow/src/components/artifact-viewer/` — 新規ディレクトリ、コンポーネント群
+- `boardflow/src/app/api/viewer-sources/[boardRunId]/route.ts` — 新規 Route Handler
+- `boardflow/src/lib/api/schema.d.ts` — 型は既存で十分（変更不要）
+
+### 設計方針
+
+#### コンポーネント構成
+
+```
+boardflow/src/
+├── app/
+│   ├── api/
+│   │   └── viewer-sources/
+│   │       └── [boardRunId]/
+│   │           └── route.ts          # Route Handler: Client→Backend proxy
+│   └── (authenticated)/.../runs/[boardRunId]/
+│       └── page.tsx                   # Server Component (既存、Viewers部分を差し替え)
+└── components/
+    └── artifact-viewer/
+        ├── ArtifactViewerSection.tsx   # "use client" - 全体コンテナ、URL期限管理
+        ├── PdfViewer.tsx              # PDF iframe + download link
+        ├── SvgViewer.tsx              # SVG Tab(Top/Bottom) + download links
+        ├── IbomViewer.tsx             # iBOM sandboxed iframe
+        ├── DownloadList.tsx           # ダウンロードリンク一覧
+        └── ViewerStatusMessage.tsx    # status != available 時のフォールバック表示
+```
+
+#### Server/Client 境界
+
+- **Server Component (page.tsx)**: viewer-sources API を server-side で呼び出し、結果を props として Client Component に渡す（既存のパターンを維持）
+- **Client Component (ArtifactViewerSection)**: タブ切替、iframe管理、URL期限管理を担当
+
+#### データフロー
+
+```
+page.tsx (Server)
+  → viewer-sources API 呼出し (cookie認証転送)
+  → viewers, expires_at を ArtifactViewerSection に props で渡す
+    → ArtifactViewerSection (Client)
+      → useState で viewers / expires_at を保持
+      → useEffect で expires_at - 5min にタイマー設定
+      → タイマー発火 → /api/viewer-sources/[boardRunId] (Route Handler) を fetch
+      → 新しいURLで state 更新 → iframe src が自動更新
+```
+
+### 作成/変更ファイル一覧
+
+| ファイル | 種別 | 役割 |
+|---|---|---|
+| `boardflow/src/components/artifact-viewer/ArtifactViewerSection.tsx` | 新規 | Client Component。viewer全体のコンテナ。URL期限管理、viewer切替 |
+| `boardflow/src/components/artifact-viewer/PdfViewer.tsx` | 新規 | PDF iframe表示 + ダウンロードリンク |
+| `boardflow/src/components/artifact-viewer/SvgViewer.tsx` | 新規 | SVG Tab切替（Top/Bottom）iframe表示 + ダウンロードリンク |
+| `boardflow/src/components/artifact-viewer/IbomViewer.tsx` | 新規 | iBOM sandboxed iframe表示 |
+| `boardflow/src/components/artifact-viewer/DownloadList.tsx` | 新規 | ダウンロードリンク群の表示 |
+| `boardflow/src/components/artifact-viewer/ViewerStatusMessage.tsx` | 新規 | viewer unavailable 時のフォールバックメッセージ |
+| `boardflow/src/app/api/viewer-sources/[boardRunId]/route.ts` | 新規 | Route Handler。Client→Backend proxy |
+| `boardflow/src/app/(authenticated)/.../runs/[boardRunId]/page.tsx` | 変更 | Viewersセクションを ArtifactViewerSection に差し替え |
+
+### 実装ステップ（順序と依存関係）
+
+1. **Route Handler 作成** (`app/api/viewer-sources/[boardRunId]/route.ts`)
+   - 依存: なし
+   - Client Component からの URL 再取得用プロキシ
+
+2. **ViewerStatusMessage 作成** (`components/artifact-viewer/ViewerStatusMessage.tsx`)
+   - 依存: なし
+   - status に応じたメッセージ表示
+
+3. **PdfViewer 作成** (`components/artifact-viewer/PdfViewer.tsx`)
+   - 依存: なし
+   - iframe + ダウンロードリンク
+
+4. **SvgViewer 作成** (`components/artifact-viewer/SvgViewer.tsx`)
+   - 依存: なし
+   - Chakra UI Tabs で Top/Bottom 切替
+
+5. **IbomViewer 作成** (`components/artifact-viewer/IbomViewer.tsx`)
+   - 依存: なし
+   - sandboxed iframe
+
+6. **DownloadList 作成** (`components/artifact-viewer/DownloadList.tsx`)
+   - 依存: なし
+   - ダウンロードリンク一覧
+
+7. **ArtifactViewerSection 作成** (`components/artifact-viewer/ArtifactViewerSection.tsx`)
+   - 依存: Step 1-6 すべて
+   - 全体コンテナ、URL期限管理、各viewer呼び出し
+
+8. **page.tsx 変更** (Run詳細ページ)
+   - 依存: Step 7
+   - 既存のViewersセクションを ArtifactViewerSection に差し替え
+
+9. **TypeScript 型チェック & lint**
+   - 依存: Step 8
+
+### テスト観点
+
+1. **型安全性**: `pnpm typecheck` でエラーなし
+2. **lint**: `pnpm lint` pass
+3. **コンポーネント表示分岐**:
+   - viewer status = available → 各種プレビュー表示
+   - viewer status = missing/failed/skipped → フォールバックメッセージ
+   - viewer status = partial → 利用可能分のみ表示
+4. **セキュリティ**:
+   - SVG iframe に `sandbox=""` が付与されていること
+   - iBOM iframe に `sandbox="allow-scripts allow-same-origin"` が付与されていること
+   - Route Handler が cookie を正しく転送すること
+5. **URL期限管理**:
+   - expires_at 前にタイマーが発火し再取得されること（手動テスト）
+6. **レスポンシブ/レイアウト**: iframe の高さ・幅が適切であること（手動確認）
+
+※ E2E テスト (Playwright) は本 Issue の scope 外。将来 Issue で追加。
+
+### ドキュメント更新対象
+
+- `docs/logs/32/worklog.md` — 本ファイル（計画・実装・結果を追記）
+- `docs/frontend/summary.md` — 必要に応じて Artifact Viewer の実装状況を追記（実装後）
+
+### 実装要否
+
+**`implementation_required`**
+
+### 未解決の疑問
+
+なし。調査完了済み、仕様は spec.md と research 成果物で十分に明確。
+
+### 残リスク
+
+1. Safari/iOS での PDF iframe 表示互換性（ダウンロードリンク併設で緩和）
+2. expires_at 期限内に iframe 読み込みが完了しない超低速回線環境（エッジケース、MVP では許容）
+3. Chakra UI v3 の Tabs API が変更された場合の互換性（package.json でバージョン固定済み）
+
+## 実装時の注意事項
+
+1. **artifact domain の分離を維持**: sandbox="allow-scripts allow-same-origin" の安全性はクロスオリジン前提
+2. **サーバー側CSPヘッダ**: artifact proxy で `frame-ancestors`, `default-src 'none'`, `script-src 'unsafe-inline'` を付与
+3. **URL期限管理**: expires_at の5分前にバックグラウンド再取得。iframe src 更新時の状態ロスに注意
+4. **PDF表示のフォールバック**: Safari/iOS制限あり。常にダウンロードリンクを併設
+5. **SVGのsandbox**: KiCad SVGにスクリプトが含まれる可能性は低いが、`sandbox=""` で完全ブロックを検討
+6. **viewer status 分岐**: available のみプレビュー表示。missing/failed/skipped はメッセージ表示
+
+## 参照URL
+
+- InteractiveHtmlBom: https://github.com/openscopeproject/InteractiveHtmlBom
+- MDN iframe sandbox: https://developer.mozilla.org/en-US/docs/Web/HTML/Element/iframe#sandbox
+- MDN CSP sandbox: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Content-Security-Policy/sandbox
+- Next.js Server Components: https://nextjs.org/docs/app/building-your-application/rendering/server-components
+- Next.js Route Handlers: https://nextjs.org/docs/app/building-your-application/routing/route-handlers
+
+## 更新ファイル
+
+- `docs/external/iframe-sandbox-ibom.md` (新規作成)
+- `docs/external/nextjs-iframe-artifact-viewer.md` (新規作成)
+- `docs/logs/32/worklog.md` (本ファイル)
+
+## 残リスク
+
+- artifact domain と app domain が同一になった場合、sandbox のセキュリティモデルが破綻する
+- iBOM が将来バージョンで外部リソース読み込みを行うようになった場合、CSP の調整が必要
+- Safari/iOS の iframe 内 PDF 表示の互換性は実機テストで確認が必要
