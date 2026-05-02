@@ -439,6 +439,132 @@ MVP ではユニットテスト・E2E テストは対象外。
 
 ---
 
+## ドキュメント確認（2026-05-03 再レビュー 2回目）
+
+### 対象Issue
+
+- Issue ID: #34
+- タイトル: Frontend: Diff（差分レビュー）画面実装
+- ブランチ: `feat/34-diff-review-page`
+
+### 総評
+
+- `docs_ready: true`
+- 前回のドキュメント blocker だった checks 差分定義の不一致は解消された。
+- `docs/spec.md` section 7.4 の ERC / DRC 集計差分は「error / warning件数の増減」となっており、`docs/backend/api.md` section 3.9 の `DiffSummary.checks` 例 (`status_change`, `error_delta`, `warning_delta`) と整合している。
+- 今回の確認範囲では、Issue #34 の PR 作成を妨げる追加のドキュメント blocker は見当たらない。
+
+### 確認結果
+
+#### 1. `docs/spec.md` と `docs/backend/api.md` の整合
+
+- `docs/spec.md` section 7.4 は checks 差分を「status変化」「error / warning件数の増減」と定義している。
+- `docs/backend/api.md` section 3.9 の `summary.checks` は `error_delta` / `warning_delta` のみを返す例になっている。
+- 両者の意味づけは一致しており、前回指摘していた `notice` 差分のズレは解消済み。
+
+#### 2. 関連ドキュメントの確認
+
+- `docs/frontend/summary.md` は diff 画面を個別列挙していないが、今回実装と矛盾する記述はない。
+- `README.md` / `CONTRIBUTING.md` に今回 Issue で必須となる追記は見当たらない。
+- `docs/external/` について、Issue #34 の今回の再レビューで新たに不整合となる外部調査メモはない。
+
+### 必須修正
+
+- なし
+
+### 任意改善
+
+1. `docs/frontend/summary.md` に diff ページを画面例として明示すると、後続の画面棚卸しでは追いやすくなる。
+
+### 不整合のあるドキュメント
+
+- なし
+
+### 不足しているドキュメント
+
+- なし
+
+### 外部調査メモに関する指摘
+
+- なし
+
+### PR/完了結果
+
+- `docs_ready: true`
+
+### 残リスク
+
+- 現時点の確認では docs 観点の blocker はない。今後 diff payload 契約を拡張する場合は、`docs/spec.md` と `docs/backend/api.md` の両方を同時更新する運用を維持する必要がある。
+
+### 更新した作業ログパス
+
+- `docs/logs/34/worklog.md`
+
+---
+
+## ドキュメント確認（2026-05-03）
+
+### 総評
+
+- `docs_ready: false`
+- Issue #34 の diff 画面実装自体は、`docs/spec.md` section 7 と `docs/backend/api.md` section 3.9 が求めるページ導線、status 別表示、preview/metadata の扱いと概ね整合している。
+- `docs/frontend/summary.md` に diff ページの明示的な画面一覧追加はないが、「差分や最新状態を把握しやすい画面構成」「差分表示の MVP 範囲」という記述と矛盾はない。
+- ただし、checks 差分の記述が `docs/spec.md` と `docs/backend/api.md` / 実装で一致しておらず、関連ドキュメントをこのまま PR に載せるのは不正確。
+
+### 確認結果
+
+#### 1. `docs/frontend/summary.md`
+
+- diff 専用ページへの直接言及はない。
+- ただし frontend の責務として「差分や最新状態を把握しやすい画面構成」を掲げており、今回の実装を否定する記述はない。
+- 今回 Issue の完了条件としては追記必須ではない。
+
+#### 2. `docs/spec.md` section 7 と実装の整合性
+
+- `ready` / `no_baseline` / `unavailable` / `failed` の status 別表示方針は実装と整合している。
+- Run 詳細から diff ページへの導線、base run との比較導線、preview 差分サマリの存在も実装と整合している。
+- 一方で spec 7.4 は ERC / DRC 集計差分に「error / warning / notice 件数の増減」を含めているが、frontend 実装と backend API 3.9 は `error_delta` / `warning_delta` しか扱っていない。
+
+#### 3. `docs/logs/34/worklog.md` の正確性
+
+- 過去の `pr_ready: false` レビュー結果と、その後の修正、最終再レビュー `pr_ready: true` が時系列で残っており、作業履歴としては正確。
+- 現時点の最終結論も末尾で更新されており、ログ構造として問題ない。
+
+### 必須修正
+
+1. `docs/spec.md` section 7.4 の checks 差分記述と `docs/backend/api.md` section 3.9 の response schema を一致させること。
+  - 現状は spec 側が `notice` 件数差分まで要求している一方、API 仕様と実装は `error_delta` / `warning_delta` のみ。
+  - どちらが正本かを決めて、少なくとも [docs/spec.md](docs/spec.md) または [docs/backend/api.md](docs/backend/api.md) のどちらかを修正する必要がある。
+
+### 任意改善
+
+1. `docs/frontend/summary.md` の画面例に diff ページを 1 行追加すると、今後の画面棚卸しでは追いやすくなる。
+2. `docs/logs/34/worklog.md` の最終レビュー節に `docs_ready` 判定も併記すると、review / docs review の結論差分を後から追いやすい。
+
+### 不整合のあるドキュメント
+
+- `docs/spec.md` section 7.4
+- `docs/backend/api.md` section 3.9
+
+### 不足しているドキュメント
+
+- 必須の新規ドキュメントはなし
+- ただし checks 差分項目の正本定義の明文化は必要
+
+### 外部調査メモに関する指摘
+
+- 今回 Issue #34 では追加の `docs/external/` 成果物はなく、既存 external docs と矛盾する点もない。
+
+### PR/完了結果
+
+- `docs_ready: false`
+
+### 更新した作業ログパス
+
+- `docs/logs/34/worklog.md`
+
+---
+
 ## レビュー結果（2026-05-03 再レビュー）
 
 ### 総評
@@ -583,5 +709,66 @@ MVP ではユニットテスト・E2E テストは対象外。
 - 全セクションが型不一致でも画面はクラッシュせずフォールバック表示されるが、ユーザーには情報量が減る。backend側で `DiffSummary` の型定義を厳密に保証するのが望ましい
 
 ### 更新した作業ログパス（修正後）
+
+- `docs/logs/34/worklog.md`
+
+---
+
+## レビュー結果（2026-05-03 最終再レビュー）
+
+### 総評
+
+- `pr_ready: true`
+- 前回の必須修正だった「`summary` を無条件参照して描画時例外で落ちる」問題は解消されている。
+- diff 画面と Run 詳細画面の両方で、`summary` の各フィールド参照がランタイム型ガード経由になっており、想定外 shape でもクラッシュせずフォールバックまたは非表示に落ちる。
+- 受け入れ条件のうち、`pnpm build` は今回の再レビューで実行し成功を確認した。
+
+### 調査結果
+
+- diff 画面では `isFileChanges` / `isBomChanges` / `isCheckEntry` / `isArtifactChanges` が追加され、各セクションで `summary` の部分構造を検証している。
+- Run 詳細ページの「Changes from Baseline」でも同種の型ガードが追加され、`diff.summary.file_changes.added` などの直接参照は解消されている。
+- `metadata` 参照は引き続き `isRecord` を介しており、`file_hashes` / `artifacts_summary` / `previews` は object 確認後にのみ読まれている。`bom_summary` も存在有無だけを見ており、構造固定前提のアクセスはない。
+- `404 not_found` のみ `notFound()` に流し、それ以外は画面上のエラー表示に分離されているため、前回指摘のエラーハンドリング問題も維持されている。
+
+### レビュー結果
+
+#### 必須修正
+
+- なし
+
+#### 任意改善
+
+1. diff 画面の `ChecksSection` は `summary.checks` が object でも有効 entry が 0 件だとセクションごと消える。クラッシュはしないが、ready 状態で「Data format not recognized」のフォールバックを出した方が挙動が明確。
+2. Run 詳細ページの checks summary も同様に invalid entry 群では無表示になるため、必要なら fallback テキストを揃えると一貫性が上がる。
+
+### テスト結果
+
+- `pnpm typecheck`: pass（申告済み結果を確認）
+- `pnpm lint`: pass（申告済み結果を確認）
+- `pnpm build`: pass（2026-05-03 の最終再レビューで実行確認）
+
+### テスト不足
+
+- malformed な `summary` / `metadata` payload を与えたときに fallback 表示へ落ちることを確認する component test または Playwright test は未追加。
+- `summary.checks` が object だが各 entry が不正 shape のケースを明示的に確認する自動テストはない。
+
+### ドキュメント確認
+
+- `docs/spec.md` と `docs/backend/api.md` が要求する status 別表示、diff 専用ページ、Run 詳細からの導線と整合している。
+- `docs/backend/api.md` の `no_baseline` 時 `summary: null` と `404 not_found` 方針にも反していない。
+
+### plan / research / docs との不整合
+
+- なし。research で懸念していた `summary` / `metadata` の不定 shape は、今回の修正で frontend 側の防御として妥当な水準まで解消されている。
+
+### PR/完了結果
+
+- `pr_ready: true`
+
+### 残リスク
+
+- backend の diff payload 契約が今後さらに変わる場合、現在は「安全に落とす」実装であり、情報量は減っても UI が壊れない設計になっている。厳密な表示保証は将来的に API 契約の固定化とテスト追加で補強したい。
+
+### 更新した作業ログパス
 
 - `docs/logs/34/worklog.md`
