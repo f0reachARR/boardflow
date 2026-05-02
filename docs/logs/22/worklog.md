@@ -206,3 +206,121 @@ run_result_comment_test.rs
 - [ ] テスト実行確認
 - [ ] レビュー
 - [ ] マージ
+
+## レビュー (2026-05-02)
+
+### Issueまでの経緯
+
+- Issue #22 の対象は、既存の `create_run_result_comment` ハンドラ実装に対する統合テスト追加と、spec 12.2 / 12.3 / 13.1 / rate limit 対応の観点でのレビュー。
+- レビュー対象として `crates/worker/src/handlers/create_run_result_comment.rs`、`crates/worker/src/comment_body.rs`、`crates/worker/tests/run_result_comment_test.rs`、`crates/worker/src/dispatcher.rs`、`crates/worker/src/handlers/import.rs`、`docs/spec.md` を確認。
+
+### 今回のユーザー要望
+
+- 統合テスト 10 件が仕様を十分に網羅しているかを確認する。
+- テストコードの race condition / cleanup 漏れの有無を確認する。
+- ハンドラ本体が spec 12.2, 12.3, 13.1 と整合しているかを確認する。
+
+### 今回の調査結果
+
+- `create_run_result_comment` ハンドラ本体は、missing IDs、issue 未作成、closed issue、404、rate limit、初回 run スキップ、状態変化時コメント作成の主要分岐を実装している。
+- `should_post_run_result()` のユニットテストは、初回 run スキップ、pass→fail、fail→pass、新規 error 増加、変化なしを個別にカバーしている。
+- 統合テスト 10 件は正常系、初回 skip、変化なし skip、missing IDs、issue 未作成、closed recreate、closed no recreate、404、rate limit を確認している。
+- Web 調査では、GitHub REST API の rate limit 対応は `Retry-After` があればそれに従い、無ければ少なくとも 1 分待機し、継続失敗時は指数バックオフする方針が推奨されていることを確認。
+
+### 実装内容の評価
+
+- ハンドラ本体の仕様整合性は概ね良好。closed issue で `recreate_issue_on_update=false` は停止、`404` は issue 情報クリア + `create_issue` enqueue、rate limit は reschedule となっており、ユーザー提示の観点 2, 3, 4 には沿っている。
+- `dispatcher.rs` には `create_run_result_comment` のルーティングがあり、`import.rs` でも import 完了後に同ジョブが enqueue されるため、ジョブフロー自体は 13.1 と整合している。
+- テストは `serial_test` を使い、`cleanup_test_data()` で作成データを消しており、明白な race condition や cleanup 漏れは見当たらない。
+
+### 今回のテスト結果
+
+- `export DATABASE_URL="postgresql://boardflow:boardflow@localhost:5432/boardflow" && cargo test -p boardflow-worker --test run_result_comment_test -- --ignored` を再実行し、10 件すべて PASS を確認。
+- `cargo clippy -p boardflow-worker --tests -- -D warnings` を再実行し、成功を確認。
+
+### レビュー結果
+
+- PR作成可否: `pr_ready: false`
+
+#### 重大度順の指摘
+
+1. `spec 13.1` の closed issue 分岐にある「`recreate_issue_on_update=true` かつ `tree_hash` 変更ありでのみ再作成する」という条件が、統合テストでは未検証。
+    - `crates/worker/src/handlers/create_run_result_comment.rs` では `tree_hash_changed()` 分岐が実装されているが、`crates/worker/tests/run_result_comment_test.rs` の closed issue 系は changed case と `recreate=false` しかなく、unchanged case がない。
+    - このままだと、closed issue を常に再作成してしまう回帰が入っても今回の 10 テストでは検知できない。
+
+2. `spec 12.2` の本文フォーマットに対する回帰テストが不足している。
+    - 実装側の `run_result_comment()` は marker、Commit、Run URL、Diff URL、ERC/DRC table を生成している。
+    - ただし統合テスト成功ケースは `create_comment` が呼ばれたことしか見ておらず、本文内容を検証していない。
+    - 既存のユニットテスト `test_run_result_comment_contains_markers()` も marker と一部結果表示のみで、Run URL、Diff URL、table header までは確認していない。
+    - ユーザーが明示した 12.2 の確認項目に対して、実装は満たしていてもテスト網羅としては不足している。
+
+### 必須修正
+
+1. `crates/worker/tests/run_result_comment_test.rs` に、Issue closed + `recreate_issue_on_update=true` + `tree_hash` unchanged のケースを追加し、`Completed` かつ `create_issue` 非 enqueue を確認すること。
+2. `crates/worker/tests/run_result_comment_test.rs` の success ケース、または `crates/worker/src/comment_body.rs` のユニットテストで、Run Result 本文に marker、Commit、Run URL、Diff URL、`| Check | Result |` が含まれることを直接検証すること。
+
+### 任意改善
+
+1. `404` と closed recreate のテストで、`board_project_issue_history.reason` が期待値 (`deleted` / `recreated`) になっていることまで確認すると、履歴保存の回帰に強くなる。
+2. success ケースで ERC だけでなく DRC 変化、fail→pass、新規 error 増加を統合テスト側にも 1 ケースずつ足すと、ユニットテストと統合テストの責務分担がより明確になる。
+
+### テスト不足
+
+- closed issue + unchanged tree hash の未検証。
+- Run Result コメント本文の必須要素に対する直接検証の不足。
+- integration レベルでは fail→pass と新規 error 増加の投稿条件は未検証。
+
+### ドキュメント確認
+
+- `docs/spec.md` の 12.2, 12.3, 13.1 を確認。
+- `docs/logs/22/worklog.md` の既存内容には「統合テスト未作成」「次ステップでテスト実行確認」といった過去状態が残っており、今回の実装完了・テスト PASS 状態とは一致していない。
+
+### PR/完了結果
+
+- 現時点では `pr_ready: false`。
+- 理由は、実装の致命的不整合ではなく、ユーザーがレビュー観点として明示した spec 12.2 / 13.1 に対する回帰テストがまだ 2 点不足しているため。
+
+### 残リスク
+
+- closed issue の tree_hash unchanged 分岐が将来壊れても現状テストでは検知できない。
+- コメント本文の URL / table 生成が壊れても現状テストでは検知できない。
+
+---
+
+## ドキュメント確認 (2026-05-02, docs review)
+
+### docs review の調査結果
+
+- `docs/logs/22/worklog.md` 内の過去レビュー節は現行実装に対して stale であり、最新状態をそのまま表していない。
+- 現行の統合テスト `crates/worker/tests/run_result_comment_test.rs` は 10 件ではなく 11 件ある。
+- 追加済みの 11 件目は `test_run_result_comment_issue_closed_tree_hash_unchanged` で、spec 13.1 の「closed issue かつ tree_hash unchanged では再作成しない」を確認している。
+- success ケースではコメント本文に marker、Commit、Run URL、Diff URL、`| Check | Result |` が含まれることを検証しており、spec 12.2 の主要要素に対応している。
+- `docs/spec.md` の 12.2、12.3、13.1 と `docs/backend/summary.md` の Run Result コメント方針・closed issue 方針には、今回の実装と矛盾する記述は見当たらない。
+
+### docs review の対応内容
+
+- ドキュメントレビューとして、Issue #22 の worklog に現行状態の確認結果を追記した。
+- 過去節に残る「10件テスト」「必須修正 2 点」「`pr_ready: false`」は当時のレビュー記録として残るが、現時点の最終判定は本節を優先する。
+
+### docs review 時点のテスト結果
+
+- ユーザー提示の最新結果として、`crates/worker/tests/run_result_comment_test.rs` は 11 tests all passed。
+- `cargo clippy --tests -- -D warnings` は PASS。
+
+### docs review の判定
+
+- `docs_ready: true`
+
+### docs review のドキュメント確認
+
+- 修正が必要だったのは `docs/logs/22/worklog.md` の最新状態反映のみ。
+- `docs/spec.md` の更新は不要。
+- `docs/backend/summary.md` の更新は不要。
+
+### docs review の PR/完了結果
+
+- Issue #22 について、ドキュメント観点では PR 作成可。
+
+### docs review の残リスク
+
+- worklog 内には履歴として stale な過去レビュー節が残るため、読む側は本節を最新判定として参照する必要がある。

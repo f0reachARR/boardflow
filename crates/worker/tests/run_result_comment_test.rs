@@ -398,9 +398,28 @@ async fn test_run_result_comment_success() {
         handler_result_debug(&result)
     );
 
-    // Verify create_comment was called
-    let captured = client.captured_comment_body.lock().unwrap();
-    assert!(captured.is_some(), "create_comment should have been called");
+    // Verify create_comment was called and body contains required elements (spec 12.2)
+    {
+        let captured = client.captured_comment_body.lock().unwrap();
+        let body = captured
+            .as_ref()
+            .expect("create_comment should have been called");
+        assert!(
+            body.contains("<!-- boardflow:comment_type=run_result -->"),
+            "Missing comment_type marker"
+        );
+        assert!(
+            body.contains(&format!("<!-- boardflow:board_run_id={current_run_id} -->")),
+            "Missing board_run_id marker"
+        );
+        assert!(body.contains("## BoardFlow Run Result"), "Missing header");
+        assert!(body.contains("Commit: `def5678`"), "Missing commit SHA");
+        assert!(body.contains("Run: https://"), "Missing Run URL");
+        assert!(body.contains("Diff: https://"), "Missing Diff URL");
+        assert!(body.contains("| Check | Result |"), "Missing table header");
+        assert!(body.contains("ERC"), "Missing ERC in table");
+        assert!(body.contains("DRC"), "Missing DRC in table");
+    }
 
     cleanup_test_data(&pool, repo_id, bp_id).await;
 }
@@ -433,11 +452,13 @@ async fn test_run_result_comment_skip_first_run() {
     );
 
     // Verify create_comment was NOT called
-    let captured = client.captured_comment_body.lock().unwrap();
-    assert!(
-        captured.is_none(),
-        "create_comment should NOT have been called for first run"
-    );
+    {
+        let captured = client.captured_comment_body.lock().unwrap();
+        assert!(
+            captured.is_none(),
+            "create_comment should NOT have been called for first run"
+        );
+    }
 
     cleanup_test_data(&pool, repo_id, bp_id).await;
 }
@@ -471,11 +492,13 @@ async fn test_run_result_comment_skip_no_change() {
     );
 
     // Verify create_comment was NOT called
-    let captured = client.captured_comment_body.lock().unwrap();
-    assert!(
-        captured.is_none(),
-        "create_comment should NOT have been called when no change"
-    );
+    {
+        let captured = client.captured_comment_body.lock().unwrap();
+        assert!(
+            captured.is_none(),
+            "create_comment should NOT have been called when no change"
+        );
+    }
 
     cleanup_test_data(&pool, repo_id, bp_id).await;
 }
@@ -643,6 +666,68 @@ async fn test_run_result_comment_issue_closed_recreate() {
     .await
     .unwrap();
     assert!(job_row.0 >= 1, "create_issue job should be enqueued");
+
+    cleanup_test_data(&pool, repo_id, bp_id).await;
+}
+
+// ─── Test 7b: Issue closed + recreate=true + tree_hash UNCHANGED ────────────
+
+#[tokio::test]
+#[ignore]
+#[serial]
+async fn test_run_result_comment_issue_closed_tree_hash_unchanged() {
+    let Some(pool) = get_pool().await else { return };
+    let (repo_id, bp_id, _prev_run_id, current_run_id, installation_id) =
+        setup_with_status_change(&pool).await;
+
+    // Make both runs have the SAME tree_hash so tree_hash_changed returns false
+    sqlx::query("UPDATE board_runs SET tree_hash = 'same_hash' WHERE board_project_id = $1")
+        .bind(bp_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let client = MockGitHubClient::default_success().with_get_issue(Ok(IssueInfo {
+        number: 1,
+        node_id: "MDU6SXNzdWUx".into(),
+        state: IssueState::Closed,
+        html_url: "https://github.com/test-owner/test-repo/issues/1".into(),
+    }));
+    let config = make_config();
+    let mut job = make_job(Some(bp_id), Some(current_run_id));
+    job.installation_id = installation_id;
+    job.repository_id = repo_id;
+
+    let result = boardflow_worker::handlers::create_run_result_comment::handle(
+        &pool, &client, &config, &job,
+    )
+    .await;
+
+    // tree_hash unchanged → Completed (no recreation, spec 13.1)
+    assert!(
+        matches!(result, boardflow_worker::handlers::HandlerResult::Completed),
+        "Expected Completed (tree_hash unchanged), got: {}",
+        handler_result_debug(&result)
+    );
+
+    // Verify issue_number was NOT cleared
+    let row: (Option<i32>,) =
+        sqlx::query_as("SELECT issue_number FROM board_projects WHERE id = $1")
+            .bind(bp_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(row.0, Some(1), "issue_number should NOT be cleared");
+
+    // Verify create_issue job was NOT enqueued
+    let job_row: (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM github_jobs WHERE board_project_id = $1 AND type = 'create_issue'",
+    )
+    .bind(bp_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(job_row.0, 0, "create_issue job should NOT be enqueued");
 
     cleanup_test_data(&pool, repo_id, bp_id).await;
 }
