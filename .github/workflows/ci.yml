@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+  DATABASE_URL: postgres://boardflow:boardflow@localhost:5432/boardflow
+  BOARDFLOW_ARTIFACT_SECRET: test-secret-for-ci
+  SQLX_OFFLINE: false
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: boardflow
+          POSTGRES_PASSWORD: boardflow
+          POSTGRES_DB: boardflow
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: clippy, rustfmt
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Install sqlx-cli
+        run: cargo install sqlx-cli --locked --no-default-features --features rustls,postgres
+
+      - name: Run migrations
+        run: cargo sqlx migrate run --source crates/db/migrations
+
+      - name: Unit tests
+        run: cargo test --workspace
+
+      - name: Integration tests (DB)
+        run: cargo test --workspace -- --ignored
