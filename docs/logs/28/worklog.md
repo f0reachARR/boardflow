@@ -324,3 +324,121 @@ pub struct WebhookSecret(pub Option<String>);
 ### 更新した作業ログパス
 
 `docs/logs/28/worklog.md`
+
+---
+
+## レビューフェーズ (2026-05-02)
+
+### Issueまでの経緯
+
+- 対象は Issue #28 のみ。
+- 実装、research、spec、backend summary、統合テスト、関連 worker ハンドラを突き合わせてレビューした。
+
+### 調査結果
+
+- `docs/spec.md` / `docs/backend/summary.md` が求める GitHub App webhook 受信、署名検証、repository 同期の大枠は実装されている。
+- 署名検証は raw body に対する HMAC-SHA256 + `verify_slice()` で、research と GitHub Docs の推奨に整合している。
+- `installation_repositories.removed` の DB 更新が `github_repository_id` のみで実行されており、event payload の `installation.id` で絞っていない。
+- 受け入れ条件 10 (`GITHUB_WEBHOOK_SECRET` 未設定時に 500) に対応する統合テストは存在しない。
+- `GITHUB_WEBHOOK_SECRET` の運用設定が README / docs 配下の恒久ドキュメントに反映されていない。
+
+### 実装内容レビュー結果
+
+- `pr_ready: false`
+
+#### 重大指摘
+
+1. **major**: `installation_repositories removed` が installation を条件にせず repository 単位で解除しており、順不同 delivery や再配送で現行の連携状態を誤って消し得る。
+    - 呼び出し側: `crates/api/src/routes/webhook.rs` で removal payload の `installation.id` を受け取っているにもかかわらず、[crates/api/src/routes/webhook.rs](crates/api/src/routes/webhook.rs#L210) から [crates/api/src/routes/webhook.rs](crates/api/src/routes/webhook.rs#L212) では `clear_installation_for_repo(pool, repo.id)` しか渡していない。
+    - クエリ側: [crates/db/src/queries/repository.rs](crates/db/src/queries/repository.rs#L159) から [crates/db/src/queries/repository.rs](crates/db/src/queries/repository.rs#L165) は `WHERE github_repository_id = $1` だけで `installation_id` を見ていない。
+    - GitHub webhook は再配送や順不同到着を考慮すべきなので、少なくとも `github_repository_id` と `installation_id` の両方で条件付ける必要がある。
+
+#### 必須修正
+
+1. `clear_installation_for_repo` を `github_repository_id + installation_id` 条件に変更し、handler 側から event の `installation.id` を渡す。
+2. 上記に対応する統合テストを追加し、別 installation に再紐付け済みの repository に対して古い removal event が来ても `installation_id` を消さないことを検証する。
+3. 受け入れ条件 10 に対応する統合テストを追加し、`WebhookSecret(None)` 構成で [crates/api/tests/webhook_test.rs](crates/api/tests/webhook_test.rs) に 500 応答を確認するケースを入れる。
+
+#### 任意改善
+
+1. `X-GitHub-Delivery` をログに含めると、再配送や障害解析時の追跡がしやすくなる。
+2. 連携解除済み repository (`installation_id = 0`) を後続 worker が扱うと GitHub API 呼び出しで 0 を installation_id として使うため、将来的にはジョブ側で明示的に無効状態を扱うガードがあると安全。
+
+### テスト結果
+
+- 実行確認: `cargo test -p boardflow-api --test webhook_test` → 8件 pass
+- 実行確認: `cargo test -p boardflow-api webhook::tests` → 11件 pass
+- 既存の `create_app_with_config` 呼び出しは追加引数込みでコンパイル上は整合していることを確認した。
+
+### テスト不足
+
+- [crates/api/tests/webhook_test.rs](crates/api/tests/webhook_test.rs) には `GITHUB_WEBHOOK_SECRET` 未設定時 500 のケースがない。
+- removal event の installation 不一致時に状態を保持する回帰テストがない。
+
+### ドキュメント確認
+
+- `docs/spec.md` / `docs/backend/summary.md` / `docs/external/github-webhook-signature.md` とは概ね整合。
+- ただし `GITHUB_WEBHOOK_SECRET` の設定方法が README などの恒久ドキュメントに見当たらず、運用者向け導線が不足している。
+
+### plan / research / docs との不整合
+
+- 計画上の受け入れ条件 10 は実装されているが、テスト実績とテストファイル構成が追いついていない。
+- research では delivery の信頼性と raw body 検証を重視しており、署名検証は一致している。一方で removal の条件が installation 非依存なのは、順不同 delivery を考慮する設計として弱い。
+
+### PR/完了結果
+
+- PR 作成可否: `pr_ready: false`
+- 理由: 連携解除クエリの条件不足が実データ破壊に繋がり得るため。
+
+### 残リスク
+
+- installation deleted / removed 後に既存の GitHub job が残っていた場合の downstream 挙動は本 Issue のテスト範囲外。
+
+### 更新した作業ログパス
+
+`docs/logs/28/worklog.md`
+
+---
+
+## レビュー指摘修正フェーズ (2026-05-02)
+
+### 修正内容
+
+レビューで指摘された必須修正3件 + 任意改善1件をすべて対応した。
+
+#### 1. (major) `clear_installation_for_repo` の installation 条件追加
+
+- **`crates/db/src/queries/repository.rs`**: `clear_installation_for_repo` に `installation_id: i64` 引数を追加し、WHERE 条件を `github_repository_id = $1 AND installation_id = $2` に変更。再配送や installation 移動時に現行の installation を誤ってクリアしなくなった。
+- **`crates/api/src/routes/webhook.rs`**: `handle_installation_repositories_event` の `removed` 処理で `event.installation.id` を第3引数として渡すように変更。
+
+#### 2. (major) secret 未設定時 500 の統合テスト追加
+
+- **`crates/api/tests/webhook_test.rs`**: `test_webhook_no_secret_configured` を追加。`webhook_secret = None` で app を構成し、500 が返ることを検証。
+
+#### 3. (major) installation 不一致の removed event 回帰テスト追加
+
+- **`crates/api/tests/webhook_test.rs`**: `test_webhook_repos_removed_different_installation` を追加。repo が installation_id=A で登録済みの状態で installation_id=B からの removed event が来ても installation_id が変わらないことを検証。
+
+#### 4. (suggestion) X-GitHub-Delivery ログ出力
+
+- **`crates/api/src/routes/webhook.rs`**: `github_webhook` handler で `X-GitHub-Delivery` ヘッダを取得し、`tracing::info!` に `delivery_id` フィールドとして含めるよう変更。
+
+### テスト結果
+
+- `cargo check --workspace`: OK
+- `cargo test -p boardflow-api --lib`: 15 passed
+- `cargo test -p boardflow-api --test webhook_test`: 10 passed (新規2件含む)
+- `cargo clippy --workspace --all-targets -- -D warnings`: OK
+- `cargo fmt --all -- --check`: OK
+
+### 更新ドキュメント
+
+- `docs/logs/28/worklog.md` (本ファイル)
+
+### 残リスク
+
+- installation deleted / removed 後に既存の GitHub job が残っていた場合の downstream 挙動は本 Issue のテスト範囲外。
+
+### 更新した作業ログパス (修正後)
+
+`docs/logs/28/worklog.md`
