@@ -17,6 +17,7 @@ struct MockGitHubClient {
     get_issue_result: tokio::sync::Mutex<Option<Result<IssueInfo, GitHubClientError>>>,
     create_comment_result: tokio::sync::Mutex<Option<Result<CreatedComment, GitHubClientError>>>,
     update_comment_result: tokio::sync::Mutex<Option<Result<(), GitHubClientError>>>,
+    captured_comment_body: std::sync::Mutex<Option<String>>,
 }
 
 impl MockGitHubClient {
@@ -31,6 +32,7 @@ impl MockGitHubClient {
             }))),
             create_comment_result: tokio::sync::Mutex::new(Some(Ok(CreatedComment { id: 100 }))),
             update_comment_result: tokio::sync::Mutex::new(Some(Ok(()))),
+            captured_comment_body: std::sync::Mutex::new(None),
         }
     }
 
@@ -86,8 +88,9 @@ impl GitHubAppClient for MockGitHubClient {
         _: &str,
         _: &str,
         _: u64,
-        _: &str,
+        body: &str,
     ) -> Result<CreatedComment, GitHubClientError> {
+        *self.captured_comment_body.lock().unwrap() = Some(body.to_string());
         match self.create_comment_result.lock().await.take() {
             Some(r) => r,
             None => panic!("create_comment called unexpectedly"),
@@ -493,6 +496,7 @@ async fn test_update_dashboard_comment_success() {
         }))),
         create_comment_result: tokio::sync::Mutex::new(None),
         update_comment_result: tokio::sync::Mutex::new(Some(Ok(()))),
+        captured_comment_body: std::sync::Mutex::new(None),
     };
     let config = make_config();
     let mut job = make_job("update_dashboard_comment", Some(bp_id), Some(run_id));
@@ -703,6 +707,16 @@ async fn test_create_dashboard_comment_issue_closed_recreate_tree_hash_changed()
     .unwrap();
     assert!(job_row.0 >= 1, "create_issue job should be enqueued");
 
+    // Verify issue history was saved
+    let history_count: (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM board_project_issue_history WHERE board_project_id = $1",
+    )
+    .bind(bp_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(history_count.0 >= 1, "Issue history should be recorded");
+
     cleanup_test_data(&pool, repo_id, bp_id).await;
 }
 
@@ -838,6 +852,16 @@ async fn test_create_dashboard_comment_issue_404() {
     .unwrap();
     assert!(job_row.0 >= 1, "create_issue job should be enqueued");
 
+    // Verify issue history was saved
+    let history_count: (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM board_project_issue_history WHERE board_project_id = $1",
+    )
+    .bind(bp_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(history_count.0 >= 1, "Issue history should be recorded");
+
     cleanup_test_data(&pool, repo_id, bp_id).await;
 }
 
@@ -877,6 +901,12 @@ async fn test_create_dashboard_comment_uses_latest_completed_run() {
             .unwrap();
     assert_eq!(row.0, Some(100), "dashboard_comment_id should be saved");
 
+    // Verify the comment body uses the latest run (def5678) not the old run (abc1234)
+    let captured = client.captured_comment_body.lock().unwrap();
+    let body = captured.as_ref().expect("create_comment should have been called");
+    assert!(body.contains("def5678"), "Comment body should contain latest run commit SHA 'def5678', got: {}", body);
+    assert!(!body.contains("abc1234"), "Comment body should NOT contain old run commit SHA");
+
     cleanup_test_data(&pool, repo_id, bp_id).await;
 }
 
@@ -904,6 +934,7 @@ async fn test_update_dashboard_comment_issue_closed_no_recreate() {
         }))),
         create_comment_result: tokio::sync::Mutex::new(None),
         update_comment_result: tokio::sync::Mutex::new(None),
+        captured_comment_body: std::sync::Mutex::new(None),
     };
     let config = make_config();
     let mut job = make_job("update_dashboard_comment", Some(bp_id), Some(run_id));
@@ -944,6 +975,7 @@ async fn test_update_dashboard_comment_issue_404() {
         )))),
         create_comment_result: tokio::sync::Mutex::new(None),
         update_comment_result: tokio::sync::Mutex::new(None),
+        captured_comment_body: std::sync::Mutex::new(None),
     };
     let config = make_config();
     let mut job = make_job("update_dashboard_comment", Some(bp_id), Some(run_id));
