@@ -539,3 +539,36 @@ test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
 ### 残リスク
 
 - update 側の Issue 404 分岐で `insert_issue_history` が壊れても、現状のテストでは検出できない。
+
+---
+
+## 3回目レビュー指摘修正（2026-05-02）
+
+### 修正内容
+
+- `test_update_dashboard_comment_issue_404` に `board_project_issue_history` の件数確認を追加
+- update 側 404 再作成経路で旧 Issue が履歴保存されることを検証
+- clippy warning 修正
+
+### 実施コミット
+
+- `2d0ca03` — test(#21): update_dashboard_comment 404テストにissue_history検証追加 + clippy fix
+
+### 最終テスト結果
+
+- `cargo test -p boardflow-worker --test dashboard_comment_test -- --ignored` → 17 passed
+- `cargo clippy -p boardflow-worker --tests -- -D warnings` → 成功
+
+---
+
+## PR作成結果（2026-05-02）
+
+### PR/完了結果
+
+- PR: https://github.com/f0reachARR/boardflow/pull/49
+- `pr_ready: true`（review: 全指摘解消済み、docs: docs_ready: true）
+- ブランチ: `feat/21-dashboard-comment-tests` → `main`
+
+### 残リスク
+
+- update 側の closed + recreate 経路のテストは未追加（任意改善として記録済み）
