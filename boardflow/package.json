@@ -1,0 +1,32 @@
+{
+  "name": "boardflow-frontend",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "typecheck": "tsc --noEmit",
+    "generate:api": "openapi-typescript http://localhost:3001/api/v1/openapi.json -o ./src/lib/api/schema.d.ts"
+  },
+  "dependencies": {
+    "@chakra-ui/react": "^3.35.0",
+    "@emotion/react": "^11",
+    "lucide-react": "^0.500",
+    "next": "^15",
+    "openapi-fetch": "^0.13",
+    "react": "^19",
+    "react-dom": "^19"
+  },
+  "devDependencies": {
+    "@eslint/eslintrc": "^3.3.5",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "^15",
+    "openapi-typescript": "^7",
+    "typescript": "^5"
+  }
+}
