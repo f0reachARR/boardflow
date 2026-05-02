@@ -24,6 +24,22 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
+function isFileChanges(v: unknown): v is { added: number; removed: number; changed: number; unchanged: number } {
+  return isRecord(v) && typeof v.added === "number" && typeof v.removed === "number" && typeof v.changed === "number" && typeof v.unchanged === "number"
+}
+
+function isBomChanges(v: unknown): v is { added: number; removed: number; changed: number } {
+  return isRecord(v) && typeof v.added === "number" && typeof v.removed === "number" && typeof v.changed === "number"
+}
+
+function isCheckEntry(v: unknown): v is { status_change: string; error_delta: number; warning_delta: number } {
+  return isRecord(v) && typeof v.status_change === "string" && typeof v.error_delta === "number" && typeof v.warning_delta === "number"
+}
+
+function isArtifactChanges(v: unknown): v is { added: number; removed: number; changed: number } {
+  return isRecord(v) && typeof v.added === "number" && typeof v.removed === "number" && typeof v.changed === "number"
+}
+
 interface Props {
   params: Promise<{ repositoryId: string; boardProjectId: string; boardRunId: string }>
 }
@@ -146,6 +162,17 @@ export default async function DiffPage({ params }: Props) {
 }
 
 function FileChangesSection({ summary, metadata }: { summary: DiffSummary; metadata: Record<string, unknown> | null }) {
+  if (!isFileChanges(summary.file_changes)) {
+    return (
+      <Box>
+        <Heading size="md" mb={3}>File Changes</Heading>
+        <Box borderWidth="1px" borderRadius="md" p={4} bg="white">
+          <Text fontSize="sm" color="gray.500">Data format not recognized</Text>
+        </Box>
+      </Box>
+    )
+  }
+
   const { added, removed, changed, unchanged } = summary.file_changes
 
   // metadata.file_hashes is an Object map: { "path/to/file": { "hash": "..." } }
@@ -196,6 +223,17 @@ function FileChangesSection({ summary, metadata }: { summary: DiffSummary; metad
 }
 
 function BomChangesSection({ summary, metadata }: { summary: DiffSummary; metadata: Record<string, unknown> | null }) {
+  if (!isBomChanges(summary.bom_changes)) {
+    return (
+      <Box>
+        <Heading size="md" mb={3}>BOM Changes</Heading>
+        <Box borderWidth="1px" borderRadius="md" p={4} bg="white">
+          <Text fontSize="sm" color="gray.500">Data format not recognized</Text>
+        </Box>
+      </Box>
+    )
+  }
+
   const { added, removed, changed } = summary.bom_changes
 
   // metadata.bom_summary structure is not strictly defined; safely check if it's an object
@@ -222,14 +260,25 @@ function BomChangesSection({ summary, metadata }: { summary: DiffSummary; metada
 }
 
 function ChecksSection({ summary }: { summary: DiffSummary }) {
-  const checks = Object.entries(summary.checks)
-  if (checks.length === 0) return null
+  if (!isRecord(summary.checks)) {
+    return (
+      <Box>
+        <Heading size="md" mb={3}>ERC/DRC Checks</Heading>
+        <Box borderWidth="1px" borderRadius="md" p={4} bg="white">
+          <Text fontSize="sm" color="gray.500">Data format not recognized</Text>
+        </Box>
+      </Box>
+    )
+  }
+
+  const validChecks = Object.entries(summary.checks).filter(([, v]) => isCheckEntry(v))
+  if (validChecks.length === 0) return null
 
   return (
     <Box>
       <Heading size="md" mb={3}>ERC/DRC Checks</Heading>
       <HStack gap={4} flexWrap="wrap">
-        {checks.map(([kind, check]) => (
+        {validChecks.map(([kind, check]) => (
           <Box
             key={kind}
             borderWidth="1px"
@@ -260,6 +309,17 @@ function ChecksSection({ summary }: { summary: DiffSummary }) {
 }
 
 function ArtifactChangesSection({ summary, metadata }: { summary: DiffSummary; metadata: Record<string, unknown> | null }) {
+  if (!isArtifactChanges(summary.artifacts)) {
+    return (
+      <Box>
+        <Heading size="md" mb={3}>Artifact Changes</Heading>
+        <Box borderWidth="1px" borderRadius="md" p={4} bg="white">
+          <Text fontSize="sm" color="gray.500">Data format not recognized</Text>
+        </Box>
+      </Box>
+    )
+  }
+
   const { added, removed, changed } = summary.artifacts
 
   // metadata.artifacts_summary: Object with artifact names as keys and status info as values

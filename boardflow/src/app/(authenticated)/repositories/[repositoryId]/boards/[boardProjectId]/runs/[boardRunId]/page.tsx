@@ -45,6 +45,26 @@ function artifactStatusColor(status: string): string {
   }
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
+function isFileChanges(v: unknown): v is { added: number; removed: number; changed: number; unchanged: number } {
+  return isRecord(v) && typeof v.added === "number" && typeof v.removed === "number" && typeof v.changed === "number" && typeof v.unchanged === "number"
+}
+
+function isBomChanges(v: unknown): v is { added: number; removed: number; changed: number } {
+  return isRecord(v) && typeof v.added === "number" && typeof v.removed === "number" && typeof v.changed === "number"
+}
+
+function isCheckEntry(v: unknown): v is { status_change: string; error_delta: number; warning_delta: number } {
+  return isRecord(v) && typeof v.status_change === "string" && typeof v.error_delta === "number" && typeof v.warning_delta === "number"
+}
+
+function isArtifactChanges(v: unknown): v is { added: number; removed: number; changed: number } {
+  return isRecord(v) && typeof v.added === "number" && typeof v.removed === "number" && typeof v.changed === "number"
+}
+
 interface Props {
   params: Promise<{ repositoryId: string; boardProjectId: string; boardRunId: string }>
 }
@@ -253,31 +273,46 @@ export default async function RunDetailPage({ params }: Props) {
                       </Link>
                     </Text>
                   )}
-                  <HStack gap={4} fontSize="sm">
-                    <Text>
-                      Files: +{diff.summary.file_changes.added} -{diff.summary.file_changes.removed} ~{diff.summary.file_changes.changed} ({diff.summary.file_changes.unchanged} unchanged)
-                    </Text>
-                  </HStack>
-                  <HStack gap={4} fontSize="sm">
-                    <Text>
-                      BOM: +{diff.summary.bom_changes.added} -{diff.summary.bom_changes.removed} ~{diff.summary.bom_changes.changed}
-                    </Text>
-                  </HStack>
-                  {Object.keys(diff.summary.checks).length > 0 && (
+                  {isFileChanges(diff.summary.file_changes) ? (
+                    <HStack gap={4} fontSize="sm">
+                      <Text>
+                        Files: +{diff.summary.file_changes.added} -{diff.summary.file_changes.removed} ~{diff.summary.file_changes.changed} ({diff.summary.file_changes.unchanged} unchanged)
+                      </Text>
+                    </HStack>
+                  ) : (
+                    <Text fontSize="sm" color="gray.500">File changes: data format not recognized</Text>
+                  )}
+                  {isBomChanges(diff.summary.bom_changes) ? (
+                    <HStack gap={4} fontSize="sm">
+                      <Text>
+                        BOM: +{diff.summary.bom_changes.added} -{diff.summary.bom_changes.removed} ~{diff.summary.bom_changes.changed}
+                      </Text>
+                    </HStack>
+                  ) : (
+                    <Text fontSize="sm" color="gray.500">BOM changes: data format not recognized</Text>
+                  )}
+                  {isRecord(diff.summary.checks) && Object.entries(diff.summary.checks).filter(([, v]) => isCheckEntry(v)).length > 0 && (
                     <HStack gap={4} fontSize="sm" flexWrap="wrap">
                       <Text>Checks:</Text>
-                      {Object.entries(diff.summary.checks).map(([kind, c]) => (
-                        <Text key={kind}>
-                          {kind.toUpperCase()} {c.status_change} ({c.error_delta >= 0 ? "+" : ""}{c.error_delta}E, {c.warning_delta >= 0 ? "+" : ""}{c.warning_delta}W)
-                        </Text>
-                      ))}
+                      {Object.entries(diff.summary.checks).filter(([, v]) => isCheckEntry(v)).map(([kind, c]) => {
+                        const check = c as { status_change: string; error_delta: number; warning_delta: number }
+                        return (
+                          <Text key={kind}>
+                            {kind.toUpperCase()} {check.status_change} ({check.error_delta >= 0 ? "+" : ""}{check.error_delta}E, {check.warning_delta >= 0 ? "+" : ""}{check.warning_delta}W)
+                          </Text>
+                        )
+                      })}
                     </HStack>
                   )}
-                  <HStack gap={4} fontSize="sm">
-                    <Text>
-                      Artifacts: +{diff.summary.artifacts.added} -{diff.summary.artifacts.removed} ~{diff.summary.artifacts.changed}
-                    </Text>
-                  </HStack>
+                  {isArtifactChanges(diff.summary.artifacts) ? (
+                    <HStack gap={4} fontSize="sm">
+                      <Text>
+                        Artifacts: +{diff.summary.artifacts.added} -{diff.summary.artifacts.removed} ~{diff.summary.artifacts.changed}
+                      </Text>
+                    </HStack>
+                  ) : (
+                    <Text fontSize="sm" color="gray.500">Artifact changes: data format not recognized</Text>
+                  )}
                   <Link href={`/repositories/${repositoryId}/boards/${boardProjectId}/runs/${boardRunId}/diff`}>
                     <Text color="blue.600" fontSize="sm" mt={2} _hover={{ textDecoration: "underline" }}>
                       View full diff →
