@@ -772,3 +772,28 @@ MVP ではユニットテスト・E2E テストは対象外。
 ### 更新した作業ログパス
 
 - `docs/logs/34/worklog.md`
+
+
+---
+
+## PR/完了結果（2026-05-03）
+
+### PR 作成結果
+
+- **PR**: https://github.com/f0reachARR/boardflow/pull/56
+- **タイトル**: feat(frontend): Diff（差分レビュー）画面実装 (#34)
+- **base**: main
+- **head**: feat/34-diff-review-page
+
+### コミット一覧（main からの差分）
+
+1. feat(#34): Diff（差分レビュー）画面実装 — diff/page.tsx 新規、runs/page.tsx に View full diff リンク追加
+2. fix(#34): レビュー指摘修正 - エラーハンドリング・型ガード・metadata表示改善 — 非404エラー分離、metadata 型ガード、Artifact/Preview セクション追加
+3. fix(#34): diff summary にランタイム型ガードを追加 — isFileChanges / isBomChanges / isCheckEntry / isArtifactChanges 追加
+4. docs(#34): spec.md checks差分定義をerror/warningのみに修正・作業ログ追記 — docs/spec.md 修正、worklog 追記
+
+### 残リスク
+
+- metadata 内部 JSON スキーマは backend Action 実装に依存。今後のスキーマ変更時はフロントエンドも追従が必要
+- summary.checks が valid entry 0 件のとき、ChecksSection はセクションごと非表示（クラッシュはしない）
+- コンポーネント unit test / E2E test は未実装（別 Issue で追加予定）
