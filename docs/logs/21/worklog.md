@@ -224,3 +224,136 @@ struct MockGitHubClient {
 - `tree_hash_changed` 関連テスト（Issue closed + recreate）は setup が複雑なため、MVP外とし別Issue化を検討
 - `get_issue` のMock制御（open/closed/404）により、Issue状態テストの追加は将来的に可能
 - DATABASE_URL 未設定環境ではテスト実行不可（`#[ignore]` で明示的opt-in）
+
+---
+
+## レビュー結果（2026-05-02）
+
+### 総評
+
+- Issue #21 は「既存ハンドラに対する統合テスト追加」という計画に沿って1ファイルへ集約され、基本的な正常系・入力欠落・一部フォールバックは確認できる。
+- ただし、仕様上重要な分岐である closed Issue / Issue 404 / debounce (`latest_completed_run_id`) が未検証で、`update_dashboard_comment` 正常系テストも update 経路そのものを証明できていない。
+- そのため、現時点のレビュー判定は `pr_ready: false`。
+
+### 調査結果
+
+- 実装本体では `create_dashboard_comment` が closed Issue 分岐、Issue 404 分岐、`latest_completed_run_id` による run 選択を持つことを確認した。
+- 実装本体では `update_dashboard_comment` が closed Issue 分岐、Issue 404 分岐、`dashboard_comment_id == None` の create fallback、comment 404 時の再作成、`latest_completed_run_id` による debounce を持つことを確認した。
+- 追加テスト 10 件は `cargo test -p boardflow-worker --test dashboard_comment_test -- --ignored` で全件成功を確認した。
+- `CONTRIBUTING.md` はワークスペース上に存在せず、確認対象外だった。
+
+### 重大度順の指摘
+
+1. 重大: 仕様必須の Issue 状態分岐が未テスト
+    - 仕様は closed Issue で `recreate_issue_on_update` と `tree_hash` に基づく再作成/停止、および Issue 404 の再作成フローを要求している。
+    - 実装側にはその分岐が存在するが、追加テストは open Issue 前提と issue 未作成しか検証していない。
+    - 影響として、Issue 再作成や履歴保存、`clear_issue_info`、`create_issue` enqueue の回帰をこのPRでは検出できない。
+
+2. 高: `update_dashboard_comment` 正常系テストが update 経路を保証していない
+    - 正常系テストは Completed のみを見ており、`update_comment` が呼ばれたことも、`create_comment` fallback に入っていないことも検証していない。
+    - 現在の `MockGitHubClient::default_success()` は create と update の両方を成功させるため、誤って fallback create に退行してもテストが通る余地がある。
+
+3. 高: debounce 要件の未検証
+    - 仕様は Dashboard コメント更新で最新 run に集約することを求め、実装も `latest_completed_run_id` を優先して本文生成している。
+    - しかしテスト側では `latest_completed_run_id` を持つ stale job シナリオがなく、今回のPRだけではこの重要分岐の回帰を防げない。
+
+### 必須修正
+
+1. `create_dashboard_comment` に対して、closed Issue (`recreate_issue_on_update=true/false`) と Issue 404 の統合テストを追加する。
+2. `update_dashboard_comment` に対して、closed Issue (`recreate_issue_on_update=true/false`) と Issue 404 の統合テストを追加する。
+3. `update_dashboard_comment` 正常系で `create_comment` が呼ばれないことを明示的に検証する。少なくとも create 側を panic にするか、呼び出し回数を記録するモックに変える。
+4. `latest_completed_run_id` を使う stale job / debounce ケースを1件以上追加し、古い `board_run_id` ではなく最新 run で本文生成することを検証する。
+
+### 任意改善
+
+1. `MockGitHubClient` に `with_get_issue(...)` を追加し、closed / 404 / open を宣言的に組み立てられるようにするとテスト意図が読みやすい。
+2. `update_dashboard_comment_success` では `dashboard_comment_id` が既存値のまま変わらないことも確認すると、fallback 混入検出がより強くなる。
+3. `setup_with_issue()` で `latest_completed_run_id` を必要に応じて上書きできる補助関数を用意すると debounce ケースを増やしやすい。
+
+### テスト不足
+
+- closed Issue + `recreate_issue_on_update=true` + tree_hash 変化あり
+- closed Issue + `recreate_issue_on_update=true` + tree_hash 変化なし
+- closed Issue + `recreate_issue_on_update=false`
+- Issue 404 による `clear_issue_info` と `create_issue` enqueue
+- `latest_completed_run_id` を使う stale job / debounce
+- `update_dashboard_comment` 正常系で update API を実際に通っていることの保証
+
+### ドキュメント確認
+
+- `docs/spec.md` の Issue ライフサイクルと Dashboard コメント仕様を確認し、closed / 404 / debounce が仕様要件であることを確認した。
+- 本Issueの worklog 上の受け入れ条件は満たしているが、仕様との対応づけでは不足が残る。
+- README は確認したが、本Issueで追加更新すべき利用者向けドキュメントは特にない。
+
+### plan / research / docs との不整合
+
+- worklog の「受け入れ条件」は満たしている一方、`docs/spec.md` が要求する closed / 404 / debounce の重要分岐がテスト対象から落ちている。
+- `research成果物は不要` という前提自体は妥当だが、結果として仕様の分岐確認が worklog 上のテスト計画から外れている。
+
+### PR/完了結果
+
+- `pr_ready: false`
+- 理由: 基本経路のテストは通るが、仕様の中核分岐に未検証が残り、1件の正常系テストは対象経路を十分に証明していないため。
+
+### 残リスク
+
+- closed / 404 / debounce のいずれかが将来退行しても、このテストセットだけでは検出できない。
+- 特に `update_dashboard_comment` は create fallback を持つため、正常系が「更新」ではなく「再作成」にずれても見逃す可能性がある。
+
+---
+
+## レビュー指摘修正（2026-05-02）
+
+### 修正内容
+
+レビュー指摘の全5カテゴリを反映:
+
+#### 1. MockGitHubClient 修正
+
+- `get_issue` / `create_comment` / `update_comment` の impl を `match ... take() { Some(r) => r, None => panic!(...) }` パターンに変更
+- `with_get_issue()` ビルダーメソッド追加
+
+#### 2. setup_with_two_runs ヘルパー追加
+
+- prev_run (tree_hash "treehash123") と current_run (tree_hash "treehash456") の2つの board_runs を作成
+- latest_completed_run_id を current_run に設定
+- completed_at に interval '1 second' を付与し `find_previous_completed` の時間順を保証
+
+#### 3. cleanup_test_data 修正
+
+- `board_project_issue_history` テーブルの削除を追加
+
+#### 4. 新規テスト追加（7件）
+
+| # | テスト名 | 検証内容 |
+|---|---|---|
+| 1 | `test_create_dashboard_comment_issue_closed_recreate_tree_hash_changed` | closed + recreate=true + tree_hash変化 → Reschedule + clear + enqueue |
+| 2 | `test_create_dashboard_comment_issue_closed_tree_hash_unchanged` | closed + recreate=true + tree_hash同一 → Completed |
+| 3 | `test_create_dashboard_comment_issue_closed_no_recreate` | closed + recreate=false → Completed |
+| 4 | `test_create_dashboard_comment_issue_404` | get_issue 404 → Reschedule + clear + enqueue |
+| 5 | `test_create_dashboard_comment_uses_latest_completed_run` | stale job (old run_id) → latest_completed_run_id のrunでコメント作成 → Completed |
+| 6 | `test_update_dashboard_comment_issue_closed_no_recreate` | closed + recreate=false → Completed |
+| 7 | `test_update_dashboard_comment_issue_404` | get_issue 404 → Reschedule + clear + enqueue |
+
+#### 5. test_update_dashboard_comment_success 修正
+
+- `create_comment_result` を `None` に設定（呼ばれるとpanic）
+- update後に `dashboard_comment_id` が既存値 (200) のまま維持されることを検証
+
+### テスト結果
+
+```
+test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+```
+
+全17テスト合格（DATABASE_URL設定環境）。
+
+### コミット
+
+- `d398d4f` — `test(#21): dashboard_comment テストにclosed/404/debounce/update正常系修正を追加`
+
+### 残リスク
+
+- `update_dashboard_comment` の closed + recreate=true + tree_hash 変化ケースは未テスト（create側でカバー済み、同一ロジックのためリスク低）
+- `board_project_issue_history` への INSERT 内容（reason等）の詳細検証は省略
+- DATABASE_URL 未設定環境ではテスト実行不可（`#[ignore]` で明示的opt-in）
