@@ -177,14 +177,15 @@ pub async fn set_delete_after_for_timed_out_runs(
 /// Repair orphaned staging bundles: set delete_after for bundles belonging to
 /// terminal runs (timed_out or failed) where delete_after is not yet set.
 /// This provides self-healing in case set_delete_after_for_timed_out_runs failed.
-/// Uses timed_out_at/created_at as base to preserve the spec's "7 days from event" semantics.
+/// Uses timed_out_at (timed_out runs) or completed_at (failed runs) as base to preserve
+/// the spec's "7 days from event" semantics. Falls back to created_at if neither is set.
 pub async fn repair_orphaned_staging_bundles(
     executor: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
 ) -> Result<u64, sqlx::Error> {
     let result = sqlx::query(
         r#"UPDATE artifact_bundles ab
         SET delete_after = GREATEST(
-            COALESCE(br.timed_out_at, br.created_at) + INTERVAL '7 days',
+            COALESCE(br.timed_out_at, br.completed_at, br.created_at) + INTERVAL '7 days',
             NOW()
         )
         FROM board_runs br
