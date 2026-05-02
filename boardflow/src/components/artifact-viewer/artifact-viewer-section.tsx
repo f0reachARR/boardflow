@@ -78,7 +78,17 @@ export function ArtifactViewerSection({
   const visibleTabs = TAB_DEFINITIONS.filter((def) => {
     const viewer = viewers[def.key]
     if (!viewer) return false
-    return viewer.status !== "skipped"
+    if (viewer.status === "skipped") return false
+    // schematic / pcb_preview は kicanvas が available なら表示
+    if ((def.key === "schematic" || def.key === "pcb_preview") &&
+        (viewer.status === "missing" || viewer.status === "failed")) {
+      const kicanvasViewer = viewers["kicanvas"]
+      if (kicanvasViewer?.status === "available" && kicanvasViewer.sources?.length) {
+        const relevantKind = def.key === "schematic" ? "schematic" : "board"
+        return kicanvasViewer.sources.some(s => s.kind === relevantKind)
+      }
+    }
+    return true
   })
 
   if (visibleTabs.length === 0) {
@@ -175,26 +185,32 @@ export function ArtifactViewerSection({
 }
 
 function renderViewerContent(name: string, viewer: ViewerEntry, allViewers: Record<string, ViewerEntry>) {
-  if (viewer.status === "missing" || viewer.status === "failed") {
-    return <ViewerStatusMessage status={viewer.status} viewerName={name} />
+  // schematic / pcb_preview は KiCanvas fallback があるため、早期 return しない
+  if (name !== "schematic" && name !== "pcb_preview") {
+    if (viewer.status === "missing" || viewer.status === "failed") {
+      return <ViewerStatusMessage status={viewer.status} viewerName={name} />
+    }
   }
 
   switch (name) {
     case "schematic": {
       const kicanvasViewer = allViewers["kicanvas"]
-      const hasKicanvas = kicanvasViewer?.status === "available" &&
-        kicanvasViewer.sources?.some(s => s.kind === "schematic" || s.kind === "board")
+      const kicanvasSchSources = kicanvasViewer?.status === "available"
+        ? kicanvasViewer.sources?.filter(s => s.kind === "schematic" || s.kind === "project") ?? []
+        : []
+      const hasKicanvas = kicanvasSchSources.some(s => s.kind === "schematic")
+
+      // static viewer が missing/failed でも KiCanvas があれば表示
+      if (!hasKicanvas && (viewer.status === "missing" || viewer.status === "failed")) {
+        return <ViewerStatusMessage status={viewer.status} viewerName="schematic" />
+      }
+
       return (
         <>
-          {hasKicanvas && kicanvasViewer.sources && (
-            <KiCanvasViewer sources={kicanvasViewer.sources} />
-          )}
+          {hasKicanvas && <KiCanvasViewer sources={kicanvasSchSources} />}
           {viewer.primary && <PdfViewer primary={viewer.primary} />}
           {!hasKicanvas && !viewer.primary && viewer.downloads && viewer.downloads.length > 0 && (
             <DownloadList downloads={viewer.downloads} title="Schematic Downloads" />
-          )}
-          {!hasKicanvas && !viewer.primary && !viewer.downloads?.length && (
-            <ViewerStatusMessage status="missing" viewerName="schematic" />
           )}
         </>
       )
@@ -202,18 +218,21 @@ function renderViewerContent(name: string, viewer: ViewerEntry, allViewers: Reco
 
     case "pcb_preview": {
       const kicanvasViewer = allViewers["kicanvas"]
-      const hasKicanvas = kicanvasViewer?.status === "available" &&
-        kicanvasViewer.sources?.some(s => s.kind === "board")
+      const kicanvasPcbSources = kicanvasViewer?.status === "available"
+        ? kicanvasViewer.sources?.filter(s => s.kind === "board" || s.kind === "project") ?? []
+        : []
+      const hasKicanvas = kicanvasPcbSources.some(s => s.kind === "board")
+
+      // static viewer が missing/failed でも KiCanvas があれば表示
+      if (!hasKicanvas && (viewer.status === "missing" || viewer.status === "failed")) {
+        return <ViewerStatusMessage status={viewer.status} viewerName="pcb_preview" />
+      }
+
       return (
         <>
-          {hasKicanvas && kicanvasViewer.sources && (
-            <KiCanvasViewer sources={kicanvasViewer.sources} />
-          )}
+          {hasKicanvas && <KiCanvasViewer sources={kicanvasPcbSources} />}
           {viewer.sources && viewer.sources.length > 0 && (
             <SvgViewer sources={viewer.sources} />
-          )}
-          {!hasKicanvas && (!viewer.sources || viewer.sources.length === 0) && (
-            <ViewerStatusMessage status="missing" viewerName="pcb_preview" />
           )}
         </>
       )
