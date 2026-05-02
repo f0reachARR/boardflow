@@ -191,13 +191,28 @@ export interface paths {
   "/api/v1/board-runs/{board_run_id}/checks/{check_kind}/findings": {
     get: {
       parameters: {
-        path: { board_run_id: string; check_kind: string }
-        query?: { limit?: number; cursor?: string; severity?: string }
+        path: { board_run_id: string; check_kind: "erc" | "drc" }
+        query?: { limit?: number; cursor?: string; severity?: "error" | "warning" | "notice" }
       }
       responses: {
         200: {
           content: {
             "application/json": PaginatedResponse<Finding>
+          }
+        }
+        400: {
+          content: {
+            "application/json": ApiError
+          }
+        }
+        401: {
+          content: {
+            "application/json": ApiError
+          }
+        }
+        404: {
+          content: {
+            "application/json": ApiError
           }
         }
       }

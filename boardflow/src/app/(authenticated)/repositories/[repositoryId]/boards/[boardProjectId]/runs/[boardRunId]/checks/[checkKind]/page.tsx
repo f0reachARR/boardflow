@@ -33,16 +33,44 @@ interface Props {
   searchParams: Promise<{ severity?: string }>
 }
 
+const VALID_CHECK_KINDS = ["erc", "drc"]
+const VALID_SEVERITIES = ["error", "warning", "notice"]
+
 export default async function FindingsPage({ params, searchParams }: Props) {
   const { repositoryId, boardProjectId, boardRunId, checkKind } = await params
   const { severity } = await searchParams
   const client = await createServerClient()
 
+  if (!VALID_CHECK_KINDS.includes(checkKind)) {
+    return (
+      <Box>
+        <Heading size="lg" mb={4}>Invalid Check Kind</Heading>
+        <Text color="red.500">
+          &quot;{checkKind}&quot; is not a valid check kind. Supported values: {VALID_CHECK_KINDS.join(", ")}.
+        </Text>
+      </Box>
+    )
+  }
+
+  if (severity && !VALID_SEVERITIES.includes(severity)) {
+    return (
+      <Box>
+        <Heading size="lg" mb={4}>{checkKind.toUpperCase()} Findings</Heading>
+        <Text color="red.500">
+          &quot;{severity}&quot; is not a valid severity filter. Supported values: {VALID_SEVERITIES.join(", ")}.
+        </Text>
+      </Box>
+    )
+  }
+
+  const validCheckKind = checkKind as "erc" | "drc"
+  const validSeverityParam = severity as "error" | "warning" | "notice" | undefined
+
   const [findingsRes, projectRes] = await Promise.all([
     client.GET("/api/v1/board-runs/{board_run_id}/checks/{check_kind}/findings", {
       params: {
-        path: { board_run_id: boardRunId, check_kind: checkKind },
-        query: severity ? { severity } : undefined,
+        path: { board_run_id: boardRunId, check_kind: validCheckKind },
+        query: validSeverityParam ? { severity: validSeverityParam } : undefined,
       },
     }),
     client.GET("/api/v1/board-projects/{board_project_id}", {
@@ -51,10 +79,20 @@ export default async function FindingsPage({ params, searchParams }: Props) {
   ])
 
   if (findingsRes.error) {
-    notFound()
+    const code = findingsRes.error.error?.code
+    if (code === "not_found") {
+      notFound()
+    }
+    return (
+      <Box>
+        <Heading size="lg" mb={4}>{checkKind.toUpperCase()} Findings</Heading>
+        <Text color="red.500">Failed to load findings: {findingsRes.error.error?.message ?? "Unknown error"}</Text>
+      </Box>
+    )
   }
 
   const findings = findingsRes.data!.items
+  const hasMore = findingsRes.data!.has_more
   const project = projectRes.data
 
   const basePath = `/repositories/${repositoryId}/boards/${boardProjectId}/runs/${boardRunId}/checks/${checkKind}`
@@ -102,7 +140,8 @@ export default async function FindingsPage({ params, searchParams }: Props) {
       {findings.length === 0 ? (
         <Text color="gray.500">No findings{severity ? ` with severity "${severity}"` : ""}.</Text>
       ) : (
-        <Table.Root size="sm" variant="outline">
+        <>
+          <Table.Root size="sm" variant="outline">
           <Table.Header>
             <Table.Row>
               <Table.ColumnHeader>Severity</Table.ColumnHeader>
@@ -140,6 +179,12 @@ export default async function FindingsPage({ params, searchParams }: Props) {
             ))}
           </Table.Body>
         </Table.Root>
+          {hasMore && (
+            <Text fontSize="sm" color="gray.500" mt={3}>
+              More results available. Showing first {findings.length} findings.
+            </Text>
+          )}
+        </>
       )}
     </Box>
   )

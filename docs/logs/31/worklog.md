@@ -168,13 +168,15 @@
 - statusColor, checkBadge ヘルパー関数追加
 
 ### Task 3: BoardRun詳細ページ拡充
-- 各CheckカードにFindingsページへの「View N findings」リンク追加（error+warning > 0 の場合のみ）
-- Diff API呼び出し追加（Promise.allで並列、errorの場合はnull）
+- 各CheckカードにFindingsページへの「View N findings」リンク追加（error+warning+notice > 0 の場合のみ）
+- Diff API呼び出し追加（Promise.allで並列、404 not_found の場合のみ非表示、それ以外はエラーメッセージ表示）
 - 「Changes from Baseline」セクション追加（ready/no_baseline/failed/unavailable表示分岐）
 
 ### Task 4: Findings一覧ページ新規作成
 - ファイル: `boardflow/src/app/(authenticated)/repositories/[repositoryId]/boards/[boardProjectId]/runs/[boardRunId]/checks/[checkKind]/page.tsx`
 - Breadcrumb, severity filter (All/Errors/Warnings/Notices), テーブル表示
+- `checkKind` / `severity` の不正値は明示エラー表示、API 404 のみ `notFound()` に委譲
+- `has_more` の場合は「More results available」メッセージ表示
 - severityColor, locationText ヘルパー関数
 
 ### Task 5: ビルド確認
@@ -197,7 +199,118 @@
 ## 残リスク
 - Findings API / Diff API がバックエンド未実装の場合、画面はエラー/非表示のgraceful degradation（設計通り）
 - Diff の checks 表示は status_change 文字列をそのまま表示（フォーマット調整は後続で可能）
-- Findings の cursor pagination: MVP では全件表示（limit指定なし）、Load More は今後対応可能な構造
+- Findings の cursor pagination: backend デフォルト件数で初回表示し、`has_more` 時は追加結果がある旨のみ表示する MVP 構成
 
 ## 残リスク
 (実装後に追記)
+
+## レビュー結果 (2026-05-02)
+
+### 総評
+- `pnpm build` は通過しており、画面追加自体は App Router / Server Components / Chakra UI の既存方針に沿っている。
+- 一方で、Diff / Findings まわりのエラーハンドリングと導線に仕様逸脱が残っているため、このままでは PR 作成不可。
+
+### 指摘事項
+1. **必須修正**: Run詳細の Diff 取得が 404 以外の失敗もすべて握りつぶしている。`diffRes.error ? null : diffRes.data!` のため、401/403/500 でも Diff セクションが消えるだけになり、要件の「404時のみ graceful degradation」とずれる。404 だけ非表示にし、それ以外は明示エラー表示または上位エラーへ委譲すべき。
+2. **必須修正**: Checks から Findings へのリンク条件が `error_count + warning_count > 0` に限定され、`notice_count` のみ存在する run では導線が消える。Findings API / severity filter は `notice` をサポートしているため、notice-only の結果を閲覧できない。
+3. **必須修正**: Findings ページが backend のあらゆるエラーを `notFound()` に変換している。`check_kind` / `severity` の不正値による 400、backend 500、認可系異常まで 404 扱いになるため、エラー種別が失われる。Next.js の一般的な運用でも `notFound()` は実際の 404 に限定すべきで、入力値は server side で事前検証した方がよい。
+4. **必須修正**: Findings ページが `has_more` / `next_cursor` を完全に捨てており、計画にあった「More results available」表示もない。大量 findings の run で先頭 50 件だけ表示されても、ユーザーには全件表示に見える。
+5. **任意改善**: Diff セクションの `base_board_run_id` はプレーンテキスト表示で、計画にあった比較元 Run へのリンクになっていない。比較元確認の導線としてリンク化した方がよい。
+
+### テスト結果
+- `cd boardflow && pnpm build` : 成功
+
+### ドキュメント確認
+- `docs/backend/api.md` の 3.9 / 3.10 と比較し、Diff の 404 劣化条件、Findings の `check_kind` / `severity` 制約、ページング要件との不整合を確認。
+- `docs/frontend/summary.md` の Server Components 方針とは整合。
+
+### PR/完了結果
+- `pr_ready: false`
+
+### 残リスク
+- Diff API / Findings API が一時的に不安定な場合でも UI 上で原因が見えにくく、運用時の調査コストが高い。
+- notice-only findings や 51 件以上の findings を持つ run で、ユーザーが結果を見落とす可能性がある。
+
+## 再レビュー結果 (2026-05-02)
+
+### 総評
+- 前回の必須修正 4 件のうち、Diff の 404 限定劣化、notice_count の導線、has_more 表示はコード上で解消されている。
+- ただし、Findings ページの server-side 検証は未完了で、作業ログに記載された修正内容とも一致していない。加えて BoardProject 詳細の Recent Runs が API エラーを空状態として誤表示するため、このままでは PR 作成不可。
+
+### 指摘事項
+1. **必須修正**: Findings ページの `severity` 検証が実装されていない。`severity=foo` のような不正クエリでも [boardflow/src/app/(authenticated)/repositories/[repositoryId]/boards/[boardProjectId]/runs/[boardRunId]/checks/[checkKind]/page.tsx](boardflow/src/app/(authenticated)/repositories/[repositoryId]/boards/[boardProjectId]/runs/[boardRunId]/checks/[checkKind]/page.tsx#L48) で `undefined` に落として全件取得してしまうため、前回修正方針の「VALID_SEVERITIES で server-side 検証し、404 以外は明示エラー表示」と一致しない。無効値は 400 相当として明示エラーにすべき。
+2. **必須修正**: Findings ページの `checkKind` 検証も前回方針どおりではない。無効な `checkKind` を [boardflow/src/app/(authenticated)/repositories/[repositoryId]/boards/[boardProjectId]/runs/[boardRunId]/checks/[checkKind]/page.tsx](boardflow/src/app/(authenticated)/repositories/[repositoryId]/boards/[boardProjectId]/runs/[boardRunId]/checks/[checkKind]/page.tsx#L44-L45) で即 404 にしており、同ファイル [#L63-L70](boardflow/src/app/(authenticated)/repositories/[repositoryId]/boards/[boardProjectId]/runs/[boardRunId]/checks/[checkKind]/page.tsx#L63-L70) の「404 以外はエラーメッセージ表示」という整理とも矛盾する。入力値検証で弾くなら、少なくとも不正値と実在しない run を同じ 404 に畳まない方がよい。
+3. **必須修正**: BoardProject 詳細の Recent Runs が API エラーを空データとして扱っている。[boardflow/src/app/(authenticated)/repositories/[repositoryId]/boards/[boardProjectId]/page.tsx](boardflow/src/app/(authenticated)/repositories/[repositoryId]/boards/[boardProjectId]/page.tsx#L38-L52) では project 詳細だけを判定し、`runsRes.error` を無視して `recentRuns = runsRes.data?.items ?? []` としているため、401/500 時でも [#L126](boardflow/src/app/(authenticated)/repositories/[repositoryId]/boards/[boardProjectId]/page.tsx#L126) の「No runs yet.」が出る。新規追加した Recent Runs 機能としては誤表示で、最低でもロード失敗メッセージを分離表示すべき。
+
+### テスト結果
+- 依頼記載の `pnpm build` 成功は今回レビューでも前提として確認した。
+- 追加の実行テストは未実施。今回の指摘は静的レビューで再現可能な条件分岐不整合に基づく。
+
+### ドキュメント確認
+- [docs/backend/api.md](docs/backend/api.md#L938-L976) の Findings API は `severity` と `check_kind` の不正値を 400 としており、現状 UI の入力値処理はその契約と一致していない。
+- [docs/logs/31/worklog.md](docs/logs/31/worklog.md#L171) には古い実装メモ `error+warning > 0` が残っており、現行コードの notice_count 対応と一致していない。
+- 今回の再レビュー結果をこの worklog に追記した。
+
+### PR/完了結果
+- `pr_ready: false`
+
+### 残リスク
+- Findings フィルタに不正クエリが入った際、ユーザーは「全件表示されている」ことに気付きにくく、誤解したまま結果を閲覧する可能性がある。
+- Recent Runs API 障害時に「run が存在しない」と誤認させるため、運用時の一次切り分けが難しくなる。
+
+## 最終レビュー結果 (2026-05-02)
+
+### 総評
+- 前回の再レビューで指摘した 3 件はコード上で解消されている。Recent Runs は API 失敗時に専用エラー表示となり、Findings ページは `severity` / `checkKind` の不正値を明示エラーで返し、Run 詳細の Diff は `404 not_found` のみ非表示、それ以外はエラー表示になった。
+- 一方で、今回追加した `schema.d.ts` の Findings endpoint 定義が API 契約をまだ取り切れていない。この Issue の受け入れ条件にある「TypeScript 型定義が API 仕様と整合」を満たし切れていないため、現時点では PR 作成不可と判断する。
+
+### 指摘事項
+1. **必須修正**: [boardflow/src/lib/api/schema.d.ts](boardflow/src/lib/api/schema.d.ts#L191-L212) の Findings endpoint 定義に `401` レスポンスが存在しない。仕様では [docs/backend/api.md](docs/backend/api.md#L987-L989) の通り `401` が明記されており、`openapi-fetch` のエラー型にも未認証/期限切れを反映させるべき。
+2. **必須修正**: [boardflow/src/lib/api/schema.d.ts](boardflow/src/lib/api/schema.d.ts#L194-L195) の `check_kind` と `severity` が `string` のままで、仕様上の列挙値 `erc | drc` / `error | warning | notice` を型で表現できていない。今回の UI は server-side 検証で防いでいるが、型定義としては [docs/backend/api.md](docs/backend/api.md#L945-L950) の契約より弱い。
+
+### テスト結果
+- `cd boardflow && pnpm build`: 成功
+
+### ドキュメント確認
+- 実装コードは前回レビュー指摘 3 件に対して整合している。
+- ただし API 契約と `schema.d.ts` の整合は上記 2 点で未完了。
+- 関連 research の [docs/external/openapi-typescript-fetch.md](docs/external/openapi-typescript-fetch.md) でも、OpenAPI 契約を型へ正確に落とすことで `openapi-fetch` の安全性を確保する前提になっている。
+
+### PR/完了結果
+- `pr_ready: false`
+
+### 残リスク
+- 現状でも画面動作はするが、今後別画面や別 call site から Findings API を叩く際に、型だけでは不正 `check_kind` / `severity` や `401` を検知しにくい。
+
+## ドキュメント確認 (2026-05-02)
+
+### 総評
+- Issue #31 の対象4ファイルに対応する実装と、`docs/frontend/summary.md`・`docs/backend/api.md`・`docs/external/openapi-typescript-fetch.md` の関連記述を確認した。
+- 現在の `schema.d.ts` は Findings endpoint の列挙型と `401` を含み、API 仕様と整合している。BoardProject 詳細 / Run 詳細 / Findings 一覧の UI 挙動もフロントエンド方針と矛盾しない。
+
+### 判定
+- `docs_ready: true`
+
+### 必須修正
+- なし
+
+### 任意改善
+- なし
+
+### 不整合のあるドキュメント
+- なし
+
+### 不足しているドキュメント
+- なし。今回の変更は既存の `docs/frontend/summary.md` の範囲内で説明可能で、追加の README / CONTRIBUTING 更新も不要。
+
+### 外部調査メモに関する指摘
+- `docs/external/openapi-typescript-fetch.md` の「OpenAPI 契約を型へ正確に落とす」方針と、今回の `schema.d.ts` 更新内容は整合している。
+
+### テスト結果
+- `pnpm build` 成功済みという既存記録と整合。
+
+### PR/完了結果
+- `docs_ready: true`
+
+### 残リスク
+- Findings 一覧は `has_more` 時に追加結果ありの表示までで、後続ページ取得 UI は未実装。ただし本 Issue の MVP 範囲と整合している。

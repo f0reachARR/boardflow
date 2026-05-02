@@ -95,7 +95,13 @@ export default async function RunDetailPage({ params }: Props) {
   const artifacts: Artifact[] = artifactsRes.data?.items ?? []
   const viewers: Record<string, ViewerEntry> = viewerRes.data?.viewers ?? {}
   const project = projectRes.data
-  const diff: DiffResponse | null = diffRes.error ? null : diffRes.data!
+  // Only hide diff section on 404 (diff not yet created); other errors surface as explicit messages
+  const diff: DiffResponse | null = diffRes.error
+    ? null
+    : diffRes.data!
+  const diffError = diffRes.error && diffRes.error.error?.code !== "not_found"
+    ? diffRes.error.error?.message ?? "Failed to load diff data."
+    : null
 
   return (
     <Box>
@@ -158,14 +164,17 @@ export default async function RunDetailPage({ params }: Props) {
                     {check.warning_count > 0 && (
                       <Text color="orange.500">{check.warning_count} warnings</Text>
                     )}
-                    {check.error_count === 0 && check.warning_count === 0 && (
+                    {check.notice_count > 0 && (
+                      <Text color="gray.500">{check.notice_count} notices</Text>
+                    )}
+                    {check.error_count === 0 && check.warning_count === 0 && check.notice_count === 0 && (
                       <Text color="green.500">No issues</Text>
                     )}
                   </HStack>
-                  {(check.error_count + check.warning_count) > 0 && (
+                  {(check.error_count + check.warning_count + check.notice_count) > 0 && (
                     <Link href={`/repositories/${repositoryId}/boards/${boardProjectId}/runs/${boardRunId}/checks/${check.kind}`}>
                       <Text color="blue.600" fontSize="sm" mt={2} _hover={{ textDecoration: "underline" }}>
-                        View {check.error_count + check.warning_count} findings
+                        View {check.error_count + check.warning_count + check.notice_count} findings
                       </Text>
                     </Link>
                   )}
@@ -236,6 +245,14 @@ export default async function RunDetailPage({ params }: Props) {
         )}
 
         {/* Changes from Baseline */}
+        {diffError && (
+          <Box>
+            <Heading size="md" mb={3}>Changes from Baseline</Heading>
+            <Box borderWidth="1px" borderRadius="md" p={4} bg="white">
+              <Text fontSize="sm" color="red.500">{diffError}</Text>
+            </Box>
+          </Box>
+        )}
         {diff && (
           <Box>
             <Heading size="md" mb={3}>Changes from Baseline</Heading>
@@ -244,7 +261,12 @@ export default async function RunDetailPage({ params }: Props) {
                 <VStack align="stretch" gap={2}>
                   {diff.base_board_run_id && (
                     <Text fontSize="sm" color="gray.600">
-                      Compared to run: {diff.base_board_run_id.slice(0, 8)}
+                      Compared to run:{" "}
+                      <Link href={`/repositories/${repositoryId}/boards/${boardProjectId}/runs/${diff.base_board_run_id}`}>
+                        <Text as="span" color="blue.600" _hover={{ textDecoration: "underline" }}>
+                          {diff.base_board_run_id.slice(0, 8)}
+                        </Text>
+                      </Link>
                     </Text>
                   )}
                   <HStack gap={4} fontSize="sm">

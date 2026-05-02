@@ -50,6 +50,7 @@ export default async function BoardProjectDetailPage({ params }: Props) {
 
   const project = data!
   const recentRuns = runsRes.data?.items ?? []
+  const runsLoadFailed = !!runsRes.error
 
   return (
     <Box>
@@ -122,7 +123,9 @@ export default async function BoardProjectDetailPage({ params }: Props) {
 
         <Box>
           <Heading size="md" mb={3}>Recent Runs</Heading>
-          {recentRuns.length === 0 ? (
+          {runsLoadFailed ? (
+            <Text color="red.500" fontSize="sm">Failed to load recent runs.</Text>
+          ) : recentRuns.length === 0 ? (
             <Text color="gray.500" fontSize="sm">No runs yet.</Text>
           ) : (
             <Table.Root size="sm" variant="outline">
