@@ -34,6 +34,11 @@ impl MockGitHubClient {
         }
     }
 
+    fn with_get_issue(mut self, result: Result<IssueInfo, GitHubClientError>) -> Self {
+        self.get_issue_result = tokio::sync::Mutex::new(Some(result));
+        self
+    }
+
     fn with_create_comment(mut self, result: Result<CreatedComment, GitHubClientError>) -> Self {
         self.create_comment_result = tokio::sync::Mutex::new(Some(result));
         self
@@ -69,11 +74,10 @@ impl GitHubAppClient for MockGitHubClient {
         _: &str,
         _: u64,
     ) -> Result<IssueInfo, GitHubClientError> {
-        self.get_issue_result
-            .lock()
-            .await
-            .take()
-            .expect("get_issue called more than once")
+        match self.get_issue_result.lock().await.take() {
+            Some(r) => r,
+            None => panic!("get_issue called unexpectedly"),
+        }
     }
 
     async fn create_comment(
@@ -84,11 +88,10 @@ impl GitHubAppClient for MockGitHubClient {
         _: u64,
         _: &str,
     ) -> Result<CreatedComment, GitHubClientError> {
-        self.create_comment_result
-            .lock()
-            .await
-            .take()
-            .expect("create_comment called more than once")
+        match self.create_comment_result.lock().await.take() {
+            Some(r) => r,
+            None => panic!("create_comment called unexpectedly"),
+        }
     }
 
     async fn update_comment(
@@ -99,11 +102,10 @@ impl GitHubAppClient for MockGitHubClient {
         _: u64,
         _: &str,
     ) -> Result<(), GitHubClientError> {
-        self.update_comment_result
-            .lock()
-            .await
-            .take()
-            .expect("update_comment called more than once")
+        match self.update_comment_result.lock().await.take() {
+            Some(r) => r,
+            None => panic!("update_comment called unexpectedly"),
+        }
     }
 }
 
@@ -215,8 +217,42 @@ async fn setup_with_issue(pool: &PgPool) -> (Uuid, Uuid, Uuid, i64) {
     (repo_id, bp_id, run_id, installation_id)
 }
 
+/// Setup with issue_number + two board_runs for tree_hash comparison.
+/// Returns (repo_id, bp_id, prev_run_id, current_run_id, installation_id).
+/// prev_run has tree_hash "treehash123", current_run has tree_hash "treehash456".
+async fn setup_with_two_runs(pool: &PgPool) -> (Uuid, Uuid, Uuid, Uuid, i64) {
+    let (repo_id, bp_id, run_id, installation_id) = setup_with_issue(pool).await;
+
+    // run_id (from setup) has tree_hash "treehash123" — this is the previous run.
+    // Create a second run with different tree_hash — this is the current/latest run.
+    let run2_id = Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO board_runs (id, board_project_id, commit_sha, branch, ref, github_run_id, github_run_attempt, tree_hash, status, erc_errors, erc_warnings, drc_errors, drc_warnings, review_status, diff_status, created_at, completed_at) \
+         VALUES ($1, $2, 'def5678', 'main', 'refs/heads/main', 2, 1, 'treehash456', 'completed', 0, 0, 0, 0, 'pending', 'pending', NOW() + interval '1 second', NOW() + interval '1 second')"
+    )
+    .bind(run2_id)
+    .bind(bp_id)
+    .execute(pool)
+    .await
+    .unwrap();
+
+    // Set latest_completed_run_id to the second run
+    sqlx::query("UPDATE board_projects SET latest_completed_run_id = $2 WHERE id = $1")
+        .bind(bp_id)
+        .bind(run2_id)
+        .execute(pool)
+        .await
+        .unwrap();
+
+    (repo_id, bp_id, run_id, run2_id, installation_id)
+}
+
 async fn cleanup_test_data(pool: &PgPool, repo_id: Uuid, bp_id: Uuid) {
     let _ = sqlx::query("DELETE FROM github_jobs WHERE board_project_id = $1")
+        .bind(bp_id)
+        .execute(pool)
+        .await;
+    let _ = sqlx::query("DELETE FROM board_project_issue_history WHERE board_project_id = $1")
         .bind(bp_id)
         .execute(pool)
         .await;
@@ -447,7 +483,17 @@ async fn test_update_dashboard_comment_success() {
         .await
         .unwrap();
 
-    let client = MockGitHubClient::default_success();
+    // create_comment is None → panics if called, ensuring only update path is exercised
+    let client = MockGitHubClient {
+        get_issue_result: tokio::sync::Mutex::new(Some(Ok(IssueInfo {
+            number: 1,
+            node_id: "MDU6SXNzdWUx".into(),
+            state: IssueState::Open,
+            html_url: "https://github.com/test-owner/test-repo/issues/1".into(),
+        }))),
+        create_comment_result: tokio::sync::Mutex::new(None),
+        update_comment_result: tokio::sync::Mutex::new(Some(Ok(()))),
+    };
     let config = make_config();
     let mut job = make_job("update_dashboard_comment", Some(bp_id), Some(run_id));
     job.installation_id = installation_id;
@@ -463,6 +509,15 @@ async fn test_update_dashboard_comment_success() {
         "Expected Completed, got: {}",
         handler_result_debug(&result)
     );
+
+    // Verify dashboard_comment_id remains 200 (not changed by update)
+    let row: (Option<i64>,) =
+        sqlx::query_as("SELECT dashboard_comment_id FROM board_projects WHERE id = $1")
+            .bind(bp_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(row.0, Some(200), "dashboard_comment_id should remain unchanged after update");
 
     cleanup_test_data(&pool, repo_id, bp_id).await;
 }
@@ -589,7 +644,352 @@ async fn test_update_dashboard_comment_no_issue() {
     cleanup_test_data(&pool, repo_id, bp_id).await;
 }
 
-// ─── helpers ─────────────────────────────────────────────────────────────────
+// ─── create_dashboard_comment: closed Issue tests ───────────────────────────
+
+#[tokio::test]
+#[ignore]
+async fn test_create_dashboard_comment_issue_closed_recreate_tree_hash_changed() {
+    let Some(pool) = get_pool().await else { return };
+    let (repo_id, bp_id, _prev_run_id, current_run_id, installation_id) =
+        setup_with_two_runs(&pool).await;
+
+    // get_issue returns Closed
+    let client = MockGitHubClient::default_success().with_get_issue(Ok(IssueInfo {
+        number: 1,
+        node_id: "MDU6SXNzdWUx".into(),
+        state: IssueState::Closed,
+        html_url: "https://github.com/test-owner/test-repo/issues/1".into(),
+    }));
+    let config = make_config();
+    let mut job = make_job("create_dashboard_comment", Some(bp_id), Some(current_run_id));
+    job.installation_id = installation_id;
+    job.repository_id = repo_id;
+
+    let result = boardflow_worker::handlers::create_dashboard_comment::handle(
+        &pool, &client, &config, &job,
+    )
+    .await;
+
+    // Should Reschedule after clearing issue info and enqueuing create_issue
+    match result {
+        boardflow_worker::handlers::HandlerResult::Reschedule { reason, .. } => {
+            assert!(
+                reason.contains("closed"),
+                "Expected 'closed' in reason, got: {reason}"
+            );
+        }
+        _ => panic!(
+            "Expected Reschedule, got: {}",
+            handler_result_debug(&result)
+        ),
+    }
+
+    // Verify issue info was cleared
+    let row: (Option<i32>,) =
+        sqlx::query_as("SELECT issue_number FROM board_projects WHERE id = $1")
+            .bind(bp_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(row.0, None, "issue_number should be cleared");
+
+    // Verify create_issue job was enqueued
+    let job_row: (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM github_jobs WHERE board_project_id = $1 AND type = 'create_issue'",
+    )
+    .bind(bp_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(job_row.0 >= 1, "create_issue job should be enqueued");
+
+    cleanup_test_data(&pool, repo_id, bp_id).await;
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_create_dashboard_comment_issue_closed_tree_hash_unchanged() {
+    let Some(pool) = get_pool().await else { return };
+    let (repo_id, bp_id, _prev_run_id, current_run_id, installation_id) =
+        setup_with_two_runs(&pool).await;
+
+    // Make tree_hash the same on both runs so tree_hash_changed returns false
+    sqlx::query("UPDATE board_runs SET tree_hash = 'same_hash' WHERE board_project_id = $1")
+        .bind(bp_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let client = MockGitHubClient::default_success().with_get_issue(Ok(IssueInfo {
+        number: 1,
+        node_id: "MDU6SXNzdWUx".into(),
+        state: IssueState::Closed,
+        html_url: "https://github.com/test-owner/test-repo/issues/1".into(),
+    }));
+    let config = make_config();
+    let mut job = make_job("create_dashboard_comment", Some(bp_id), Some(current_run_id));
+    job.installation_id = installation_id;
+    job.repository_id = repo_id;
+
+    let result = boardflow_worker::handlers::create_dashboard_comment::handle(
+        &pool, &client, &config, &job,
+    )
+    .await;
+
+    // tree_hash unchanged → Completed (no recreation needed)
+    assert!(
+        matches!(result, boardflow_worker::handlers::HandlerResult::Completed),
+        "Expected Completed, got: {}",
+        handler_result_debug(&result)
+    );
+
+    cleanup_test_data(&pool, repo_id, bp_id).await;
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_create_dashboard_comment_issue_closed_no_recreate() {
+    let Some(pool) = get_pool().await else { return };
+    let (repo_id, bp_id, run_id, installation_id) = setup_with_issue(&pool).await;
+
+    // Set recreate_issue_on_update = false
+    sqlx::query("UPDATE board_projects SET recreate_issue_on_update = false WHERE id = $1")
+        .bind(bp_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let client = MockGitHubClient::default_success().with_get_issue(Ok(IssueInfo {
+        number: 1,
+        node_id: "MDU6SXNzdWUx".into(),
+        state: IssueState::Closed,
+        html_url: "https://github.com/test-owner/test-repo/issues/1".into(),
+    }));
+    let config = make_config();
+    let mut job = make_job("create_dashboard_comment", Some(bp_id), Some(run_id));
+    job.installation_id = installation_id;
+    job.repository_id = repo_id;
+
+    let result = boardflow_worker::handlers::create_dashboard_comment::handle(
+        &pool, &client, &config, &job,
+    )
+    .await;
+
+    // recreate_issue_on_update=false → Completed (stop updating)
+    assert!(
+        matches!(result, boardflow_worker::handlers::HandlerResult::Completed),
+        "Expected Completed, got: {}",
+        handler_result_debug(&result)
+    );
+
+    cleanup_test_data(&pool, repo_id, bp_id).await;
+}
+
+// ─── create_dashboard_comment: Issue 404 test ───────────────────────────────
+
+#[tokio::test]
+#[ignore]
+async fn test_create_dashboard_comment_issue_404() {
+    let Some(pool) = get_pool().await else { return };
+    let (repo_id, bp_id, run_id, installation_id) = setup_with_issue(&pool).await;
+
+    let client = MockGitHubClient::default_success()
+        .with_get_issue(Err(GitHubClientError::NotFound("not found".into())));
+    let config = make_config();
+    let mut job = make_job("create_dashboard_comment", Some(bp_id), Some(run_id));
+    job.installation_id = installation_id;
+    job.repository_id = repo_id;
+
+    let result = boardflow_worker::handlers::create_dashboard_comment::handle(
+        &pool, &client, &config, &job,
+    )
+    .await;
+
+    // Should Reschedule after clearing issue info and enqueuing create_issue
+    match result {
+        boardflow_worker::handlers::HandlerResult::Reschedule { reason, .. } => {
+            assert!(
+                reason.contains("404"),
+                "Expected '404' in reason, got: {reason}"
+            );
+        }
+        _ => panic!(
+            "Expected Reschedule, got: {}",
+            handler_result_debug(&result)
+        ),
+    }
+
+    // Verify issue_number was cleared
+    let row: (Option<i32>,) =
+        sqlx::query_as("SELECT issue_number FROM board_projects WHERE id = $1")
+            .bind(bp_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(row.0, None, "issue_number should be cleared after 404");
+
+    // Verify create_issue job was enqueued
+    let job_row: (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM github_jobs WHERE board_project_id = $1 AND type = 'create_issue'",
+    )
+    .bind(bp_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(job_row.0 >= 1, "create_issue job should be enqueued");
+
+    cleanup_test_data(&pool, repo_id, bp_id).await;
+}
+
+// ─── create_dashboard_comment: debounce / stale job test ────────────────────
+
+#[tokio::test]
+#[ignore]
+async fn test_create_dashboard_comment_uses_latest_completed_run() {
+    let Some(pool) = get_pool().await else { return };
+    let (repo_id, bp_id, old_run_id, _new_run_id, installation_id) =
+        setup_with_two_runs(&pool).await;
+
+    let client = MockGitHubClient::default_success();
+    let config = make_config();
+    // Job references the OLD run, but latest_completed_run_id points to the NEW run
+    let mut job = make_job("create_dashboard_comment", Some(bp_id), Some(old_run_id));
+    job.installation_id = installation_id;
+    job.repository_id = repo_id;
+
+    let result = boardflow_worker::handlers::create_dashboard_comment::handle(
+        &pool, &client, &config, &job,
+    )
+    .await;
+
+    assert!(
+        matches!(result, boardflow_worker::handlers::HandlerResult::Completed),
+        "Expected Completed, got: {}",
+        handler_result_debug(&result)
+    );
+
+    // Verify dashboard_comment_id was saved (handler used latest run to create comment)
+    let row: (Option<i64>,) =
+        sqlx::query_as("SELECT dashboard_comment_id FROM board_projects WHERE id = $1")
+            .bind(bp_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(row.0, Some(100), "dashboard_comment_id should be saved");
+
+    cleanup_test_data(&pool, repo_id, bp_id).await;
+}
+
+// ─── update_dashboard_comment: closed / 404 tests ───────────────────────────
+
+#[tokio::test]
+#[ignore]
+async fn test_update_dashboard_comment_issue_closed_no_recreate() {
+    let Some(pool) = get_pool().await else { return };
+    let (repo_id, bp_id, run_id, installation_id) = setup_with_issue(&pool).await;
+
+    // Set recreate_issue_on_update = false and dashboard_comment_id
+    sqlx::query("UPDATE board_projects SET recreate_issue_on_update = false, dashboard_comment_id = 200 WHERE id = $1")
+        .bind(bp_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let client = MockGitHubClient {
+        get_issue_result: tokio::sync::Mutex::new(Some(Ok(IssueInfo {
+            number: 1,
+            node_id: "MDU6SXNzdWUx".into(),
+            state: IssueState::Closed,
+            html_url: "https://github.com/test-owner/test-repo/issues/1".into(),
+        }))),
+        create_comment_result: tokio::sync::Mutex::new(None),
+        update_comment_result: tokio::sync::Mutex::new(None),
+    };
+    let config = make_config();
+    let mut job = make_job("update_dashboard_comment", Some(bp_id), Some(run_id));
+    job.installation_id = installation_id;
+    job.repository_id = repo_id;
+
+    let result = boardflow_worker::handlers::update_dashboard_comment::handle(
+        &pool, &client, &config, &job,
+    )
+    .await;
+
+    // recreate_issue_on_update=false → Completed
+    assert!(
+        matches!(result, boardflow_worker::handlers::HandlerResult::Completed),
+        "Expected Completed, got: {}",
+        handler_result_debug(&result)
+    );
+
+    cleanup_test_data(&pool, repo_id, bp_id).await;
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_update_dashboard_comment_issue_404() {
+    let Some(pool) = get_pool().await else { return };
+    let (repo_id, bp_id, run_id, installation_id) = setup_with_issue(&pool).await;
+
+    // Set dashboard_comment_id
+    sqlx::query("UPDATE board_projects SET dashboard_comment_id = 200 WHERE id = $1")
+        .bind(bp_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let client = MockGitHubClient {
+        get_issue_result: tokio::sync::Mutex::new(Some(Err(GitHubClientError::NotFound(
+            "not found".into(),
+        )))),
+        create_comment_result: tokio::sync::Mutex::new(None),
+        update_comment_result: tokio::sync::Mutex::new(None),
+    };
+    let config = make_config();
+    let mut job = make_job("update_dashboard_comment", Some(bp_id), Some(run_id));
+    job.installation_id = installation_id;
+    job.repository_id = repo_id;
+
+    let result = boardflow_worker::handlers::update_dashboard_comment::handle(
+        &pool, &client, &config, &job,
+    )
+    .await;
+
+    // Issue 404 → Reschedule
+    match result {
+        boardflow_worker::handlers::HandlerResult::Reschedule { reason, .. } => {
+            assert!(
+                reason.contains("404"),
+                "Expected '404' in reason, got: {reason}"
+            );
+        }
+        _ => panic!(
+            "Expected Reschedule, got: {}",
+            handler_result_debug(&result)
+        ),
+    }
+
+    // Verify issue_number was cleared
+    let row: (Option<i32>,) =
+        sqlx::query_as("SELECT issue_number FROM board_projects WHERE id = $1")
+            .bind(bp_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(row.0, None, "issue_number should be cleared after 404");
+
+    // Verify create_issue job was enqueued
+    let job_row: (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM github_jobs WHERE board_project_id = $1 AND type = 'create_issue'",
+    )
+    .bind(bp_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(job_row.0 >= 1, "create_issue job should be enqueued");
+
+    cleanup_test_data(&pool, repo_id, bp_id).await;
+}
 
 fn handler_result_debug(result: &boardflow_worker::handlers::HandlerResult) -> String {
     match result {
