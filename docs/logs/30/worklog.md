@@ -423,8 +423,33 @@ Repository詳細ページの BoardProject 一覧テーブルで:
 3. ~~残リスクの「Repository詳細レベルでの集計に留める」~~ → 将来のAPI拡張で対応可能に修正済み
 4. ~~再レビュー結果の plan/research/docs 不整合指摘~~ → 計画側でスコープ外明記済み、superseded 表記追加済み
 
-- docs_ready: false
+- docs_ready: false（前回判定）→ 上記修正により解消済み
 
 ### 残リスク
 
 1. 現状のままでは、Issue #30 の作業ログを単体で読んだ人が「集計サマリ表示はまだ計画に残っている」と誤認する可能性がある。
+
+---
+
+## PR/完了結果 (2026-05-02)
+
+### PR作成
+
+- **PR**: https://github.com/f0reachARR/boardflow/pull/53
+- **タイトル**: feat(#30): Repository一覧・詳細画面のUI品質改善
+- **ベースブランチ**: main
+- **ステータス**: Open
+
+### 最終確認
+
+- pr_ready: true（再レビュー結果 2026-05-02 確認済み）
+- docs_ready: true（ドキュメント確認最終確認 2026-05-02 確認済み）
+- 未コミット変更なし（working tree clean）
+- TypeScript型チェック: EXIT:0
+- next build: 成功
+
+### 残リスク
+
+1. frontend 自動テスト基盤（Vitest/Playwright）が未整備のため、検証は型チェックと next build に留まっている
+2. 行ハイライトはライトモード前提（ダークモード対応は将来Issue）
+3. Runs一覧・Run詳細の board-project 追加取得によるパフォーマンス影響は軽微だが存在する
