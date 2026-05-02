@@ -2,6 +2,7 @@ import { Box, Heading, Table, Text, Badge, VStack, HStack } from "@chakra-ui/rea
 import Link from "next/link"
 import { notFound } from "next/navigation"
 import { createServerClient } from "@/lib/api/server"
+import { Breadcrumb } from "@/components/ui/breadcrumb"
 
 function stateColor(state: string): string {
   switch (state) {
@@ -46,6 +47,12 @@ export default async function RepositoryDetailPage({ params }: Props) {
 
   return (
     <Box>
+      <Breadcrumb
+        items={[
+          { label: "Repositories", href: "/repositories" },
+          { label: `${repo.owner}/${repo.name}` },
+        ]}
+      />
       <VStack align="stretch" gap={6}>
         <Box>
           <HStack gap={2} mb={1}>
@@ -94,9 +101,17 @@ export default async function RepositoryDetailPage({ params }: Props) {
                       </Link>
                     </Table.Cell>
                     <Table.Cell>
-                      <Badge colorPalette={stateColor(project.state)}>
-                        {project.state}
-                      </Badge>
+                      <HStack gap={2}>
+                        <Badge colorPalette={stateColor(project.state)}>
+                          {project.state}
+                        </Badge>
+                        {project.state === "timed_out" && (
+                          <Text fontSize="xs" color="orange.600">(中断または未完了の可能性)</Text>
+                        )}
+                        {project.state === "detected" && (
+                          <Text fontSize="xs" color="gray.500">(初回Run未完了)</Text>
+                        )}
+                      </HStack>
                     </Table.Cell>
                     <Table.Cell>
                       <Text fontSize="sm" color="gray.600" fontFamily="mono">

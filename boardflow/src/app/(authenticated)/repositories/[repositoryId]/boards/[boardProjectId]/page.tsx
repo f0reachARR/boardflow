@@ -2,6 +2,7 @@ import { Box, Heading, Text, VStack, HStack, Badge } from "@chakra-ui/react"
 import Link from "next/link"
 import { notFound } from "next/navigation"
 import { createServerClient } from "@/lib/api/server"
+import { Breadcrumb } from "@/components/ui/breadcrumb"
 
 interface Props {
   params: Promise<{ repositoryId: string; boardProjectId: string }>
@@ -23,6 +24,13 @@ export default async function BoardProjectDetailPage({ params }: Props) {
 
   return (
     <Box>
+      <Breadcrumb
+        items={[
+          { label: "Repositories", href: "/repositories" },
+          { label: `${project.repository.owner}/${project.repository.name}`, href: `/repositories/${repositoryId}` },
+          { label: project.display_name },
+        ]}
+      />
       <VStack align="stretch" gap={6}>
         <Box>
           <HStack gap={2} mb={1}>

@@ -1,6 +1,7 @@
 import { Box, Heading, Table, Text, Badge, HStack } from "@chakra-ui/react"
 import Link from "next/link"
 import { createServerClient } from "@/lib/api/server"
+import { Breadcrumb } from "@/components/ui/breadcrumb"
 
 function statusColor(status: string): string {
   switch (status) {
@@ -33,12 +34,19 @@ export default async function RunsPage({ params }: Props) {
   const { repositoryId, boardProjectId } = await params
   const client = await createServerClient()
 
-  const { data, error } = await client.GET(
-    "/api/v1/board-projects/{board_project_id}/board-runs",
-    {
-      params: { path: { board_project_id: boardProjectId }, query: { limit: 50 } },
-    }
-  )
+  const [projectRes, { data, error }] = await Promise.all([
+    client.GET("/api/v1/board-projects/{board_project_id}", {
+      params: { path: { board_project_id: boardProjectId } },
+    }),
+    client.GET(
+      "/api/v1/board-projects/{board_project_id}/board-runs",
+      {
+        params: { path: { board_project_id: boardProjectId }, query: { limit: 50 } },
+      }
+    ),
+  ])
+
+  const project = projectRes.data
 
   if (error) {
     return (
@@ -53,6 +61,16 @@ export default async function RunsPage({ params }: Props) {
 
   return (
     <Box>
+      {project && (
+        <Breadcrumb
+          items={[
+            { label: "Repositories", href: "/repositories" },
+            { label: `${project.repository.owner}/${project.repository.name}`, href: `/repositories/${repositoryId}` },
+            { label: project.display_name, href: `/repositories/${repositoryId}/boards/${boardProjectId}` },
+            { label: "Runs" },
+          ]}
+        />
+      )}
       <Heading size="lg" mb={6}>Runs</Heading>
 
       {runs.length === 0 ? (
