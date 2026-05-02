@@ -43,17 +43,22 @@ export function ArtifactViewerSection({
 }: ArtifactViewerSectionProps) {
   const [viewers, setViewers] = useState(initialViewers)
   const [expiresAt, setExpiresAt] = useState(initialExpiresAt)
+  const [refreshError, setRefreshError] = useState(false)
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const refreshViewerSources = useCallback(async () => {
     try {
       const res = await fetch(`/api/viewer-sources/${encodeURIComponent(boardRunId)}`)
-      if (!res.ok) return
+      if (!res.ok) {
+        setRefreshError(true)
+        return
+      }
       const data: ViewerSourcesResponse = await res.json()
       setViewers(data.viewers)
       setExpiresAt(data.expires_at)
+      setRefreshError(false)
     } catch {
-      // Refresh failed silently; URLs may expire
+      setRefreshError(true)
     }
   }, [boardRunId])
 
@@ -83,31 +88,90 @@ export function ArtifactViewerSection({
 
   if (Object.keys(viewers).length === 0) return null
 
+  const hasPartial = Object.values(viewers).some((v) => v.status === "partial")
+
   return (
     <Box>
       <Heading size="md" mb={3}>
         Viewers
       </Heading>
-      <VStack align="stretch" gap={4}>
-        {Object.entries(viewers).map(([name, viewer]) => (
-          <Box
-            key={name}
-            borderWidth="1px"
-            borderRadius="md"
-            p={4}
-            bg="white"
+      {refreshError && (
+        <Box
+          mb={4}
+          p={3}
+          borderWidth="1px"
+          borderRadius="md"
+          borderColor="red.200"
+          bg="red.50"
+        >
+          <Text fontSize="sm" color="red.700" mb={2}>
+            Viewer URLs have expired. Please reload the page.
+          </Text>
+          <button
+            onClick={() => window.location.reload()}
+            style={{
+              padding: "4px 12px",
+              fontSize: "0.875rem",
+              borderRadius: "4px",
+              border: "1px solid",
+              borderColor: "var(--chakra-colors-red-300, #fc8181)",
+              background: "white",
+              cursor: "pointer",
+            }}
           >
-            <HStack justify="space-between" mb={3}>
-              <Text fontWeight="medium" textTransform="capitalize">
-                {viewerDisplayName(name)}
-              </Text>
-              <Badge colorPalette={viewerStatusColor(viewer.status)}>
-                {viewer.status}
-              </Badge>
-            </HStack>
-            {renderViewer(name, viewer)}
-          </Box>
-        ))}
+            Reload
+          </button>
+        </Box>
+      )}
+      {hasPartial && (
+        <Text fontSize="sm" color="yellow.700" mb={3}>
+          Some sources are unavailable. Showing limited preview.
+        </Text>
+      )}
+      <VStack align="stretch" gap={4}>
+        {Object.entries(viewers).map(([name, viewer]) => {
+          if (name === "kicanvas") {
+            return (
+              <Box
+                key={name}
+                borderWidth="1px"
+                borderRadius="md"
+                p={4}
+                bg="gray.50"
+              >
+                <HStack justify="space-between" mb={3}>
+                  <Text fontWeight="medium" textTransform="capitalize">
+                    KiCanvas
+                  </Text>
+                  <Badge colorPalette="gray">coming soon</Badge>
+                </HStack>
+                <Text fontSize="sm" color="gray.500">
+                  KiCanvas interactive viewer will be available in a future update.
+                </Text>
+              </Box>
+            )
+          }
+
+          return (
+            <Box
+              key={name}
+              borderWidth="1px"
+              borderRadius="md"
+              p={4}
+              bg="white"
+            >
+              <HStack justify="space-between" mb={3}>
+                <Text fontWeight="medium" textTransform="capitalize">
+                  {viewerDisplayName(name)}
+                </Text>
+                <Badge colorPalette={viewerStatusColor(viewer.status)}>
+                  {viewer.status}
+                </Badge>
+              </HStack>
+              {renderViewer(name, viewer)}
+            </Box>
+          )
+        })}
       </VStack>
     </Box>
   )

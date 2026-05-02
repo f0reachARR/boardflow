@@ -22,13 +22,14 @@ export async function GET(
     }
   )
 
+  const data = await res.json().catch(() => null)
+
   if (!res.ok) {
     return NextResponse.json(
-      { error: "Failed to fetch viewer sources" },
+      data ?? { error: "Failed to fetch viewer sources" },
       { status: res.status }
     )
   }
 
-  const data = await res.json()
   return NextResponse.json(data)
 }
