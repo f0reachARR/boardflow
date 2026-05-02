@@ -200,6 +200,9 @@ async fn test_null_staging_key_not_returned() {
 }
 
 /// Bundle belonging to a timed-out run gets delete_after set via set_delete_after_for_timed_out_runs.
+/// Note: board_run status is set to 'uploading' (non-terminal) to avoid race conditions with
+/// test_repair_orphaned_staging_bundles which globally updates all timed_out/failed bundles.
+/// set_delete_after_for_timed_out_runs filters only by board_run_id, not status.
 #[tokio::test]
 #[ignore]
 async fn test_timed_out_run_bundle_gets_delete_after() {
@@ -209,7 +212,7 @@ async fn test_timed_out_run_bundle_gets_delete_after() {
     };
     let (_repo_id, bp_id) = setup_test_data(&pool).await;
 
-    // Insert a board_run that will be "timed out"
+    // Insert a board_run (using non-terminal status to avoid race with repair_orphaned test)
     let run_id = Uuid::now_v7();
     sqlx::query(
         r#"INSERT INTO board_runs
@@ -217,7 +220,7 @@ async fn test_timed_out_run_bundle_gets_delete_after() {
          tree_hash, status, erc_errors, erc_warnings, drc_errors, drc_warnings,
          review_status, diff_status, created_at)
         VALUES ($1, $2, 'abc123', 'main', 'refs/heads/main', $3, 1,
-                'treehash', 'timed_out', 0, 0, 0, 0, 'pending', 'pending', NOW())"#,
+                'treehash', 'uploading', 0, 0, 0, 0, 'pending', 'pending', NOW())"#,
     )
     .bind(run_id)
     .bind(bp_id)
