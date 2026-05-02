@@ -359,3 +359,127 @@ MVP ではユニットテスト・E2E テストは対象外。
 1. metadata の構造（file_hashes.changed_files, bom_summary.rows）は backend の Action 実装に依存。形式が異なる場合は詳細が表示されないだけ（クラッシュはしない）
 2. コンポーネント unit test / E2E test は未実装（別 Issue で追加予定）
 3. Preview Links 表示は将来対応（metadata.previews の構造確定後）
+
+---
+
+## レビュー結果（2026-05-03）
+
+### 総評
+
+- `pr_ready: false`
+- 受け入れ条件のうち `pnpm typecheck` と `pnpm build` はローカル再実行で通過した。
+- ただし、差分ページの core 要件に対して 3 点の不足があるため、このままの PR 作成は不可。
+
+### 調査結果
+
+- 仕様確認: `docs/spec.md` section 7.4/7.5, `docs/backend/api.md` section 3.9 を再確認。
+- backend 実装確認: `crates/api/src/routes/read.rs` と `crates/api/tests/read_api_test.rs` を確認。
+- 外部調査: Next.js App Router の `notFound()` は 404 用であり、非 404 エラーを 404 に畳む用途には使わないのが妥当。非 404 は route segment の error boundary か明示エラー表示に分けるべき。
+
+### レビュー結果
+
+#### 必須修正
+
+1. diff API の非 404 エラーまで `notFound()` に変換している
+  - `boardflow/src/app/(authenticated)/repositories/[repositoryId]/boards/[boardProjectId]/runs/[boardRunId]/diff/page.tsx` では `diffRes.error` の全ケースで `notFound()` を呼んでいる。
+  - これだと backend の `internal_error` や `validation_failed` まで 404 として見えてしまい、レビュー指示の「404, その他エラー時の表示」を満たさない。
+  - Run詳細ページでは `not_found` のみを隠し、それ以外は明示エラー表示しているため、同一画面群のエラーハンドリングとも不一致。
+
+2. metadata の解釈が API 契約と一致しておらず、spec 上の詳細表示が成立していない
+  - `FileChangesSection` は `metadata.file_hashes.changed_files` を前提にしているが、backend の API テストは `metadata.file_hashes` が `{"main.kicad_sch":"changed"}` のような任意 JSON で返ることを確認している。
+  - `BomChangesSection` も `metadata.bom_summary.rows` を前提にしているが、backend テストでは `{"added":1,"removed":0}` のような object を返している。
+  - このため、ready 状態でも spec 7.4 の「変更された主要ファイルの一覧」「BOM の詳細差分」は現実のレスポンスでほぼ表示されず、research で定めた「runtime guard + fallback 表示」にも反している。
+
+3. preview 差分導線と artifact 状態差分の詳細が未実装
+  - diff ページは `metadata.previews` と `metadata.artifacts_summary` を一切参照しておらず、ready 画面でも preview 導線と artifact 状態差分が欠落している。
+  - spec 7.4 と API 3.9 では preview summary と metadata の `previews` / `artifacts_summary` が差分レビュー画面の対象として明示されている。
+  - 実装ログでは「将来対応」として省略しているが、今回 Issue の仕様準拠レビュー観点では未充足。
+
+#### 任意改善
+
+1. metadata を `Record<string, unknown>` のまま `as` キャストで読むのではなく、型ガード関数をページ内に置いて `object / array / primitive` ごとに安全に分岐した方がよい。
+2. base/current run へのリンクはあるが、preview 導線を追加するなら run 詳細の viewer 表示との役割分担をコメントかヘルパー関数で整理すると保守しやすい。
+
+### テスト結果
+
+- `pnpm typecheck`: pass
+- `pnpm build`: pass
+- 追加の UI テストは未実装のまま。
+
+### テスト不足
+
+- `ready / no_baseline / unavailable / failed` の 4 状態を page レベルで確認する component test または smoke test がない。
+- Run詳細 → Diff、Diff → Base Run のリンク導線を検証するテストがない。
+- metadata の shape 差異（object / array / null）に対する表示フォールバックのテストがない。
+
+### ドキュメント確認
+
+- `docs/spec.md` / `docs/backend/api.md` には preview 差分導線と artifact metadata が含まれており、実装は未充足。
+- `docs/spec.md` は checks で notice 件数差分にも言及しているが、`docs/backend/api.md` の `DiffSummary` には `notice_delta` が存在しない。これは docs 間の差分として残る。
+
+### plan / research / docs との不整合
+
+- 計画では `metadata.previews` を表示対象としていたが、実装では省略されている。
+- 計画では `metadata` を runtime guard 付きで扱うとしていたが、実装では `as` キャスト前提になっている。
+- 実装結果にある「形式が異なる場合は詳細が表示されないだけ」という判断は、spec 7.4 の詳細表示要件と両立していない。
+
+### PR/完了結果
+
+- `pr_ready: false`
+- 上記 3 件の必須修正が入るまで PR 作成は見送るべき。
+
+### 残リスク
+
+- backend 側の metadata JSON スキーマは柔軟なため、frontend は shape 固定前提を避ける必要がある。
+- docs/spec と docs/backend/api の checks 差分項目の不一致は、後続 Issue で仕様を揃えないと UI 実装の判断を再び曖昧にする。
+
+### 更新した作業ログパス
+
+- `docs/logs/34/worklog.md`
+
+---
+
+## レビュー指摘修正（2026-05-03）
+
+### 修正内容
+
+#### 1. エラーハンドリング: 非404エラーまで404に潰していた問題を修正
+
+- `diffRes.error.error?.code === "not_found"` の場合のみ `notFound()` を呼ぶように変更
+- その他のエラーはエラーメッセージを赤色ボックスで画面表示
+
+#### 2. metadata の型ガード付きアクセスに全面書き直し
+
+- `isRecord()` ヘルパー関数を追加し、metadata 各フィールドの runtime 型チェックを実施
+- `file_hashes`: Object map として扱い、key 数を「ファイル数」として表示。value 内に `status` フィールドがあれば `!== "unchanged"` でフィルタして changed files として表示
+- `bom_summary`: 構造不定のため、存在有無のみ「Detailed BOM data available in metadata.」メッセージで表示。`Table` での展開表示を削除
+- `Table` import を削除（不要になったため）
+
+#### 3. Artifact Status Detail セクション追加
+
+- `metadata.artifacts_summary` が Object の場合、各 key（artifact名）の value から `status` / `status_change` フィールドを安全に読み取り、一覧表示
+- 不明な構造の場合は summary counts のみで表示
+
+#### 4. Preview Links セクション追加
+
+- `metadata.previews` が Object の場合、各 key（artifact type）と path/URL を一覧表示
+- current run / base run へのリンクを併記
+- 画像の重ね合わせは MVP 対象外のため省略
+
+### テスト結果
+
+- `pnpm typecheck`: 成功（0 errors）
+- `pnpm lint`: 成功（0 warnings, 0 errors）
+
+### 更新ドキュメント
+
+- `docs/logs/34/worklog.md` （本ファイル）
+
+### 残リスク
+
+- metadata の内部 JSON スキーマは backend 側で確定していないため、今後 backend の変更で追加フィールドが増えた場合はフロントエンドも追従が必要
+- Preview 画像の重ね合わせ比較は MVP 対象外（spec 7.4 明記）で、将来 Issue として追加予定
+
+### 更新した作業ログパス
+
+- `docs/logs/34/worklog.md`
