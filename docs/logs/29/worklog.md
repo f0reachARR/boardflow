@@ -837,3 +837,21 @@ boardflow/
 ### 残リスク
 
 - bundler 前提の記述が README に残ると、将来 script が変わった際に「webpack 前提で運用されている」という誤認を再生産しやすい。
+
+---
+
+## ドキュメント確認 (最終確認 2026-05-02)
+
+### 調査結果
+
+- `README.md` の `pnpm dev | 開発サーバー起動 (webpack)` という記述は、`fix(#29): レビュー指摘修正 + ドキュメント整備` コミット (183d23f) で修正済みであることを確認した。
+- 現行 `README.md` の主要コマンド一覧では `pnpm dev | 開発サーバー起動` と記載されており、`boardflow/package.json` の `"dev": "next dev"` と整合している。
+- 前回 blocking だった 2 件の指摘 (README 主要コマンド説明の不整合、Chakra UI research メモの差分不足) は両方とも解消済み。
+
+### PR / 完了結果
+
+- `docs_ready: true`
+
+### 残リスク
+
+- Next.js を 16 以降へアップグレードする際は、`boardflow/package.json` scripts と `docs/external/chakra-ui-v3-nextjs-setup.md` の bundler 記述を再確認する必要がある。
