@@ -91,6 +91,20 @@ pub async fn handle(
                     }
                 }
                 // Recreate: clear issue info, enqueue create_issue, reschedule
+                if let (Some(num), Some(node_id), Some(url)) = (bp.issue_number, bp.issue_node_id.as_deref(), bp.issue_url.as_deref()) {
+                    if let Err(e) = board_project::insert_issue_history(
+                        pool,
+                        uuid::Uuid::now_v7(),
+                        board_project_id,
+                        num,
+                        node_id,
+                        url,
+                        "recreated",
+                        None,
+                    ).await {
+                        tracing::warn!(error = %e, "Failed to insert issue history");
+                    }
+                }
                 let _ = board_project::clear_issue_info(pool, board_project_id).await;
                 let _ = boardflow_db::queries::github_job::enqueue(
                     pool,
@@ -111,6 +125,20 @@ pub async fn handle(
         }
         Err(GitHubClientError::NotFound(_)) => {
             tracing::warn!(job_id = %job.id, "Issue not found (404), clearing issue info");
+            if let (Some(num), Some(node_id), Some(url)) = (bp.issue_number, bp.issue_node_id.as_deref(), bp.issue_url.as_deref()) {
+                if let Err(e) = board_project::insert_issue_history(
+                    pool,
+                    uuid::Uuid::now_v7(),
+                    board_project_id,
+                    num,
+                    node_id,
+                    url,
+                    "deleted",
+                    None,
+                ).await {
+                    tracing::warn!(error = %e, "Failed to insert issue history");
+                }
+            }
             let _ = board_project::clear_issue_info(pool, board_project_id).await;
             let _ = boardflow_db::queries::github_job::enqueue(
                 pool,

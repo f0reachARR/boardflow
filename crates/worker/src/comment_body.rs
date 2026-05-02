@@ -325,4 +325,36 @@ mod tests {
         let current = make_run(Some(CheckStatus::Failed), 2, Some(CheckStatus::Failed), 4);
         assert!(!should_post_run_result(&current, Some(&prev)));
     }
+
+    #[test]
+    fn test_issue_title_format() {
+        assert_eq!(issue_title("motor_driver"), "[Board] motor_driver");
+    }
+
+    #[test]
+    fn test_issue_body_with_run() {
+        let run_id = Uuid::now_v7();
+        let body = issue_body(
+            999,
+            "hw/motor_driver.kicad_pro",
+            Uuid::nil(),
+            "https://bf.test",
+            Some(run_id),
+        );
+        assert!(body.contains("Latest diff page:"));
+        assert!(body.contains(&format!("/runs/{run_id}/diff")));
+    }
+
+    #[test]
+    fn test_issue_body_without_run() {
+        let body = issue_body(
+            999,
+            "hw/motor_driver.kicad_pro",
+            Uuid::nil(),
+            "https://bf.test",
+            None,
+        );
+        assert!(!body.contains("Latest diff page:"));
+        assert!(!body.contains("/diff"));
+    }
 }

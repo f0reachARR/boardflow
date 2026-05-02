@@ -1,4 +1,4 @@
-use boardflow_db::queries::github_job;
+use boardflow_db::queries::{board_project, github_job};
 use boardflow_github::GitHubAppClient;
 use boardflow_jobs::MAX_ATTEMPTS;
 use sqlx::PgPool;
@@ -80,6 +80,12 @@ pub async fn poll_and_dispatch(
                         tracing::warn!(job_id = %job.id, reason = %reason, "Rescheduling job");
                         if job.attempts >= MAX_ATTEMPTS {
                             let _ = github_job::mark_failed(pool, job.id, &reason).await;
+                            // Mark issue_sync_status as failed for create_issue terminal failures
+                            if job_type == "create_issue" {
+                                if let Some(bp_id) = job.board_project_id {
+                                    let _ = board_project::update_issue_sync_status(pool, bp_id, "failed").await;
+                                }
+                            }
                         } else {
                             let _ = github_job::reschedule(pool, job.id, &reason, backoff).await;
                         }
@@ -87,6 +93,12 @@ pub async fn poll_and_dispatch(
                     HandlerResult::Failed { reason } => {
                         tracing::error!(job_id = %job.id, reason = %reason, "Job failed terminally");
                         let _ = github_job::mark_failed(pool, job.id, &reason).await;
+                        // Mark issue_sync_status as failed for create_issue terminal failures
+                        if job_type == "create_issue" {
+                            if let Some(bp_id) = job.board_project_id {
+                                let _ = board_project::update_issue_sync_status(pool, bp_id, "failed").await;
+                            }
+                        }
                     }
                 }
 

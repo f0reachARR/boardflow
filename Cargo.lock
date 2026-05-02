@@ -789,6 +789,7 @@ version = "0.0.1"
 name = "boardflow-worker"
 version = "0.0.1"
 dependencies = [
+ "async-trait",
  "aws-sdk-s3",
  "boardflow-artifact",
  "boardflow-db",
@@ -796,6 +797,7 @@ dependencies = [
  "boardflow-github",
  "boardflow-jobs",
  "chrono",
+ "rand 0.8.6",
  "secrecy",
  "serde",
  "serde_json",

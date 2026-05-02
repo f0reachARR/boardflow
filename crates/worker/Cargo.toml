@@ -9,6 +9,7 @@ boardflow-db = { path = "../db" }
 boardflow-domain = { path = "../domain" }
 boardflow-github = { path = "../github" }
 boardflow-jobs = { path = "../jobs" }
+async-trait = { workspace = true }
 aws-sdk-s3 = { workspace = true }
 chrono = { workspace = true }
 secrecy = { workspace = true }
@@ -19,3 +20,6 @@ tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 uuid = { workspace = true }
+
+[dev-dependencies]
+rand = { workspace = true }
