@@ -855,3 +855,25 @@ boardflow/
 ### 残リスク
 
 - Next.js を 16 以降へアップグレードする際は、`boardflow/package.json` scripts と `docs/external/chakra-ui-v3-nextjs-setup.md` の bundler 記述を再確認する必要がある。
+
+---
+
+## PR 作成結果 (2026-05-02)
+
+- **PR**: [#52 feat(#29): Next.js 15 + Chakra UI v3 フロントエンドプロジェクトセットアップ](https://github.com/f0reachARR/boardflow/pull/52)
+- **base**: `main` ← **head**: `feat/29-frontend-nextjs-setup`
+- **状態**: OPEN
+
+### 完了確認
+
+- review: `pr_ready: true` ✅
+- docs: `docs_ready: true` ✅
+- 未コミット変更: なし ✅
+- テスト: `pnpm typecheck` / `pnpm lint` / `pnpm build` すべて PASS ✅
+
+### 残リスク
+
+- E2E テスト (Playwright) は未実装 (別 Issue)
+- KiCanvas viewer 統合は未実装 (将来 Issue)
+- `schema.d.ts` は現在手動メンテ。Backend OpenAPI spec 安定後に自動生成へ切り替え
+- Next.js 16 以降へアップグレードする際は bundler 設定の再確認が必要
