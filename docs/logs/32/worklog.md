@@ -248,13 +248,13 @@ page.tsx (Server)
 **日時**: 2026-05-02  
 **担当フェーズ**: review
 
-### 総評
+### 再レビュー総評
 
 - PDF/SVG/iBOM の iframe 分離、SVG の `sandbox=""`、iBOM の `sandbox="allow-scripts allow-same-origin"`、短命 URL の再取得導線など、Issue #32 の主目的に沿った構成にはなっている。
 - 一方で、既存の viewer-sources 契約に含まれる `kicanvas` viewer を UI 側が処理できておらず、仕様との不整合と表示退行がある。
 - また、URL 再取得失敗時のユーザー通知が未実装で、期限切れ後に壊れた iframe / download link だけが残る経路を防げていない。
 
-### 調査結果
+### 再レビュー調査結果
 
 - backend 契約では `viewer-sources` に `kicanvas` を含める仕様で、API テストでも `available` が明示されている。
 - frontend 方針では `Schematic / PCB Preview では KiCanvas を第一候補にしつつ、PDF/SVG fallback を必ず残す` とされている。
@@ -281,7 +281,7 @@ page.tsx (Server)
 2. `partial` status の扱いが viewer ごとに弱く、`pcb_preview` で片面だけ available の場合や `schematic` で preview 不可だが download は可能な場合に、限定表示であることの説明が薄い。
 3. URL 更新時に iframe `src` が差し替わるため、iBOM のスクロール位置や UI 状態が token 更新のたびに失われうる。現状でも要件未達ではないが、UX リスクとして明示した方がよい。
 
-### テスト結果
+### 再レビュー時テスト結果
 
 - 確認済み: `pnpm typecheck` pass、`pnpm lint` pass
 - 未確認: component test、Playwright smoke test、viewer status 切替テスト、URL 再取得失敗時の UI テスト
@@ -413,3 +413,107 @@ page.tsx (Server)
 - kicanvas の完全実装は別 Issue で対応必要
 - refreshError 表示後にネットワーク復旧しても自動リカバリなし（ユーザーが手動でリロード）
 - iBOM iframe の URL 更新時スクロール状態ロスは未解決（UX 改善として別 Issue 候補）
+
+---
+
+## 再レビュー結果（2026-05-02, review follow-up）
+
+### 総評
+
+- 前回レビューで指摘した 4 点のうち、Route Handler の backend error passthrough、URL 再取得失敗時の reload 導線、partial 状態の補助メッセージは改善されている。
+- 一方で、Issue #32 本文が要求する UI とダウンロード導線の一部がまだ満たされていない。
+- 特に viewer 全体をタブUIで提供していない点と、PCB Preview に PDF link がない点は、Issue 本文の目的と成功条件に対して未充足。
+
+### 調査結果
+
+- Issue #32 本文では、Schematic / PCB Preview / iBOM / BOM / Fabrication をそれぞれタブとして表示すること、PCB Preview に Top/Bottom SVG と PDF link を出すことが明記されている。
+- 実装は [boardflow/src/components/artifact-viewer/artifact-viewer-section.tsx](boardflow/src/components/artifact-viewer/artifact-viewer-section.tsx#L131) で viewer を縦積み表示しており、top-level のタブUIにはなっていない。
+- PCB Preview は [boardflow/src/components/artifact-viewer/svg-viewer.tsx](boardflow/src/components/artifact-viewer/svg-viewer.tsx#L34) で Top/Bottom の SVG タブだけを出しており、[boardflow/src/components/artifact-viewer/svg-viewer.tsx](boardflow/src/components/artifact-viewer/svg-viewer.tsx#L52) の download 導線も SVG に限定されている。
+- backend の viewer-sources 実装も [crates/api/src/routes/read.rs](crates/api/src/routes/read.rs#L1175) のとおり pcb_top_svg / pcb_bottom_svg のみを pcb_preview に載せており、docs/spec.md の pcb_pdf を含む例と不整合が残っている。
+- KiCanvas placeholder 化は Issue #32 の非目的とは整合しているが、docs/spec.md と docs/frontend/summary.md に残る「MVP では KiCanvas を第一候補にする」記述とは差分がある。
+
+### テスト結果
+
+- pnpm typecheck: pass
+- pnpm lint: pass
+- 追加の component test / Playwright smoke test は未実施
+
+### 再レビュー判定
+
+- pr_ready: false
+
+#### 再レビュー必須修正
+
+1. [boardflow/src/components/artifact-viewer/artifact-viewer-section.tsx](boardflow/src/components/artifact-viewer/artifact-viewer-section.tsx#L131) が viewer をセクション縦積みで描画しており、Issue #32 本文の Schematic / PCB Preview / iBOM / BOM / Fabrication のタブUI要件を満たしていない。
+2. [boardflow/src/components/artifact-viewer/svg-viewer.tsx](boardflow/src/components/artifact-viewer/svg-viewer.tsx#L34) と [boardflow/src/components/artifact-viewer/svg-viewer.tsx](boardflow/src/components/artifact-viewer/svg-viewer.tsx#L52) は Top/Bottom SVG しか扱っておらず、Issue #32 本文で要求される PCB PDF link が欠けている。これを満たすには frontend だけでなく、[crates/api/src/routes/read.rs](crates/api/src/routes/read.rs#L1175) の viewer-sources 契約整理も必要。
+
+#### 再レビュー任意改善
+
+1. [boardflow/src/components/artifact-viewer/artifact-viewer-section.tsx](boardflow/src/components/artifact-viewer/artifact-viewer-section.tsx#L133) の KiCanvas placeholder は Issue #32 の非目的とは整合するが、backend が返す status を UI 上は完全に隠すため、将来実装までの暫定仕様を docs に明記した方が混乱が少ない。
+2. reload 導線は入ったが、期限切れメッセージ表示後も stale な preview / link が画面内に残るため、無効化または補助説明を追加すると誤操作を減らせる。
+
+#### 再レビュー時のテスト不足
+
+1. top-level viewer 切替 UI の有無を検証する component test がない。
+2. pcb_preview で Top only / Bottom only / PDF あり の分岐を検証する test がない。
+3. URL 再取得失敗時に reload 導線が表示されることを確認する UI test がない。
+
+#### 再レビュー時のドキュメント確認
+
+- docs/spec.md は PCB Preview に PDF link を要求している一方、現実の viewer-sources 実装は pcb_pdf を返していない。
+- docs/spec.md と docs/frontend/summary.md には KiCanvas を MVP で第一候補とする記述が残っているが、Issue #32 本文では KiCanvas interactive preview は非目的となっている。
+
+---
+
+## レビュー指摘修正フェーズ2（タブUI化）
+
+**日時**: 2026-05-02  
+**担当フェーズ**: impl (review fix 2)
+
+### 修正内容
+
+レビュー指摘「viewer をセクション縦積みで描画しており、タブUI要件を満たしていない」への対応。
+
+| 変更点 | 内容 |
+|---|---|
+| UI構造 | `VStack` 縦積み → Chakra UI v3 `Tabs.Root`/`Tabs.List`/`Tabs.Trigger`/`Tabs.Content` |
+| タブ表示順序 | Schematic → PCB → iBOM → BOM → Fabrication → KiCanvas |
+| タブラベル | "Schematic", "PCB", "iBOM", "BOM", "Fabrication", "KiCanvas" |
+| 表示ルール | available/partial → タブ表示、missing/failed → disabled + badge、skipped → 非表示 |
+| デフォルト選択 | 最初の available/partial viewer |
+| 全非表示時 | "No viewers available for this run." メッセージ |
+| refreshError/partial通知 | タブの上に共通表示（従来通り） |
+| PCB PDF | backend API仕様(docs/backend/api.md Section 3.8)では pcb_preview は SVG のみ。pcb_pdf は別 artifact。変更不要 |
+
+### 変更ファイル
+
+| ファイル | 変更内容 |
+|---|---|
+| `boardflow/src/components/artifact-viewer/artifact-viewer-section.tsx` | VStack縦積み → Tabs UIに全面書き換え |
+
+### テスト結果
+
+- `pnpm typecheck`: ✅ 0 errors
+- `pnpm lint`: ✅ 0 warnings, 0 errors
+
+### 残リスク
+
+- PCB PDF link は backend の viewer-sources 契約が pcb_preview に SVG しか含めない設計のため、frontend 単独では対応不可（別 Issue で backend 契約変更を検討）
+- component test / Playwright smoke test は未実装（本 Issue scope 外）
+- disabled タブのキーボード操作 UX は Chakra UI v3 のデフォルト挙動に委任
+
+#### plan / research / docs との不整合
+
+1. worklog の実装計画は KiCanvas を今回スキップとしているが、docs/spec.md と docs/frontend/summary.md は依然として KiCanvas を MVP 本体として扱っている。
+2. docs/spec.md は pcb_preview に pcb_pdf を含むレスポンス例を載せているが、backend 実装と frontend 実装のどちらにもその導線がない。
+3. worklog の受け入れ条件には top-level viewer タブが明示されておらず、Issue 本文の UI 要件を plan が十分に反映できていない。
+
+#### PR/完了結果
+
+- pr_ready: false
+- 理由: Issue #32 本文の UI 要件である top-level タブ表示と PCB PDF link が未充足のため
+
+### 再レビュー後の残リスク
+
+- frontend だけを修正しても、viewer-sources API が pcb_pdf を返さない限り PCB Preview の PDF link は安定して提供できない。
+- KiCanvas の扱いは Issue 本文と docs/spec.md の差分を残したままなので、次の担当者が scope を誤解するリスクがある。
