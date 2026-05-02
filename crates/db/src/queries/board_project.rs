@@ -339,3 +339,20 @@ pub async fn insert_issue_history(
     .await?;
     Ok(())
 }
+
+/// Update issue_sync_status for a board_project.
+/// Valid values: 'pending', 'synced', 'failed'.
+pub async fn update_issue_sync_status(
+    executor: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
+    id: Uuid,
+    status: &str,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "UPDATE board_projects SET issue_sync_status = $2, updated_at = NOW() WHERE id = $1",
+    )
+    .bind(id)
+    .bind(status)
+    .execute(executor)
+    .await?;
+    Ok(())
+}

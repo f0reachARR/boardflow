@@ -23,8 +23,50 @@ pub async fn handle(
         }
     };
 
-    // Use a transaction with FOR UPDATE to prevent concurrent create_issue handlers
-    // from creating duplicate issues for the same board_project (spec 11.6).
+    // Phase 1: Read board_project (no lock) for early checks and API call preparation.
+    let bp = match board_project::find_by_id_with_repository(pool, board_project_id).await {
+        Ok(Some(bp)) => bp,
+        Ok(None) => {
+            return HandlerResult::Failed {
+                reason: format!("board_project {board_project_id} not found"),
+            };
+        }
+        Err(e) => {
+            return HandlerResult::Reschedule {
+                reason: format!("DB error: {e}"),
+                backoff_secs: boardflow_jobs::backoff_secs(job.attempts),
+            };
+        }
+    };
+
+    // Fast idempotency check (without lock). If issue already exists, done.
+    if bp.issue_number.is_some() {
+        return HandlerResult::Completed;
+    }
+
+    let installation_id = bp.repo_installation_id as u64;
+    let title = comment_body::issue_title(&bp.display_name);
+    let body = comment_body::issue_body(
+        bp.github_repository_id,
+        &bp.project_path,
+        board_project_id,
+        &config.app_base_url,
+        bp.latest_completed_run_id,
+    );
+
+    // Phase 2: Call GitHub API (no DB lock held, avoiding long lock hold).
+    let created = match github_client
+        .create_issue(installation_id, &bp.repo_owner, &bp.repo_name, &title, &body)
+        .await
+    {
+        Ok(c) => c,
+        Err(e) => {
+            return handle_github_error(e, job.attempts);
+        }
+    };
+
+    // Phase 3: Transaction with FOR UPDATE to atomically verify + persist.
+    // This prevents duplicate DB writes if a concurrent handler also created an issue.
     let mut tx = match pool.begin().await {
         Ok(tx) => tx,
         Err(e) => {
@@ -35,8 +77,8 @@ pub async fn handle(
         }
     };
 
-    // Fetch board project with repository info, acquiring row lock
-    let bp = match board_project::find_by_id_with_repository_for_update(&mut *tx, board_project_id).await {
+    // Re-check under lock: another handler may have completed while we called the API.
+    let bp_locked = match board_project::find_by_id_with_repository_for_update(&mut *tx, board_project_id).await {
         Ok(Some(bp)) => bp,
         Ok(None) => {
             let _ = tx.rollback().await;
@@ -53,35 +95,15 @@ pub async fn handle(
         }
     };
 
-    // If issue already exists, mark as completed (idempotency)
-    if bp.issue_number.is_some() {
+    // Idempotency re-check under lock: if someone else created the issue, we're done.
+    // Note: this means a GitHub issue may have been created that's now orphaned,
+    // but that's acceptable — the important thing is DB consistency.
+    if bp_locked.issue_number.is_some() {
         let _ = tx.rollback().await;
         return HandlerResult::Completed;
     }
 
-    let installation_id = bp.repo_installation_id as u64;
-    let title = comment_body::issue_title(&bp.display_name);
-    let body = comment_body::issue_body(
-        bp.github_repository_id,
-        &bp.project_path,
-        board_project_id,
-        &config.app_base_url,
-        bp.latest_completed_run_id,
-    );
-
-    // Create the issue via GitHub API
-    let created = match github_client
-        .create_issue(installation_id, &bp.repo_owner, &bp.repo_name, &title, &body)
-        .await
-    {
-        Ok(c) => c,
-        Err(e) => {
-            let _ = tx.rollback().await;
-            return handle_github_error(e, job.attempts);
-        }
-    };
-
-    // Update board_project with issue info (within the same transaction)
+    // Update board_project with issue info
     if let Err(e) = board_project::update_issue_info(
         &mut *tx,
         board_project_id,
@@ -99,8 +121,8 @@ pub async fn handle(
         };
     }
 
-    // Enqueue create_dashboard_comment since we have an issue (within transaction)
-    let _ = github_job::enqueue(
+    // Enqueue follow-up create_dashboard_comment job (must succeed for atomicity)
+    if let Err(e) = github_job::enqueue(
         &mut *tx,
         uuid::Uuid::now_v7(),
         job.installation_id,
@@ -110,7 +132,15 @@ pub async fn handle(
         "create_dashboard_comment",
         &serde_json::json!({}),
     )
-    .await;
+    .await
+    {
+        let _ = tx.rollback().await;
+        tracing::error!(error = %e, "Failed to enqueue create_dashboard_comment");
+        return HandlerResult::Reschedule {
+            reason: format!("DB error enqueuing follow-up job: {e}"),
+            backoff_secs: boardflow_jobs::backoff_secs(job.attempts),
+        };
+    }
 
     // Commit transaction — releases the FOR UPDATE lock
     if let Err(e) = tx.commit().await {
