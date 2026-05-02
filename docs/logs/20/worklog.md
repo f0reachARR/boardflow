@@ -182,21 +182,62 @@ DB依存部分は `#[sqlx::test]` マクロで別ファイル (統合テスト) 
 
 ---
 
-## 実装フェーズ
+## 実装フェーズ (2026-05-02)
 
-(後続で記録)
+### 実装内容
 
-## テスト結果
+1. **`crates/db/src/queries/board_project.rs`** — `insert_issue_history` 関数追加
+   - board_project_issue_history テーブルへのINSERT
+   - 引数: id, board_project_id, issue_number, issue_node_id, issue_url, reason, replaced_by_issue_node_id
 
-(後続で記録)
+2. **`crates/worker/src/handlers/update_dashboard_comment.rs`** — 2箇所修正
+   - Issue closed → recreate 時: `clear_issue_info` の前に history INSERT (reason="recreated")
+   - Issue 404 時: `clear_issue_info` の前に history INSERT (reason="deleted")
 
-## レビュー結果
+3. **`crates/worker/src/handlers/create_run_result_comment.rs`** — 2箇所修正
+   - Issue closed → recreate 時: `clear_issue_info` の前に history INSERT (reason="recreated")
+   - Issue 404 時: `clear_issue_info` の前に history INSERT (reason="deleted")
 
-(後続で記録)
+4. **`crates/worker/src/comment_body.rs`** — テスト3件追加
+   - `test_issue_title_format` — `issue_title("motor_driver")` → `"[Board] motor_driver"`
+   - `test_issue_body_with_run` — latest_completed_run_id=Some(...)時にdiffリンク含む
+   - `test_issue_body_without_run` — latest_completed_run_id=None時にdiffセクションなし
+
+### 設計判断
+- history INSERT失敗時は `tracing::warn` ログ出力のみ、recreateフロー自体はブロックしない
+- `if let (Some(num), Some(node_id), Some(url)) = (...)` で安全にunwrap
+
+## テスト結果 (2026-05-02)
+
+```
+running 15 tests
+test comment_body::tests::test_dashboard_comment_contains_markers ... ok
+test comment_body::tests::test_issue_body_contains_markers ... ok
+test comment_body::tests::test_issue_body_with_diff_link ... ok
+test comment_body::tests::test_issue_body_without_run ... ok
+test comment_body::tests::test_issue_body_with_run ... ok
+test comment_body::tests::test_issue_title ... ok
+test comment_body::tests::test_issue_title_format ... ok
+test comment_body::tests::test_run_result_comment_contains_markers ... ok
+test comment_body::tests::test_should_not_post_run_result_fewer_errors ... ok
+test comment_body::tests::test_should_not_post_run_result_no_change ... ok
+test comment_body::tests::test_should_not_post_run_result_same_failure ... ok
+test comment_body::tests::test_should_post_run_result_fail_to_pass ... ok
+test comment_body::tests::test_should_post_run_result_first_run ... ok
+test comment_body::tests::test_should_post_run_result_new_errors ... ok
+test comment_body::tests::test_should_post_run_result_pass_to_fail ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+```
+
+## 残リスク
+
+- DB依存の統合テスト (`insert_issue_history` の動作確認) は本Issueでは未実装。sqlx::test環境整備が必要。
+- `replaced_by_issue_node_id` は常にNULL。create_issue成功後に更新する機能は将来課題。
 
 ## ドキュメント確認
 
-(後続で記録)
+- `docs/logs/20/worklog.md` — 本ファイル更新済み
 
 ## PR/完了結果
 
