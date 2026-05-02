@@ -3,8 +3,8 @@
 //! Requires DATABASE_URL to be set to a PostgreSQL database with migrations applied.
 //! Run with: `cargo test -p boardflow-worker --test staging_cleanup_test -- --ignored`
 
-use sqlx::PgPool;
 use serial_test::serial;
+use sqlx::PgPool;
 use uuid::Uuid;
 
 async fn get_pool() -> Option<PgPool> {

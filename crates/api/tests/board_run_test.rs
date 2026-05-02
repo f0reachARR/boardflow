@@ -1,8 +1,8 @@
-use serial_test::serial;
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use boardflow_api::create_app;
 use http_body_util::BodyExt;
+use serial_test::serial;
 use sha2::{Digest, Sha256};
 use sqlx::PgPool;
 use tower::ServiceExt;

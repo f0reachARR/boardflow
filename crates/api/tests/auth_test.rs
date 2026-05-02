@@ -1,4 +1,3 @@
-use serial_test::serial;
 use axum::Router;
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
@@ -6,6 +5,7 @@ use axum::middleware;
 use axum::response::IntoResponse;
 use axum::routing::get;
 use http_body_util::BodyExt;
+use serial_test::serial;
 use tower::ServiceExt;
 
 use boardflow_api::error::{AppError, ErrorCode, ErrorResponse, RequestId};

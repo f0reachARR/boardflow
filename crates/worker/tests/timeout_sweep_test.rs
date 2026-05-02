@@ -3,9 +3,9 @@
 //! Requires DATABASE_URL to be set to a PostgreSQL database with migrations applied.
 //! Run with: `cargo test -p boardflow-worker --test timeout_sweep_test -- --ignored`
 
+use serial_test::serial;
 use sqlx::PgPool;
 use uuid::Uuid;
-use serial_test::serial;
 
 async fn get_pool() -> Option<PgPool> {
     let database_url = match std::env::var("DATABASE_URL") {

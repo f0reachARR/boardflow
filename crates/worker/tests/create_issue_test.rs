@@ -10,9 +10,9 @@ use boardflow_github::{
 };
 use chrono::Utc;
 use secrecy::SecretString;
+use serial_test::serial;
 use sqlx::PgPool;
 use uuid::Uuid;
-use serial_test::serial;
 
 /// Simple mock GitHub client for testing.
 struct MockGitHubClient {

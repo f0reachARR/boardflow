@@ -1,5 +1,5 @@
-use serial_test::serial;
 use boardflow_api::config::{AppConfig, ConfigError};
+use serial_test::serial;
 
 /// 環境変数テストは process-global な状態を変更するため、
 /// 単一テスト内で順次実行する。
