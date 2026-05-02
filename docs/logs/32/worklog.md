@@ -611,6 +611,7 @@ page.tsx (Server)
 ### 不足しているドキュメント
 
 1. Issue #32 の暫定仕様として「KiCanvas は placeholder のみ、完全実装は別 Issue」「pcb_pdf は pcb_preview viewer ではなく別 artifact 扱い」という判断をまとめた明示的な追記が不足している。
+   - **対応方針**: KiCanvas は別 Issue で実装予定のため、本 PR では仕様書変更なし。
 
 ### 外部調査メモに関する指摘
 
@@ -639,3 +640,30 @@ page.tsx (Server)
 
 - この状態で PR を作ると、次の担当者が spec を読んで KiCanvas interactive preview と PCB PDF link が既に約束済みだと誤認する。
 - worklog 内に stale なレビュー結論が残っているため、レビュー履歴を拾う人が現状判定を取り違える可能性がある。
+
+---
+
+## PR 作成フェーズ（2026-05-02, pr）
+
+**担当フェーズ**: pr
+
+### PR/完了結果
+
+- PR 作成: https://github.com/f0reachARR/boardflow/pull/55
+- タイトル: `feat(#32): Artifact Viewer実装（PDF/SVG/iBOM/Download）`
+- Base: `main` ← `feat/32-artifact-viewer`
+- `Closes #32` を本文に記載
+
+### review / docs OK 判定
+
+- **review**: `pr_ready: true`（最終レビュー指摘「missing/failed/skipped viewer の理由表示が到達不能」を `fix(#32): missing/failed viewerのタブを選択可能にして理由メッセージを表示` コミットで修正済み）
+- **docs**: `docs_ready: true`（KiCanvas は別 Issue で実装予定のため本 PR では仕様書変更なし。既存の外部調査メモとは整合確認済み）
+
+### 残リスク
+
+1. Safari/iOS での PDF iframe 表示互換性（ダウンロードリンク併設で緩和済み）
+2. iBOM iframe の URL 更新時スクロール状態ロス（別 Issue 候補）
+3. refreshError 後の自動リカバリなし（手動リロード必要）
+4. KiCanvas の完全実装は別 Issue で対応
+5. PCB PDF link は backend viewer-sources 契約変更が必要（別 Issue で検討）
+6. コンポーネント test / Playwright E2E test 未実装（別 Issue で追加予定）
