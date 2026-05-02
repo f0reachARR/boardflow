@@ -572,3 +572,36 @@ test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
 ### 残リスク
 
 - update 側の closed + recreate 経路のテストは未追加（任意改善として記録済み）
+
+---
+
+## CI失敗修正（2026-05-02）
+
+### 原因調査
+
+- PR #49 のCIが "Integration tests (DB)" ステップで失敗
+- 失敗テスト: `test_timed_out_run_bundle_gets_delete_after` (staging_cleanup_test.rs:255)
+- assertion `left == right` failed: left: 0, right: 1
+- Warning: Node.js 20 deprecation (actions/checkout@v4) — コード無関係
+
+### 根本原因
+
+テスト間の並列実行によるレースコンディション:
+1. `test_timed_out_run_bundle_gets_delete_after` が board_run (status='timed_out') + bundle (delete_after=NULL) を作成
+2. `test_repair_orphaned_staging_bundles` が `repair_orphaned_staging_bundles()` を呼び出し
+3. repair関数はグローバルに `timed_out`/`failed` run のbundleの `delete_after` を設定
+4. 先に repair が実行されると、他テストの bundle にも `delete_after` が設定される
+5. `set_delete_after_for_timed_out_runs` は `delete_after IS NULL` 条件で0行マッチ
+
+### 修正内容
+
+- `test_timed_out_run_bundle_gets_delete_after` の board_run status を `'timed_out'` → `'uploading'` に変更
+- `set_delete_after_for_timed_out_runs` は `board_run_id = ANY($1)` のみでフィルタし、status を見ない
+- repair関数は `timed_out`/`failed` status のみ対象のため、`'uploading'` には影響しない
+- テストの検証意図（run_idによるbundle更新）は保たれたまま、レースが解消
+
+### テスト結果
+
+- `cargo test --workspace` → 全テスト通過
+- `cargo clippy --workspace --all-targets -- -D warnings` → 警告なし
+- コミット: `8c47a0b` → push済み
