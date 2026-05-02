@@ -204,7 +204,7 @@ async fn test_create_issue_success() {
         "https://github.com/test-owner/test-repo/issues/42",
     );
     let config = make_config();
-    let mut job = make_job(Some(bp_id), Some(Uuid::now_v7()));
+    let mut job = make_job(Some(bp_id), None);
     job.installation_id = installation_id;
     job.repository_id = repo_id;
 
@@ -311,7 +311,7 @@ async fn test_create_issue_idempotent() {
     }
 
     let config = make_config();
-    let mut job = make_job(Some(bp_id), Some(Uuid::now_v7()));
+    let mut job = make_job(Some(bp_id), None);
     job.installation_id = installation_id;
     job.repository_id = repo_id;
 
@@ -359,7 +359,7 @@ async fn test_create_issue_github_rate_limited() {
         retry_after_secs: Some(60),
     });
     let config = make_config();
-    let mut job = make_job(Some(bp_id), Some(Uuid::now_v7()));
+    let mut job = make_job(Some(bp_id), None);
     job.installation_id = installation_id;
     job.repository_id = repo_id;
 
