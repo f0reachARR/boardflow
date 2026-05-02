@@ -359,6 +359,21 @@ jobs:
 2. **nightly breakage**: 特定日付へのピン留めなし。破壊的変更時に CI が壊れる可能性。
 3. **sqlx-cli 初回インストール**: 約2分のオーバーヘッド。`Swatinem/rust-cache` で2回目以降は緩和。
 
+---
+
+### 2026-05-02 PR 作成
+
+- ブランチ `feature/issue-47-ci-setup` をリモートにプッシュ
+- PR #48 作成: https://github.com/f0reachARR/boardflow/pull/48
+  - タイトル: `ci: GitHub Actions CI パイプラインをセットアップ`
+  - ベース: `main`
+  - 本文に `Closes #47` を含む
+- CI 実行結果はPR上で確認予定
+
+## 最終ステータス
+
+**完了** — PR #48 作成済み。CI実行結果を待って merge。
+
 ## 更新した作業ログパス
 
 `docs/logs/47/worklog.md`
