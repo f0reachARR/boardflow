@@ -442,3 +442,138 @@ pub struct WebhookSecret(pub Option<String>);
 ### 更新した作業ログパス (修正後)
 
 `docs/logs/28/worklog.md`
+
+---
+
+## 再レビューフェーズ (2026-05-02)
+
+### Issueまでの経緯
+
+- 対象は Issue #28 のみ。
+- 前回レビューで `pr_ready: false` とした major 3件の修正有無を再確認した。
+- ユーザー申告の修正点に加え、Issue本文、spec、research、現行実装、統合テストを突き合わせた。
+
+### ユーザー要望
+
+- 前回 major 3件が正しく解消されているか再レビューする。
+- 特に以下を確認する。
+    1. `clear_installation_for_repo` の SQL WHERE 句に `installation_id` が追加されていること
+    2. handler 側で `event.installation.id` を渡していること
+    3. 新規テスト2件がリグレッション防止として十分であること
+
+### 調査結果
+
+- Issue本文は `gh issue view 28 --json number,title,body` で確認した。
+- [crates/db/src/queries/repository.rs](crates/db/src/queries/repository.rs#L159) の `clear_installation_for_repo` は `github_repository_id = $1 AND installation_id = $2` 条件に変更済み。
+- [crates/api/src/routes/webhook.rs](crates/api/src/routes/webhook.rs#L220) の `removed` 処理は `clear_installation_for_repo(pool, repo.id, event.installation.id)` を呼ぶように変更済み。
+- [crates/api/tests/webhook_test.rs](crates/api/tests/webhook_test.rs#L368) の `test_webhook_no_secret_configured` が `webhook_secret = None` 構成で 500 を検証している。
+- [crates/api/tests/webhook_test.rs](crates/api/tests/webhook_test.rs#L398) の `test_webhook_repos_removed_different_installation` が installation 不一致時に `installation_id` を保持することを検証している。
+- [crates/api/src/routes/webhook.rs](crates/api/src/routes/webhook.rs#L109) で `X-GitHub-Delivery` が `delivery_id` としてログ出力に含まれている。
+- GitHub Docs のベストプラクティス上も、redelivery があり得ること、`X-GitHub-Delivery` で delivery を追跡すること、event/action を見て処理することは妥当。
+
+### 計画
+
+- major 3件の修正箇所を直接確認する。
+- Webhook 統合テストを実行して新規2件を含む回帰防止を検証する。
+- research / docs / spec と照合して、ブロッカーが残っていないか判定する。
+
+### 実装内容
+
+- `clear_installation_for_repo` は installation 条件付き更新に修正されており、前回指摘の誤解除リスクは解消された。
+- handler 側は removal payload の `installation.id` を DB クエリに渡しており、SQL 修正と接続されている。
+- 追加された2件の統合テストはいずれも前回の欠落点を直接カバーしている。
+
+### テスト結果
+
+- 実行確認: `cargo test -p boardflow-api --test webhook_test` → 10 passed
+- 新規追加の `test_webhook_no_secret_configured` / `test_webhook_repos_removed_different_installation` を含めて成功した。
+
+### レビュー結果
+
+- `pr_ready: true`
+- 前回の major 3件はすべて修正済みで、現時点で PR を止める指摘はない。
+- 新規テスト2件は、受け入れ条件 10 と removal event の installation 不一致回帰の両方を直接押さえており、今回の修正範囲に対して十分。
+
+### ドキュメント確認
+
+- [docs/spec.md](docs/spec.md#L1606) と [docs/backend/summary.md](docs/backend/summary.md#L1) の GitHub App webhook 方針とは整合している。
+- `GITHUB_WEBHOOK_SECRET` の恒久ドキュメント導線は引き続き薄いが、前回 major の再レビュー観点としては非ブロッカーと判断した。
+
+### PR/完了結果
+
+- PR 作成可否: `pr_ready: true`
+
+### 残リスク
+
+- Issue本文は `POST /api/v1/webhooks/github` と書かれている一方、実装とテストは `POST /api/v1/github/webhook` に統一されている。現行 docs / research / テストとは整合しているため今回はブロッカーにしないが、外部利用者向けの案内は将来的に一本化した方がよい。
+
+### 更新した作業ログパス
+
+`docs/logs/28/worklog.md`
+
+---
+
+## ドキュメント確認フェーズ (2026-05-02)
+
+### Issueまでの経緯
+
+- 対象は Issue #28 のみ。
+- docs review として Issue本文、research成果物、実装概要、関連ドキュメント、現行実装、既存 worklog を突き合わせた。
+
+### ユーザー要望
+
+- `docs/spec.md`、`docs/backend/summary.md`、`docs/external/github-webhook-signature.md`、`docs/logs/28/worklog.md` の整合性を確認する。
+- `GITHUB_WEBHOOK_SECRET` の運用ドキュメント追記要否を判断する。
+
+### 調査結果
+
+- [docs/spec.md](docs/spec.md#L1606) は GitHub App 連携方針と webhook 受信の存在を定義しており、今回の実装内容と矛盾しない。
+- [docs/backend/summary.md](docs/backend/summary.md#L290) の「GitHub webhook signature verification test」は、[crates/api/src/routes/webhook.rs](crates/api/src/routes/webhook.rs#L217) のユニットテスト群と [crates/api/tests/webhook_test.rs](crates/api/tests/webhook_test.rs#L1) の統合テスト群でカバーされている。
+- [docs/external/github-webhook-signature.md](docs/external/github-webhook-signature.md#L297) の実装方針は、[crates/api/src/routes/webhook.rs](crates/api/src/routes/webhook.rs#L56)、[crates/api/src/lib.rs](crates/api/src/lib.rs#L92)、[crates/db/src/queries/repository.rs](crates/db/src/queries/repository.rs#L151) と一致している。
+- [docs/logs/28/worklog.md](docs/logs/28/worklog.md#L1) には経緯、調査、計画、実装、テスト、レビュー結果、再レビュー結果が揃っており、今回の確認結果を追記すれば時系列の完全性も満たせる。
+- `GITHUB_WEBHOOK_SECRET` は [crates/api/src/config.rs](crates/api/src/config.rs#L39) と [crates/api/src/main.rs](crates/api/src/main.rs#L41) で実装に反映されているが、[README.md](README.md) と `docs/` 配下の恒久ドキュメントには設定手順が見当たらない。
+- Issue本文は `POST /api/v1/webhooks/github`、実装と research は `POST /api/v1/github/webhook` であり、Issue本文とのみ表記揺れが残っている。
+
+### 計画
+
+- ブロッカーになる不整合があるかを docs 観点で判定する。
+- 必須修正と任意改善を分離して worklog に記録する。
+
+### 実装内容
+
+- コード変更は行わず、docs review 結果のみ整理した。
+
+### テスト結果
+
+- 既存の実装ログに記載された webhook テスト結果を確認し、docs/backend/summary.md のテスト方針に対する裏付けとして妥当と判断した。
+
+### レビュー結果
+
+- `docs_ready: true`
+- PR を docs 観点で止める必須修正はない。
+
+### ドキュメント確認
+
+- 整合しているドキュメント:
+    - [docs/spec.md](docs/spec.md#L1606)
+    - [docs/backend/summary.md](docs/backend/summary.md#L290)
+    - [docs/external/github-webhook-signature.md](docs/external/github-webhook-signature.md#L346)
+    - [docs/logs/28/worklog.md](docs/logs/28/worklog.md#L1)
+- 不整合のあるドキュメント:
+    - GitHub Issue #28 本文のエンドポイント表記が `POST /api/v1/webhooks/github` のままで、実装・research と一致していない。
+- 不足しているドキュメント:
+    - `GITHUB_WEBHOOK_SECRET` をどこで設定するかの運用メモが [README.md](README.md) または関連 docs にない。
+
+### PR/完了結果
+
+- docs 観点の PR 作成可否: `docs_ready: true`
+- 追記推奨はあるが、いずれも非ブロッカー。
+
+### 残リスク
+
+- PR本文で webhook endpoint を説明する際、Issue本文の旧表記をそのまま転載すると混乱が再発する。
+- 本番導入時に `GITHUB_WEBHOOK_SECRET` の設定先が README 等にないため、運用者が環境変数を見落とす可能性がある。
+
+### 更新した作業ログパス
+
+`docs/logs/28/worklog.md`
