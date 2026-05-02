@@ -55,7 +55,14 @@ export default async function RepositoriesPage() {
           </Table.Header>
           <Table.Body>
             {repositories.map((repo) => (
-              <Table.Row key={repo.github_repository_id}>
+              <Table.Row
+                key={repo.github_repository_id}
+                bg={
+                  repo.latest_run_status === "failed" ? "red.50" :
+                  repo.latest_run_status === "timed_out" ? "orange.50" :
+                  undefined
+                }
+              >
                 <Table.Cell>
                   <Link href={`/repositories/${repo.github_repository_id}`}>
                     <Text color="blue.600" fontWeight="medium" _hover={{ textDecoration: "underline" }}>

@@ -2,6 +2,7 @@ import { Box, Heading, Text, VStack, HStack, Badge, Table } from "@chakra-ui/rea
 import { notFound } from "next/navigation"
 import { createServerClient } from "@/lib/api/server"
 import type { Artifact, ViewerEntry } from "@/lib/api/schema"
+import { Breadcrumb } from "@/components/ui/breadcrumb"
 
 function statusColor(status: string): string {
   switch (status) {
@@ -64,10 +65,10 @@ interface Props {
 }
 
 export default async function RunDetailPage({ params }: Props) {
-  const { boardRunId } = await params
+  const { repositoryId, boardProjectId, boardRunId } = await params
   const client = await createServerClient()
 
-  const [runRes, artifactsRes, viewerRes] = await Promise.all([
+  const [runRes, artifactsRes, viewerRes, projectRes] = await Promise.all([
     client.GET("/api/v1/board-runs/{board_run_id}", {
       params: { path: { board_run_id: boardRunId } },
     }),
@@ -76,6 +77,9 @@ export default async function RunDetailPage({ params }: Props) {
     }),
     client.GET("/api/v1/board-runs/{board_run_id}/viewer-sources", {
       params: { path: { board_run_id: boardRunId } },
+    }),
+    client.GET("/api/v1/board-projects/{board_project_id}", {
+      params: { path: { board_project_id: boardProjectId } },
     }),
   ])
 
@@ -86,9 +90,21 @@ export default async function RunDetailPage({ params }: Props) {
   const run = runRes.data!
   const artifacts: Artifact[] = artifactsRes.data?.items ?? []
   const viewers: Record<string, ViewerEntry> = viewerRes.data?.viewers ?? {}
+  const project = projectRes.data
 
   return (
     <Box>
+      {project && (
+        <Breadcrumb
+          items={[
+            { label: "Repositories", href: "/repositories" },
+            { label: `${project.repository.owner}/${project.repository.name}`, href: `/repositories/${repositoryId}` },
+            { label: project.display_name, href: `/repositories/${repositoryId}/boards/${boardProjectId}` },
+            { label: "Runs", href: `/repositories/${repositoryId}/boards/${boardProjectId}/runs` },
+            { label: boardRunId.slice(0, 8) },
+          ]}
+        />
+      )}
       <VStack align="stretch" gap={6}>
         {/* Header */}
         <Box>
