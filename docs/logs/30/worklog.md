@@ -98,6 +98,22 @@ Repository詳細ページの BoardProject テーブル State 列:
 
 ## ユーザー確認結果 (2026-05-02)
 
+## レビュー指摘修正 (2026-05-02)
+
+### Breadcrumbコンポーネントのアクセシビリティ修正
+
+**修正ファイル**: `boardflow/src/components/ui/breadcrumb.tsx`
+
+**修正内容**:
+1. 最外側を `<nav aria-label="Breadcrumb">` で囲んだ
+2. 内部を `<ol>` + `<li>` のセマンティックなリスト構造に変更
+3. 最終要素（現在ページ、`href` なし）に `aria-current="page"` を付与
+4. 区切りアイコン（ChevronRight）に `aria-hidden="true"` を付与
+5. Chakra UI の `HStack` を排除し、CSS変数ベースのインラインスタイルでレイアウトを維持
+6. 未使用の `HStack` インポートを削除
+
+**テスト結果**: `pnpm exec tsc --noEmit` → EXIT:0
+
 - **表示形式**: 仕様書優先（テーブル形式維持 + 品質改善）を選択 → カード表示への変更は行わない
 - **スコープ**: Research結果の提案通り（timed_out警告・ブレッドクラム・情報密度向上）で確定
 
@@ -204,3 +220,45 @@ Repository詳細ページの BoardProject 一覧テーブルで:
 
 - failed/timed_out のproject数の一覧表示は現APIでは直接サポートしていないため、Repository詳細レベルでの集計に留める
 - Pagination UIは今回スコープ外（API側は cursor pagination 対応済み）
+
+---
+
+## レビュー結果 (2026-05-02)
+
+### 総評
+
+- Issue #30 の実装は、docs/frontend/summary.md に合わせて一覧をテーブル形式のまま改善する方針に沿っており、差分範囲も計画どおりに収まっている
+- TypeScript 診断は追加分を含めて問題なく、`pnpm exec tsc --noEmit` も通過している
+- 一方で、新規 Breadcrumb コンポーネントがアクセシブルな breadcrumb navigation として実装されておらず、この Issue で追加したナビゲーション機能としては不十分
+
+### PR/完了結果
+
+- pr_ready: false
+
+### 必須修正
+
+1. `boardflow/src/components/ui/breadcrumb.tsx` の breadcrumb が `nav` ランドマーク、`aria-label="breadcrumb"`、現在位置の `aria-current="page"` を持っておらず、スクリーンリーダーから breadcrumb として認識しづらい。区切りアイコンも装飾要素として明示されていないため、アクセシビリティ観点でこのままのマージは避けたい。
+
+### 任意改善
+
+1. Repository 一覧の行ハイライトは `red.50` / `orange.50` の固定色指定のみで、色覚差や将来のテーマ拡張に弱い。必要なら status badge の補助テキストや semantic token 化を検討したい。
+
+### テスト不足
+
+1. 今回追加した breadcrumb 表示、Repository 詳細の状態説明文、Repository 一覧の行ハイライトを検証する自動テストがない。
+2. frontend 側には現時点で Vitest / Playwright などのテスト基盤自体が入っておらず、検証が `tsc` と `next build` に偏っている。
+
+### ドキュメント確認
+
+- `docs/frontend/summary.md` の「一覧は表形式優先」「timed_out 状態の説明表示」「主要導線のテスト」という方針を確認した
+- `docs/spec.md` と README を確認し、今回の UI 改善に対して追加の利用者向けドキュメント更新は必須ではないと判断した
+- `CONTRIBUTING.md` はリポジトリ内に存在しなかった
+
+### plan / research / docs との不整合
+
+1. 実装計画に記載されていた breadcrumb コンポーネントの単体テスト、各ページでのレンダリング確認を自動テストとしては満たしていない。
+2. Issue 本文には「Repository 一覧はカード表示」とあるが、仕様書と実装計画ではテーブル維持に合意済みであり、今回の実装はその合意に沿っている。
+
+### 残リスク
+
+1. Runs 一覧と Run 詳細は breadcrumb 表示のために board-project API を追加取得しているが、BoardRun API に親メタデータが含まれていないため現状は妥当。性能影響は限定的。
