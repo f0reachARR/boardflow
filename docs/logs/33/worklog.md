@@ -504,3 +504,74 @@ if (name === "kicanvas") {
 ### 残リスク
 
 - KiCanvas の表示条件切替を検証する component test / E2E テストがまだない（既知。テスト追加は別 Issue で対応予定）
+
+## 2回目レビュー結果（2026-05-03）
+
+### 総評
+
+- 前回レビューの 3 指摘は修正済み。KiCanvas は独立タブではなく Schematic / PCB Preview に統合され、`lazyMount` も追加され、`LoadState` も `timeout` / `load_error` に分離されている。
+- 一方で、統合後の表示ロジックに 2 件の major な不整合が残っており、現状のままでは Schematic / PCB Preview の意味に沿わない表示になるケースがある。
+
+### pr_ready
+
+- false
+
+### 指摘事項
+
+1. [major] `boardflow/src/components/artifact-viewer/artifact-viewer-section.tsx` の Schematic / PCB Preview は、どちらも `kicanvasViewer.sources` 全体をそのまま `KiCanvasViewer` に渡している。`docs/external/kicanvas-embed-api.md` にあるとおり project file を含む複数 source は root schematic がデフォルト表示になるため、PCB Preview タブでも最初に回路図が開く可能性が高い。さらに Schematic 側の `hasKicanvas` 判定は `board` source だけでも true になるため、schematic が欠けているときに基板ビューを Schematic タブへ出してしまう。タブごとに渡す source を絞るか、少なくとも Schematic は schematic 系、PCB は board 系を確実に初期表示させる必要がある。
+2. [major] `boardflow/src/components/artifact-viewer/artifact-viewer-section.tsx` 冒頭の `if (viewer.status === "missing" || viewer.status === "failed")` で即座に `ViewerStatusMessage` を返しているため、静的 viewer が missing / failed でも `kicanvas` viewer が available なケースで KiCanvas を表示できない。`docs/frontend/summary.md` の「Schematic / PCB Preview では KiCanvas を第一候補にしつつ、PDF/SVG fallback を必ず残す」という仕様に対し、現実装は static artifact 側の状態を優先して KiCanvas を潰してしまう。
+
+### 必須修正
+
+1. タブごとに KiCanvas source を分離し、Schematic では schematic を、PCB Preview では board を初期表示するようにする。project source を共通で渡す場合でも、初期表示が root schematic に固定されない設計を確認する。
+2. `schematic` / `pcb_preview` の分岐より前に missing / failed で早期 return しないようにして、KiCanvas が利用可能なら静的 viewer の状態に関わらず表示できるようにする。
+
+### 任意改善
+
+1. `ViewerSource.kind` の判定をヘルパー化して、タブごとの許容 source を明示するとレビューしやすく保守もしやすい。
+
+### テスト不足
+
+1. 「schematic artifact が missing でも kicanvas が available なら Schematic タブで KiCanvas が出る」ケースの自動テストがない。
+2. 「project + schematic + board source があるとき、PCB Preview タブで board が初期表示される」ことを担保するテストがない。
+
+### ドキュメント確認
+
+- `docs/frontend/summary.md` の「KiCanvas を第一候補にしつつ PDF/SVG fallback を残す」、`bundle script は vendoring`、`ダウンロード URL は短命` の方針自体は実装に維持されている。
+- `kicanvas-viewer.tsx` の `controlslist="nodownload"`、vendored bundle 利用、backend の short-lived token 付き proxy URL 方針は維持されている。
+
+### PR/完了結果
+
+- 前回 3 指摘の修正確認は完了。
+- ただし上記 2 件の major があるため、Issue #33 はまだ PR 作成可とは判断しない。
+
+### 残リスク
+
+- KiCanvas 自体のロード失敗時 UI は改善済みだが、タブ別の source 制御不備により誤った文書種別が表示されるリスクが残る。
+
+## 2回目レビュー指摘修正（2026-05-03）
+
+### 修正1: タブごとに KiCanvas source を分離
+
+- Schematic タブ: `kicanvasViewer.sources` から `kind === "schematic"` と `kind === "project"` のみフィルタして `KiCanvasViewer` に渡す
+- PCB Preview タブ: `kicanvasViewer.sources` から `kind === "board"` と `kind === "project"` のみフィルタして渡す
+- `hasKicanvas` 判定条件を Schematic は `s.kind === "schematic"`、PCB は `s.kind === "board"` に限定
+
+### 修正2: static viewer が missing/failed でも KiCanvas を表示
+
+- `renderViewerContent` 先頭の早期 return を `name !== "schematic" && name !== "pcb_preview"` の場合のみに限定
+- schematic / pcb_preview 各 case 内で個別に missing/failed チェックを実施（KiCanvas が無い場合のみ ViewerStatusMessage を返す）
+
+### 修正3: タブ表示条件の修正
+
+- `visibleTabs` フィルタで schematic/pcb_preview が missing/failed でも kicanvas に該当 kind の source があればタブを表示する
+
+### 確認結果
+
+- `pnpm tsc --noEmit`: 成功
+- `pnpm build`: 成功
+
+### 残リスク
+
+- component test / E2E テストは未追加（別 Issue 対応予定）
+- KiCanvas alpha 品質のため bundle 更新時に API 変更リスクあり（PDF/SVG fallback で軽減）
