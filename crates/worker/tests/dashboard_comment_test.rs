@@ -902,10 +902,12 @@ async fn test_create_dashboard_comment_uses_latest_completed_run() {
     assert_eq!(row.0, Some(100), "dashboard_comment_id should be saved");
 
     // Verify the comment body uses the latest run (def5678) not the old run (abc1234)
-    let captured = client.captured_comment_body.lock().unwrap();
-    let body = captured.as_ref().expect("create_comment should have been called");
-    assert!(body.contains("def5678"), "Comment body should contain latest run commit SHA 'def5678', got: {}", body);
-    assert!(!body.contains("abc1234"), "Comment body should NOT contain old run commit SHA");
+    {
+        let captured = client.captured_comment_body.lock().unwrap();
+        let body = captured.as_ref().expect("create_comment should have been called");
+        assert!(body.contains("def5678"), "Comment body should contain latest run commit SHA 'def5678', got: {}", body);
+        assert!(!body.contains("abc1234"), "Comment body should NOT contain old run commit SHA");
+    }
 
     cleanup_test_data(&pool, repo_id, bp_id).await;
 }
@@ -1019,6 +1021,19 @@ async fn test_update_dashboard_comment_issue_404() {
     .await
     .unwrap();
     assert!(job_row.0 >= 1, "create_issue job should be enqueued");
+
+    // Verify issue history was saved
+    let history_count: (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM board_project_issue_history WHERE board_project_id = $1",
+    )
+    .bind(bp_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(
+        history_count.0 >= 1,
+        "Issue history should be recorded on 404"
+    );
 
     cleanup_test_data(&pool, repo_id, bp_id).await;
 }

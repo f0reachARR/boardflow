@@ -457,3 +457,85 @@ test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
 ### 残リスク
 
 - なし（前回指摘の2点が解消された）
+
+---
+
+## ドキュメント確認（2026-05-02）
+
+### 総評
+
+- Issue #21 の変更は既存ハンドラの振る舞い変更ではなく、Dashboard コメント系ジョブハンドラに対する統合テスト拡張である。
+- `docs/spec.md` の Issue ライフサイクル、Dashboard コメント仕様、GitHub API ジョブの debounce 要件と、追加された 17 件のテスト観点は整合している。
+- `docs/backend/summary.md` と `docs/backend/api.md` に、今回の変更で新たに更新すべき公開仕様差分はない。
+- テストファイル先頭の doccomment は、対象ハンドラ、前提条件 (`DATABASE_URL`)、実行方法を簡潔に示しており妥当。
+
+### ドキュメント整合性確認
+
+- `docs/spec.md`
+    - 11.7 の closed / 404 Issue 分岐
+    - 12.1 の Dashboard コメント再作成要件
+    - 13.1 / 13.3 の GitHub API ジョブ化と latest run 集約
+    以上に対して、今回のテスト追加内容は矛盾しない。
+- `docs/backend/summary.md`
+    - Dashboard comment update の debounce、closed Issue + `recreate_issue_on_update`、comment 削除時の再作成方針と一致している。
+- `docs/backend/api.md`
+    - API 契約の追加・変更はなく、テスト追加のみのため更新不要。
+- `README.md`
+    - 利用者向けセットアップや運用手順への影響はなく、更新不要。
+- `docs/external/`
+    - 今回は既存実装のテスト拡張のみで、外部調査メモの追加・更新が必要なトピックはない。
+
+### 判定
+
+- `docs_ready: true`
+
+### 必須修正
+
+- なし
+
+### 任意改善
+
+- `docs/logs/21/worklog.md` 冒頭の初回レビュー結果 (`pr_ready: false`) は履歴として有効だが、後から読む人向けには最終判定サマリへの参照を先頭近くに置くと追跡しやすい。
+
+### 残リスク
+
+- ドキュメント観点の残リスクは特になし。
+- テスト実行自体は `DATABASE_URL` を前提とするため、再現手順は引き続き DB 環境に依存する。
+
+---
+
+## 最終レビュー結果（2026-05-02）
+
+### 総評
+
+- Issue #21 の前回必須指摘のうち、debounce テストの本文検証は適切に修正されている。
+- 一方で、`board_project_issue_history` の検証は create 側の closed/404 テストには追加されたが、update 側 404 経路には追加されていない。
+- `cargo test -p boardflow-worker --test dashboard_comment_test -- --ignored` は 17 件すべて成功したが、前回必須指摘の一部が未解消のため、最終判定は `pr_ready: false` とする。
+
+### レビュー結果
+
+1. 中: 前回の「closed recreate / 404 テストで `board_project_issue_history` を検証する」という必須指摘が update 側 404 経路では未解消
+    - 実装では `update_dashboard_comment` の closed / 404 分岐でも履歴保存を行う。
+    - しかしテストでは create 側の `test_create_dashboard_comment_issue_closed_recreate_tree_hash_changed` と `test_create_dashboard_comment_issue_404` にのみ履歴件数確認があり、`test_update_dashboard_comment_issue_404` には同等の確認がない。
+    - そのため、update 側で履歴保存が退行しても今回のテストセットでは検出できない。
+
+### 必須修正
+
+1. `test_update_dashboard_comment_issue_404` に `board_project_issue_history` の件数確認を追加し、update 側の 404 再作成経路でも旧 Issue が履歴保存されることを検証する。
+
+### 任意改善
+
+1. update 側の closed + recreate 経路も将来的には追加し、create 側だけに依存しない形で分岐網羅を揃えると保守性が上がる。
+
+### テスト結果
+
+- `cargo test -p boardflow-worker --test dashboard_comment_test -- --ignored` → 17 passed
+- `cargo check -p boardflow-worker --tests` / `cargo clippy -p boardflow-worker --tests -- -D warnings` はユーザー報告ベースで成功
+
+### PR/完了結果
+
+- `pr_ready: false`
+
+### 残リスク
+
+- update 側の Issue 404 分岐で `insert_issue_history` が壊れても、現状のテストでは検出できない。
