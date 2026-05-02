@@ -439,6 +439,70 @@ MVP ではユニットテスト・E2E テストは対象外。
 
 ---
 
+## レビュー結果（2026-05-03 再レビュー）
+
+### 総評
+
+- `pr_ready: false`
+- 前回レビューの必須修正 3 点は反映済み。
+- ただし、Diff API の `summary` を frontend が固定 shape として読んでおり、backend 実装の実 payload と不整合なため、`status=ready` でも描画時にクラッシュしうる。PR 作成前にこの互換性問題の解消が必要。
+
+### 調査結果
+
+- frontend 確認: `boardflow/src/app/(authenticated)/repositories/[repositoryId]/boards/[boardProjectId]/runs/[boardRunId]/diff/page.tsx`
+- backend 確認: `crates/api/src/routes/read.rs`, `crates/api/tests/read_api_test.rs`, `crates/worker/src/handlers/import.rs`
+- 外部調査: Next.js App Router では `notFound()` は 404 用であり、非 404 は明示エラー表示または `error.tsx` で扱うのが妥当。今回の diff ページはこの点を満たしている。
+
+### レビュー結果
+
+#### 必須修正
+
+1. Diff API の `summary` shape を frontend が無条件に信用しており、runtime で落ちる可能性がある
+  - frontend は [boardflow/src/app/(authenticated)/repositories/[repositoryId]/boards/[boardProjectId]/runs/[boardRunId]/diff/page.tsx](boardflow/src/app/(authenticated)/repositories/[repositoryId]/boards/[boardProjectId]/runs/[boardRunId]/diff/page.tsx#L149) で `summary.file_changes`、[boardflow/src/app/(authenticated)/repositories/[repositoryId]/boards/[boardProjectId]/runs/[boardRunId]/diff/page.tsx](boardflow/src/app/(authenticated)/repositories/[repositoryId]/boards/[boardProjectId]/runs/[boardRunId]/diff/page.tsx#L196) で `summary.bom_changes`、[boardflow/src/app/(authenticated)/repositories/[repositoryId]/boards/[boardProjectId]/runs/[boardRunId]/diff/page.tsx](boardflow/src/app/(authenticated)/repositories/[repositoryId]/boards/[boardProjectId]/runs/[boardRunId]/diff/page.tsx#L220) で `summary.checks`、[boardflow/src/app/(authenticated)/repositories/[repositoryId]/boards/[boardProjectId]/runs/[boardRunId]/diff/page.tsx](boardflow/src/app/(authenticated)/repositories/[repositoryId]/boards/[boardProjectId]/runs/[boardRunId]/diff/page.tsx#L263) で `summary.artifacts` を直接参照している。
+  - 一方 backend は [crates/api/src/routes/read.rs](crates/api/src/routes/read.rs#L335) で `summary` を `Option<serde_json::Value>` として持ち、[crates/api/src/routes/read.rs](crates/api/src/routes/read.rs#L1472) で DB の `summary_json` をそのまま返している。
+  - API テストでも `summary` は [crates/api/tests/read_api_test.rs](crates/api/tests/read_api_test.rs#L1885) のような `{ "added_files": 2, "removed_files": 0 }` を許容しており、worker 実装も現状は [crates/worker/src/handlers/import.rs](crates/worker/src/handlers/import.rs#L375) 以降で `{ "total_files": file_count, "status": "computed" }` を保存している。
+  - この組み合わせだと `status=ready` かつ `summary` ありでも `summary.file_changes` が `undefined` になり、差分ページは描画時例外で落ちる。Issue #34 の画面としては blocker。
+
+#### 任意改善
+
+1. `DiffResponse.summary` の OpenAPI / generated type と backend 実装の乖離が大きい。frontend 側だけでなく API 契約自体を揃えた方が再発しない。
+2. run 詳細ページも同じ `DiffResponse` を読むため、同種の guard を共通化しておくと保守しやすい。
+
+### テスト結果
+
+- `pnpm typecheck`: pass
+- `pnpm build`: pass
+- `pnpm lint`: 指示上の結果は pass 済み
+
+### テスト不足
+
+- Diff API の `summary` が想定 shape でない場合でも画面が落ちずに fallback 表示になることを確認するテストがない。
+- `status=ready` かつ metadata ありだが `summary` が部分欠損のケースを検証するテストがない。
+
+### ドキュメント確認
+
+- `docs/spec.md` と `docs/backend/api.md` は diff 画面の存在と status 別表示を要求しており、前回指摘 3 点の方向性は満たしている。
+- ただし API 契約としては frontend 型と backend 実装がまだ一致していない。
+
+### plan / research / docs との不整合
+
+- research では metadata の不定 shape に注意していたが、実際の blocker は `metadata` よりも `summary` の方に残っている。
+- 受け入れ条件の `tsc --noEmit` / `pnpm build` は満たす一方、runtime 安全性は未達。
+
+### PR/完了結果
+
+- `pr_ready: false`
+
+### 残リスク
+
+- diff summary を backend で spec 形状に揃えるか、frontend で runtime guard と fallback を追加するかを決めない限り、データ次第で本番でも 500 相当の描画失敗が起こりうる。
+
+### 更新した作業ログパス
+
+- `docs/logs/34/worklog.md`
+
+---
+
 ## レビュー指摘修正（2026-05-03）
 
 ### 修正内容
@@ -481,5 +545,43 @@ MVP ではユニットテスト・E2E テストは対象外。
 - Preview 画像の重ね合わせ比較は MVP 対象外（spec 7.4 明記）で、将来 Issue として追加予定
 
 ### 更新した作業ログパス
+
+- `docs/logs/34/worklog.md`
+
+---
+
+## レビュー指摘修正（2026-05-03）
+
+### 指摘内容
+
+`diff.summary` が TypeScript型上は `DiffSummary | null` だが、backendは `Option<serde_json::Value>` としてそのまま返すため、実際のpayloadが `DiffSummary` の shape と一致しない場合がある。`summary.file_changes.added` 等で例外が発生するリスク。
+
+### 修正内容
+
+#### 1. diff/page.tsx
+
+- `isFileChanges`, `isBomChanges`, `isCheckEntry`, `isArtifactChanges` ランタイム型ガードを追加
+- `FileChangesSection`: `isFileChanges(summary.file_changes)` を確認し、失敗時は「Data format not recognized」フォールバック表示
+- `BomChangesSection`: `isBomChanges(summary.bom_changes)` を確認し、失敗時フォールバック
+- `ChecksSection`: `isRecord(summary.checks)` + 各エントリを `isCheckEntry` でフィルタ。有効なエントリのみ表示
+- `ArtifactChangesSection`: `isArtifactChanges(summary.artifacts)` を確認し、失敗時フォールバック
+
+#### 2. runs/[boardRunId]/page.tsx（Run詳細ページ）
+
+- 同じ型ガード関数群を追加
+- 「Changes from Baseline」セクションの `diff.summary.file_changes.added` 等の直接アクセスを型ガード経由に変更
+- 各フィールドが型ガードを通らない場合は「data format not recognized」テキストを表示
+- `checks` はフィルタ済みの有効エントリのみ表示
+
+### テスト結果
+
+- `pnpm typecheck`: 成功（0 errors）
+- `pnpm lint`: 成功（0 warnings, 0 errors）
+
+### 残リスク
+
+- 全セクションが型不一致でも画面はクラッシュせずフォールバック表示されるが、ユーザーには情報量が減る。backend側で `DiffSummary` の型定義を厳密に保証するのが望ましい
+
+### 更新した作業ログパス（修正後）
 
 - `docs/logs/34/worklog.md`
