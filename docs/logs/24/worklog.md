@@ -592,3 +592,27 @@ _ = sweep_interval.tick() => {
 ### 残リスク
 
 - なし。`timed_out` run: `timed_out_at` 基準、`failed` run: `completed_at` 基準、フォールバック: `created_at` 基準で TTL を計算する。仕様の「7日後に削除対象」を正確に反映している。
+
+---
+
+## PR/完了結果 (2026-05-02)
+
+### PR
+
+- **PR #46**: https://github.com/f0reachARR/boardflow/pull/46
+- タイトル: `feat(worker): staging bundle cleanup sweep (#24)`
+- ベースブランチ: `main`
+- Closes #24
+
+### 最終コミット履歴（ブランチ）
+
+1. `feat(worker): implement staging bundle cleanup sweep (#24)` — 初期実装
+2. `fix(#24): timed_out run の staging bundle に delete_after を設定`
+3. `fix(#24): self-healing repair for orphaned staging bundles`
+4. `fix(#24): repair TTL を timed_out_at 基準に修正`
+5. `fix(#24): failed run orphan repair に completed_at を考慮した TTL 計算に修正`
+6. `docs: ワークログ追記` × 複数
+
+### 残リスク
+
+- DB 必須統合テストはローカルで DATABASE_URL 未設定時に未実行で green になる（#23 からの project-standard パターン; CI で DATABASE_URL 設定必須）
