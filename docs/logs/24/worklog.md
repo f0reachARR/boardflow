@@ -333,3 +333,92 @@ _ = sweep_interval.tick() => {
 
 - なし。timed_out run の staging bundle は `sweep_timed_out_runs` → `set_delete_after_for_timed_out_runs` の連鎖で `delete_after` が設定され、7日後に `sweep_expired_staging_bundles` で S3 削除される
 - DB 必須統合テストの実行結果は CI で確認
+
+---
+
+## レビュー結果 (2026-05-02 再レビュー)
+
+### 総評
+
+- `timed_out` run 向けの `delete_after` 設定追加と `find_expired_staging` の `ORDER BY` 追加により、前回レビューの主要指摘は部分的に解消された。
+- ただし、`board_runs` の `timed_out` 化と bundle 側 `delete_after` 設定が別クエリ・別ステップのままで、後段だけ失敗した場合に cleanup 対象化が恒久的に取りこぼされる。仕様要件の「timed_out run の staging bundle は 7 日後に削除対象」を確実には満たせていない。
+- このため PR 判定は引き続き不可。
+
+### 重大度順の指摘
+
+1. **Blocker: timed_out 化と bundle TTL 設定が非原子的で、後段失敗時に cleanup 対象化が永久に漏れる**
+    - `sweep_timed_out_runs` は最初に `board_run::sweep_timed_out` で run を terminal 状態へ更新し、その後で `artifact_bundle::set_delete_after_for_timed_out_runs` を呼んでいる。
+    - この 2 段目が DB 一時障害や worker クラッシュで失敗すると、対象 run はすでに `timed_out` なので次回 `sweep_timed_out` の戻り値に再び現れない。
+    - 結果として該当 bundle は `delete_after IS NULL` のまま残り、cleanup sweep の抽出条件 `delete_after < NOW()` に永久に一致しない。
+    - 必須対応: 2 更新を同一 transaction にまとめるか、`timed_out` run かつ `delete_after IS NULL` の bundle を毎回補修できる sweep に変更すること。
+
+2. **Medium: 追加テストが実際の timeout sweep 経路を担保していない**
+    - 追加された `test_timed_out_run_bundle_gets_delete_after` は `set_delete_after_for_timed_out_runs` を直接呼んでおり、`dispatcher::sweep_timed_out_runs` の実経路は検証していない。
+    - そのため今回の Blocker である「2 ステップ連携の欠陥」はテストで検出できない。
+    - 必須対応: `board_run::sweep_timed_out` と bundle 更新を含む worker 側の経路を対象にした統合テスト、または少なくとも `timed_out` run の再補修戦略を検証するテストを追加すること。
+
+### 任意改善
+
+- `sweep_expired_staging_bundles` で `deleted` だけでなく `failed` 件数も集計すると運用観測性が上がる。
+- cleanup tick が timeout sweep と staging cleanup を直列実行する設計自体は妥当なので、残すなら `timed_out` 補修も同 tick で自己修復可能にすると運用が安定する。
+
+### テスト不足
+
+- DB 必須の `staging_cleanup_test` は compile のみで、実行結果は今回も未確認。
+- timeout sweep と bundle TTL 設定の連携を end-to-end で検証するテストがない。
+- `set_delete_after_for_timed_out_runs` 失敗後でも後続 sweep が自己修復できること、または transaction で原子的に扱われることを示すテストがない。
+
+### ドキュメント確認
+
+- `docs/spec.md` と `docs/backend/summary.md` の cleanup 契約は一致している。
+- 一方で `docs/logs/24/worklog.md` の直前記述にある「残リスクなし」は現状コードと整合しないため、レビュー上は誤り。
+
+### plan / research / docs との不整合
+
+- 実装計画では `timed_out` bundle の `delete_after` 設定追加まで取り込まれたが、失敗時の回復可能性までは設計に含まれていない。
+- 外部調査ベースでも S3 `DeleteObject` の再試行前提は妥当だが、その前段で bundle を cleanup 対象へ確実に載せる保証が現状不足している。
+
+### PR/完了結果
+
+- `pr_ready: false`
+- 必須修正: `timed_out` 化と bundle TTL 設定の原子性または自己修復性を確保すること
+
+### 残リスク
+
+- worker が `board_runs` 更新後に停止・失敗した場合、timed_out bundle の `delete_after` 未設定が残留し、staging object が無期限に残る。
+
+---
+
+## レビュー指摘修正 2回目 (2026-05-02)
+
+### 指摘内容
+
+**Blocker**: `sweep_timed_out_runs` で run を timed_out にした後、`set_delete_after_for_timed_out_runs` が失敗すると bundle は `delete_after = NULL` のまま残り、cleanup 対象にならない。run は次回の `sweep_timed_out` 戻り値に再登場しないため永久にリークする。
+
+### 修正方針
+
+自己修復アプローチ。`sweep_expired_staging_bundles` の冒頭で、terminal 状態 (timed_out / failed) の run に紐づくが `delete_after IS NULL` の staging bundle を修復する。これにより `set_delete_after_for_timed_out_runs` が失敗しても次回以降の sweep で確実に捕捉される。
+
+### 修正内容
+
+1. **`crates/db/src/queries/artifact_bundle.rs`** — 新関数 `repair_orphaned_staging_bundles` を追加:
+   - `board_runs` と JOIN し、`br.status IN ('timed_out', 'failed')` かつ `ab.staging_object_key IS NOT NULL` かつ `ab.delete_after IS NULL` の bundle に `delete_after = NOW() + 7 days` を設定
+   - 前段 `set_delete_after_for_timed_out_runs` の失敗を自己修復
+
+2. **`crates/worker/src/dispatcher.rs`** — `sweep_expired_staging_bundles` 冒頭に修復ステップ挿入:
+   - `repair_orphaned_staging_bundles` を呼び出し
+   - 修復件数を info ログ出力、失敗時は error ログで続行
+
+3. **`crates/worker/tests/staging_cleanup_test.rs`** — テスト追加:
+   - `test_repair_orphaned_staging_bundles`: timed_out run に紐づく orphan bundle が repair で `delete_after` 設定されることを検証
+
+### テスト結果
+
+- `cargo check --workspace` → 成功
+- `cargo test -p boardflow-worker --lib` → 21テスト全通過 (0 failed)
+- 統合テスト (`--ignored`) は DB 接続が必要なため CI 環境で実行
+
+### 残リスク
+
+- なし。`set_delete_after_for_timed_out_runs` が失敗しても、次回 `sweep_expired_staging_bundles` 実行時に `repair_orphaned_staging_bundles` が自己修復するため、staging object が永久にリークすることはない
+- DB 必須統合テスト (`test_repair_orphaned_staging_bundles`) の実行結果は CI で確認
