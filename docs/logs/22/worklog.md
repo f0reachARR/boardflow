@@ -324,3 +324,26 @@ run_result_comment_test.rs
 ### docs review の残リスク
 
 - worklog 内には履歴として stale な過去レビュー節が残るため、読む側は本節を最新判定として参照する必要がある。
+
+---
+
+## 2回目レビュー後の最終判定 (2026-05-02)
+
+### 最終確認
+
+- `pr_ready: true`（レビュー指摘 2 点を fix コミットで対応済み）
+  - tree_hash unchanged テスト (`test_run_result_comment_issue_closed_tree_hash_unchanged`) 追加済み
+  - success テストでコメント本文の必須要素 (marker, Commit, Run URL, Diff URL, `| Check | Result |`) 検証済み
+- `docs_ready: true`（docs review 確認済み）
+- テスト: 11 tests all passed、`cargo clippy --tests -- -D warnings` PASS
+
+### PR/完了結果
+
+- PR 作成: `feat/22-run-result-comment-handler` → `main`
+- PR タイトル: `test(#22): create_run_result_comment ハンドラの統合テスト追加`
+- Closes #22
+
+### 残リスク
+
+- fail→pass や DRC 変化、新規 error 増加の統合テストケースは任意改善として未追加（ユニットテストで個別検証済み）
+- 404 / closed recreate の `board_project_issue_history.reason` 値の検証は任意改善として未追加
