@@ -6,6 +6,7 @@ import type { ViewerEntry, ViewerSourcesResponse } from "@/lib/api/schema"
 import { PdfViewer } from "./pdf-viewer"
 import { SvgViewer } from "./svg-viewer"
 import { IbomViewer } from "./ibom-viewer"
+import { KiCanvasViewer } from "./kicanvas-viewer"
 import { DownloadList } from "./download-list"
 import { ViewerStatusMessage } from "./viewer-status-message"
 
@@ -16,7 +17,6 @@ const TAB_DEFINITIONS: { key: string; label: string }[] = [
   { key: "ibom", label: "iBOM" },
   { key: "bom", label: "BOM" },
   { key: "fabrication", label: "Fabrication" },
-  { key: "kicanvas", label: "KiCanvas" },
 ]
 
 interface ArtifactViewerSectionProps {
@@ -78,7 +78,17 @@ export function ArtifactViewerSection({
   const visibleTabs = TAB_DEFINITIONS.filter((def) => {
     const viewer = viewers[def.key]
     if (!viewer) return false
-    return viewer.status !== "skipped"
+    if (viewer.status === "skipped") return false
+    // schematic / pcb_preview は kicanvas が available なら表示
+    if ((def.key === "schematic" || def.key === "pcb_preview") &&
+        (viewer.status === "missing" || viewer.status === "failed")) {
+      const kicanvasViewer = viewers["kicanvas"]
+      if (kicanvasViewer?.status === "available" && kicanvasViewer.sources?.length) {
+        const relevantKind = def.key === "schematic" ? "schematic" : "board"
+        return kicanvasViewer.sources.some(s => s.kind === relevantKind)
+      }
+    }
+    return true
   })
 
   if (visibleTabs.length === 0) {
@@ -141,7 +151,7 @@ export function ArtifactViewerSection({
           Some sources are unavailable. Showing limited preview.
         </Text>
       )}
-      <Tabs.Root defaultValue={defaultTab}>
+      <Tabs.Root defaultValue={defaultTab} lazyMount>
         <Tabs.List>
           {visibleTabs.map((tab) => {
             const viewer = viewers[tab.key]!
@@ -165,7 +175,7 @@ export function ArtifactViewerSection({
         {visibleTabs.map((tab) => (
           <Tabs.Content key={tab.key} value={tab.key}>
             <Box pt={4}>
-              {renderViewerContent(tab.key, viewers[tab.key]!)}
+              {renderViewerContent(tab.key, viewers[tab.key]!, viewers)}
             </Box>
           </Tabs.Content>
         ))}
@@ -174,52 +184,59 @@ export function ArtifactViewerSection({
   )
 }
 
-function renderViewerContent(name: string, viewer: ViewerEntry) {
-  if (viewer.status === "missing" || viewer.status === "failed") {
-    return <ViewerStatusMessage status={viewer.status} viewerName={name} />
-  }
-
-  if (name === "kicanvas") {
-    return (
-      <Box p={4} bg="gray.50" borderWidth="1px" borderRadius="md">
-        <Text fontWeight="medium" mb={2}>
-          KiCanvas
-        </Text>
-        <Badge colorPalette="gray" mb={2}>
-          coming soon
-        </Badge>
-        <Text fontSize="sm" color="gray.500">
-          KiCanvas interactive viewer will be available in a future update.
-        </Text>
-      </Box>
-    )
+function renderViewerContent(name: string, viewer: ViewerEntry, allViewers: Record<string, ViewerEntry>) {
+  // schematic / pcb_preview は KiCanvas fallback があるため、早期 return しない
+  if (name !== "schematic" && name !== "pcb_preview") {
+    if (viewer.status === "missing" || viewer.status === "failed") {
+      return <ViewerStatusMessage status={viewer.status} viewerName={name} />
+    }
   }
 
   switch (name) {
-    case "schematic":
+    case "schematic": {
+      const kicanvasViewer = allViewers["kicanvas"]
+      const kicanvasSchSources = kicanvasViewer?.status === "available"
+        ? kicanvasViewer.sources?.filter(s => s.kind === "schematic" || s.kind === "project") ?? []
+        : []
+      const hasKicanvas = kicanvasSchSources.some(s => s.kind === "schematic")
+
+      // static viewer が missing/failed でも KiCanvas があれば表示
+      if (!hasKicanvas && (viewer.status === "missing" || viewer.status === "failed")) {
+        return <ViewerStatusMessage status={viewer.status} viewerName="schematic" />
+      }
+
       return (
         <>
+          {hasKicanvas && <KiCanvasViewer sources={kicanvasSchSources} />}
           {viewer.primary && <PdfViewer primary={viewer.primary} />}
-          {!viewer.primary && viewer.downloads && viewer.downloads.length > 0 && (
+          {!hasKicanvas && !viewer.primary && viewer.downloads && viewer.downloads.length > 0 && (
             <DownloadList downloads={viewer.downloads} title="Schematic Downloads" />
-          )}
-          {!viewer.primary && !viewer.downloads?.length && (
-            <ViewerStatusMessage status="missing" viewerName="schematic" />
           )}
         </>
       )
+    }
 
-    case "pcb_preview":
+    case "pcb_preview": {
+      const kicanvasViewer = allViewers["kicanvas"]
+      const kicanvasPcbSources = kicanvasViewer?.status === "available"
+        ? kicanvasViewer.sources?.filter(s => s.kind === "board" || s.kind === "project") ?? []
+        : []
+      const hasKicanvas = kicanvasPcbSources.some(s => s.kind === "board")
+
+      // static viewer が missing/failed でも KiCanvas があれば表示
+      if (!hasKicanvas && (viewer.status === "missing" || viewer.status === "failed")) {
+        return <ViewerStatusMessage status={viewer.status} viewerName="pcb_preview" />
+      }
+
       return (
         <>
+          {hasKicanvas && <KiCanvasViewer sources={kicanvasPcbSources} />}
           {viewer.sources && viewer.sources.length > 0 && (
             <SvgViewer sources={viewer.sources} />
           )}
-          {(!viewer.sources || viewer.sources.length === 0) && (
-            <ViewerStatusMessage status="missing" viewerName="pcb_preview" />
-          )}
         </>
       )
+    }
 
     case "ibom":
       return (
