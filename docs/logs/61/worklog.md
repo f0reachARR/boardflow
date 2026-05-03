@@ -595,3 +595,92 @@ cargo test -p boardflow-config — 13 tests passed
 
 - `create_app_with_config()` のOption引数フォールバックは `boardflow_config` ヘルパーを使用するが、テスト時にOption引数で値を渡した場合はenv読み取りをスキップする（意図通り）。
 - Rust 2024 edition では `env::set_var` / `env::remove_var` が unsafe のため、テスト内で `unsafe` ブロックを使用。テスト並列実行時のレースコンディションに注意（`cargo test` はデフォルトでスレッド並列のため影響あり得る）。
+
+## 再レビュー結果 (2026-05-03 review agent)
+
+### 総評
+
+- 前回レビューで指摘した6点のうち、明示的な修正対象はすべて解消されていることを確認した。
+- ただし、Issue #61 の本旨である「env設定値の統一管理」はまだ完全ではない。API 起動時に `AppConfig::from_env()` で設定を構築している一方、router 組み立て時に `create_app_with_config()` が同じenvを再読込しており、単一の設定源にはなっていない。
+- このため、前回指摘事項の解消確認としては合格だが、Issue 全体の完了判定としては未達が残る。
+
+### PR可否
+
+- `pr_ready: false`
+
+### 重大度順の指摘
+
+1. **major**: API で設定の単一管理が未完了。`crates/api/src/main.rs` では `AppConfig::from_env()` で設定を読み込んでいるが、その後の `create_app_with_config()` 呼び出しでは `artifact_secret` / `final_bucket` / `app_domain` / `artifact_base_url` 等を渡しておらず、`crates/api/src/lib.rs` 側で `optional_env*` / `required_env` により再度envを読んでいる。受け入れ条件の「`std::env::var` 直接呼び出し除去」は満たすが、Issueタイトルの「統一管理」と詳細計画の「AppConfig のフィールドから直接取得」に対しては未達。
+
+### 必須修正
+
+- `crates/api/src/main.rs` から `create_app_with_config()` へ、`AppConfig` で確定した `artifact_secret` / `s3.final_bucket` / `s3.staging_bucket` / `app_domain` / `artifact_base_url` / OAuth設定を明示的に渡し、`crates/api/src/lib.rs` でのenv再読込を除去する。
+
+### 任意改善
+
+- `WorkerConfig::from_env()` の `BOARDFLOW_APP_DOMAIN` 優先 + `APP_BASE_URL` フォールバックも helper 化し、API/Worker の env解決パターンをさらに揃える。
+- env を直接変更する単体テストは並列実行時に不安定化しやすいため、必要なら test-threads=1 前提を明記するか、将来的に直列化手段を導入する。
+
+### テスト不足
+
+- `create_app_with_config()` が `AppConfig` の値を優先し、env再読込をしないことを保証するテストがない。
+- `BOARDFLOW_APP_DOMAIN` の API/Worker 間のデフォルト解決が意図通りかを確認する横断テストがない。
+
+### ドキュメント更新漏れ
+
+- 明示的な更新漏れは今回の確認範囲では見当たらない。`README.md`、`.env.example`、`docs/backend/summary.md` の前回指摘箇所は反映済み。
+
+### plan / research / docs との不整合
+
+- worklog の詳細計画では `create_app_with_config()` のフォールバックenv読み取りを削除し、`AppConfig` のフィールドから直接取得する想定だったが、現実装は helper 経由のenv再読込に留まっている。
+- research 成果物でも「共通設定は config crate に集約」「env読み取りの散在解消」が主旨だったため、この点だけはまだ完全一致していない。
+
+### 実施した再レビュー検証
+
+- `mise exec -- cargo test -p boardflow-config` → 成功（13 passed）
+- `mise exec -- cargo test --workspace` → 成功
+- `crates/worker/src/config.rs` で `GITHUB_APP_ID` パース失敗時に `ConfigError::InvalidValue` を返すことを確認
+- `crates/api/src/lib.rs` に `std::env::var` の直接呼び出しがないことを確認
+- `README.md` の `MINIO_BUCKET_FINAL` / `BOARDFLOW_APP_DOMAIN` 記載を確認
+- `.env.example` に deprecated 注記付き `APP_BASE_URL` があることを確認
+- `docs/backend/summary.md` に `crates/config` 記載があることを確認
+
+### 残リスク
+
+- 現状でも実行自体は成立するが、API 側で設定値の解決ロジックが `AppConfig` と `lib.rs` に二重化しているため、将来envデフォルトや検証ルールを変更した際に再び差分が入りやすい。
+
+---
+
+## 実装フェーズ: major指摘修正 (2026-05-03)
+
+### 対応内容
+
+レビューで指摘された「`main.rs` で `AppConfig::from_env()` を呼んでいるのに `create_app_with_config()` に `None` を多数渡しており、`lib.rs` でenvが再読み込みされている」問題を修正。
+
+### 変更ファイル
+
+| ファイル | 変更内容 |
+|---------|---------|
+| `crates/api/src/lib.rs` | `staging_bucket: Option<String>` パラメータ追加、`StagingBucket` 構築をOption引数優先に変更、`create_app()` ラッパー更新 |
+| `crates/api/src/main.rs` | `AppConfig` の全フィールドを `Some(...)` で `create_app_with_config()` に渡すよう変更 |
+| `crates/api/tests/api_token_test.rs` | 新パラメータ `None` 追加 |
+| `crates/api/tests/proxy_test.rs` | 新パラメータ `None` 追加 |
+| `crates/api/tests/webhook_test.rs` | 新パラメータ `None` 追加 |
+| `crates/api/tests/read_api_test.rs` | 新パラメータ `None` 追加 |
+
+### 設計判断
+
+- `create_app_with_config()` のOption引数パターンはテスト柔軟性のために維持
+- `None` の場合のenvフォールバックも維持（テストがenvに依存できるようにする）
+- 「統一管理」= 本番コード(`main.rs`)で `AppConfig` が唯一の設定源になること
+- `staging_bucket` パラメータは `final_bucket` の直後に配置（S3関連を近くに）
+
+### テスト結果
+
+- `cargo test --workspace` → 全パス（0 failures）
+- `cargo build --workspace` → 成功
+
+### 残リスク
+
+- `create_app_with_config()` のenvフォールバックは残存しているが、本番ではすべて `Some(...)` で渡されるため実行されない
+- テストでは引き続き `None` を渡してenvフォールバックに依存可能
