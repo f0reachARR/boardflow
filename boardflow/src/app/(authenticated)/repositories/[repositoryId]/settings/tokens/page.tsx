@@ -14,10 +14,10 @@ export default async function TokensPage({ params }: Props) {
 
   const [repoRes, tokensRes] = await Promise.all([
     client.GET("/api/v1/repositories/{github_repository_id}", {
-      params: { path: { github_repository_id: repositoryId } },
+      params: { path: { github_repository_id: Number(repositoryId) } },
     }),
     client.GET("/api/v1/repositories/{github_repository_id}/api-tokens", {
-      params: { path: { github_repository_id: repositoryId }, query: { limit: 50 } },
+      params: { path: { github_repository_id: Number(repositoryId) }, query: { limit: 50 } },
     }),
   ])
 

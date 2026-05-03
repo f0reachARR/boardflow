@@ -23,7 +23,7 @@ export function RevokeTokenDialog({ repositoryId, tokenId, tokenName, open, onOp
     const { error: apiError } = await apiClient.POST(
       "/api/v1/repositories/{github_repository_id}/api-tokens/{token_id}/revoke",
       {
-        params: { path: { github_repository_id: repositoryId, token_id: tokenId } },
+        params: { path: { github_repository_id: Number(repositoryId), token_id: tokenId } },
       }
     )
     setLoading(false)
