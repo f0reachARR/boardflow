@@ -237,6 +237,86 @@ export interface paths {
       }
     }
   }
+  "/api/v1/repositories/{github_repository_id}/api-tokens": {
+    get: {
+      parameters: {
+        path: { github_repository_id: string }
+        query?: { limit?: number; cursor?: string }
+      }
+      responses: {
+        200: {
+          content: {
+            "application/json": PaginatedResponse<ApiToken>
+          }
+        }
+        401: {
+          content: {
+            "application/json": ApiError
+          }
+        }
+        404: {
+          content: {
+            "application/json": ApiError
+          }
+        }
+      }
+    }
+    post: {
+      parameters: { path: { github_repository_id: string } }
+      requestBody: { content: { "application/json": { name: string } } }
+      responses: {
+        201: {
+          content: {
+            "application/json": ApiTokenCreated
+          }
+        }
+        400: {
+          content: {
+            "application/json": ApiError
+          }
+        }
+        401: {
+          content: {
+            "application/json": ApiError
+          }
+        }
+        404: {
+          content: {
+            "application/json": ApiError
+          }
+        }
+      }
+    }
+  }
+  "/api/v1/repositories/{github_repository_id}/api-tokens/{token_id}/revoke": {
+    post: {
+      parameters: {
+        path: { github_repository_id: string; token_id: string }
+      }
+      responses: {
+        200: {
+          content: {
+            "application/json": ApiToken
+          }
+        }
+        400: {
+          content: {
+            "application/json": ApiError
+          }
+        }
+        401: {
+          content: {
+            "application/json": ApiError
+          }
+        }
+        404: {
+          content: {
+            "application/json": ApiError
+          }
+        }
+      }
+    }
+  }
 }
 
 // Common types
@@ -432,4 +512,19 @@ export interface DiffSummary {
   bom_changes: { added: number; removed: number; changed: number }
   checks: Record<string, { status_change: string; error_delta: number; warning_delta: number }>
   artifacts: { added: number; removed: number; changed: number }
+}
+
+export interface ApiToken {
+  id: string
+  name: string
+  created_at: string
+  last_used_at: string | null
+  revoked_at: string | null
+}
+
+export interface ApiTokenCreated {
+  id: string
+  name: string
+  token: string
+  created_at: string
 }
