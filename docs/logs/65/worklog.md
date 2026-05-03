@@ -675,3 +675,31 @@ export default async function RepositoriesPage() {
 ### 更新した作業ログパス
 
 `docs/logs/65/worklog.md`
+
+---
+
+## PR作成完了 (2026-05-04)
+
+### PR情報
+
+- **PR番号**: #71
+- **タイトル**: `feat(frontend): Streaming SSR with loading/error UI`
+- **URL**: https://github.com/f0reachARR/boardflow/pull/71
+- **ベースブランチ**: `main`
+- **ソースブランチ**: `feature/65-streaming-ssr-loading-ui`
+- **Closes**: #65
+
+### コミット一覧
+
+| コミット | 内容 |
+|---|---|
+| `cf34a18` | feat(frontend): add Streaming SSR with loading/error UI (#65) |
+| `7ad7ab6` | docs: update worklog for #65 implementation completion |
+| `869630b` | fix(frontend): address review feedback for #65 |
+| `8eca7ed` | docs: fix documentation inconsistencies for #65 |
+
+### 残リスク
+
+- **notFound() ページの Streaming SSR**: 詳細ページはサーバーサイドで `notFound()` 判定が必要なため、今回は `loading.tsx` でのカバーに留めた。将来的に追加リファクタが必要
+- **CLS 最適化**: スケルトンの寸法は実コンテンツの概算値。実際のデータ量に応じて微調整が必要な可能性あり
+- **Nginx リバースプロキシ**: 本番環境で `X-Accel-Buffering: no` ヘッダーの設定が必要
