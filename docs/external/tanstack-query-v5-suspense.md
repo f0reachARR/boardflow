@@ -245,13 +245,12 @@ export default function Error({ error, reset }) {
 }
 ```
 
-### 必要な追加パッケージ
+### エラーハンドリングの選択肢
 
-```bash
-pnpm add react-error-boundary
-```
+- `react-error-boundary` パッケージ: `QueryErrorResetBoundary` と組み合わせてカスタムリトライUIを実現可能
+- Next.js `error.tsx`: 追加パッケージ不要で基本的なエラーハンドリングが可能
 
-`react-error-boundary` は `QueryErrorResetBoundary` と組み合わせてリトライUIを実現するために使用。ただし、Next.js の `error.tsx` で基本的なエラーハンドリングは可能なため、MVP では `error.tsx` のみで十分。
+BoardFlow では Next.js の `error.tsx` + `useQueryErrorResetBoundary` フックを採用し、追加パッケージなしで Query エラー状態のリセットを実現している。
 
 ## 採用/不採用判断
 

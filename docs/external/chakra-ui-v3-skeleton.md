@@ -143,8 +143,8 @@ CSS 変数で開始色・終了色を変更可能:
 
 ## 制約と pitfall
 
-1. **Client Component 必須**: Chakra UI コンポーネント全般と同様、`'use client'` が必要
-2. **`loading.tsx` での使用**: `loading.tsx` はデフォルトで Server Component だが、`'use client'` を付けるか、Skeleton を Client Component に切り出して使う
+1. **Server Component でも使用可能**: Chakra UI v3 の Skeleton コンポーネントは Server Component からも利用できる。`loading.tsx` で直接 `<Skeleton>` を返すことが可能
+2. **`loading.tsx` での使用**: `loading.tsx` はデフォルトで Server Component であり、Skeleton コンポーネントをそのまま使用できる
 3. **`noOfLines` の高さ予測**: `SkeletonText` の `noOfLines` は実際のテキスト行数と一致させないと CLS が発生する
 4. **アニメーションパフォーマンス**: `pulse` は CSS animation ベースで軽量。`shine` は若干重いが実用上問題なし
 

@@ -418,6 +418,73 @@ export default async function RepositoriesPage() {
 - `docs/frontend/summary.md` — Streaming SSR パターンの採用を追記
 - `docs/logs/65/worklog.md` — 本計画と実装結果を追記
 
+---
+
+## レビュー結果 (2026-05-04, follow-up review)
+
+### 対象
+
+- Issue: #65 Streaming SSRとローディングUI実装
+- 対象コミット:
+  - `cf34a18` — 初回実装
+  - `7ad7ab6` — 作業ログ更新
+  - `869630b` — 前回レビュー指摘への修正
+
+### 確認内容
+
+1. 前回レビューの3指摘の修正確認
+2. `pnpm typecheck` / `pnpm lint` / `pnpm build` の再実行
+3. 実装と計画、`docs/frontend/summary.md`、外部調査メモの整合確認
+
+### レビュー結果
+
+- **前回指摘1: QueryErrorResetBoundary の導入**
+  - `boardflow/src/components/error-boundary.tsx` で `useQueryErrorResetBoundary()` を使用し、`handleReset()` で `resetQuery()` → `reset()` の順に呼んでいることを確認。
+  - TanStack Query の Suspense/Error Boundary 運用方針と整合している。
+
+- **前回指摘2: スケルトンの CLS 改善**
+  - `repository-detail-skeleton.tsx` に Settings セクション追加を確認。
+  - `board-project-detail-skeleton.tsx` に ERC/DRC 列を含む 6 列テーブルを確認。
+  - `run-detail-skeleton.tsx` に Checks / Artifact Summary / Artifacts テーブルを確認。
+  - 対応先ページの主要レイアウトとの乖離は縮小されており、前回指摘は解消したと判断。
+
+- **前回指摘3: docs/frontend/summary.md の更新**
+  - API 連携セクションに `useSuspenseQuery`、`loading.tsx`、`QueryErrorResetBoundary` の方針追記を確認。
+  - 実装内容とドキュメントの方向性は整合している。
+
+### 再検証結果
+
+- `pnpm typecheck` ✅
+- `pnpm lint` ✅
+- `pnpm build` ✅
+
+### 追加所見
+
+- ブロッキングな不具合は今回の確認範囲では未検出。
+- `/repositories` の Streaming SSR 実装は、`prefetchQuery` を await せずに開始し、`HydrationBoundary` と `useSuspenseQuery` を組み合わせる構成になっており、事前調査内容と整合している。
+- `query-client.ts` の `shouldDehydrateQuery` で pending query を dehydrate 対象に含めており、Streaming SSR の成立条件も満たしている。
+
+### テスト不足
+
+- loading / error UI は静的検証と build では担保されているが、ルート遷移時のスケルトン表示、API エラー時の再試行動作を検証する component test / E2E test は未整備。
+- 現時点ではマージ阻害要因ではないが、今後この領域を継続的に変更するなら自動テスト追加余地がある。
+
+### ドキュメント確認
+
+- `docs/frontend/summary.md`: 更新確認済み
+- `docs/spec.md`: 本 Issue の実装と矛盾する記述は今回確認範囲では未検出
+- `docs/external/tanstack-query-v5-suspense.md`: 実装方針と整合
+- `docs/external/nextjs-streaming-ssr-loading.md`: 実装方針と整合
+
+### PR/完了結果
+
+- `pr_ready: true`
+- 理由: 前回指摘は解消され、再実行した `typecheck` / `lint` / `build` もすべて成功。新たなブロッキング問題は確認できなかったため。
+
+### 残リスク
+
+- 実ブラウザでのナビゲーション中スケルトン表示やエラー再試行の挙動は自動テスト未整備のため、回帰検知は現状だと手動確認に依存する。
+
 ### 実装要否
 
 `implementation_required`
@@ -427,6 +494,54 @@ export default async function RepositoriesPage() {
 なし — 既存の research 成果物と現在のコード構造から、実装に必要な情報はすべて揃っている。
 
 ### 更新した作業ログパス
+
+`docs/logs/65/worklog.md`
+
+---
+
+## ドキュメント確認 (2026-05-04)
+
+### フェーズ: Docs Review
+
+#### 対象Issue
+
+- Issue ID: #65
+- タイトル: Streaming SSRとローディングUI実装
+
+#### 確認範囲
+
+- 実装: `boardflow/src/app/(authenticated)/repositories/**`, `boardflow/src/components/skeletons/**`, `boardflow/src/components/error-boundary.tsx`, `boardflow/src/lib/query-client.ts`
+- ドキュメント: `docs/frontend/summary.md`, `docs/external/chakra-ui-v3-skeleton.md`, `docs/external/nextjs-streaming-ssr-loading.md`, `docs/external/tanstack-query-v5-suspense.md`, `README.md`
+- 外部根拠: Next.js 公式 `loading.js` / self-hosting、TanStack Query 公式 Suspense / Advanced SSR、Chakra UI 公式 Skeleton / Server Components
+
+#### ドキュメント確認結果
+
+- `/repositories` の Streaming SSR 実装、`loading.tsx` 配置、`useSuspenseQuery` 化、pending query の dehydration 設定は、`docs/frontend/summary.md` と概ね整合している
+- `docs/external/nextjs-streaming-ssr-loading.md` の主要な整理は、Next.js 公式の `loading.js` と self-hosting の説明に沿っており妥当
+- ただし、Chakra UI と TanStack Query の外部調査メモに、現在の実装方針とずれる断定が残っている
+
+#### 必須修正
+
+- `docs/external/chakra-ui-v3-skeleton.md` の Server Component 制約を修正する。現在は「Chakra UI コンポーネント全般と同様、`'use client'` が必要」「`loading.tsx` では `Skeleton` を Client Component に切り出して使う」と読めるが、Chakra UI 公式の Server Components ドキュメントでは Chakra UI components can be used with React Server Components without adding the 'use client' directive とされている。実装でも `boardflow/src/app/(authenticated)/repositories/loading.tsx` は Server Component のまま Chakra ベースの skeleton を返しており、現状のメモは BoardFlow 実装と矛盾する。
+- `docs/frontend/summary.md` のエラー処理方針を実装に合わせる。現在は `error.tsx` + `QueryErrorResetBoundary` と記載されているが、実装は `boardflow/src/components/error-boundary.tsx` で `useQueryErrorResetBoundary()` を使って Query reset を接続しており、`QueryErrorResetBoundary` コンポーネント自体は使っていない。方針としては「`QueryErrorResetBoundary` または `useQueryErrorResetBoundary`」のように、実装と一致する表現へ修正した方がよい。
+- `docs/external/tanstack-query-v5-suspense.md` の「必要な追加パッケージ」を修正する。現在は `pnpm add react-error-boundary` を必要条件のように記載しているが、BoardFlow 実装では追加していない。同じ節の直後で「Next.js の `error.tsx` で基本的なエラーハンドリングは可能」と書いており、必要条件と代替手段が混在している。今回の Issue 文脈では「`react-error-boundary` を使う構成もあるが、BoardFlow では Next.js `error.tsx` + `useQueryErrorResetBoundary` を採用」と整理するのが正確。
+
+#### 任意改善
+
+- `docs/external/tanstack-query-v5-suspense.md` の `error.tsx` サンプルは、単純な `reset` 呼び出しだけでなく Query reset 連携の説明を補うと、現実装に近づく
+- `docs/external/chakra-ui-v3-skeleton.md` の BoardFlow への示唆で、`loading` prop ベースの説明と `loading.tsx` ベースの説明を分けて書くと、ページ遷移時 fallback とクライアント内ローディングの使い分けが明確になる
+
+#### docs_ready 判定
+
+- `docs_ready: false`
+
+#### 残リスク
+
+- 実装担当者が `docs/external/chakra-ui-v3-skeleton.md` を参照すると、`loading.tsx` で不要な Client Component 化が必要だと誤解する
+- `docs/frontend/summary.md` のエラー reset 記述を見た読者が、現行実装にない `QueryErrorResetBoundary` コンポーネント導入を前提だと誤認する
+- `docs/external/tanstack-query-v5-suspense.md` の追加パッケージ記述により、不要な依存追加を誘発する可能性がある
+
+#### 更新した作業ログパス
 
 `docs/logs/65/worklog.md`
 
