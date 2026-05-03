@@ -1,0 +1,36 @@
+name: 'BoardFlow Action'
+description: 'KiCad CI/CD - Generate artifacts and upload to BoardFlow'
+author: 'BoardFlow'
+branding:
+  icon: 'cpu'
+  color: 'blue'
+inputs:
+  token:
+    description: 'BoardFlow API token'
+    required: true
+  mode:
+    description: '"auto" or "all"'
+    required: false
+    default: 'auto'
+  exclude-paths:
+    description: 'Newline-separated glob patterns to exclude'
+    required: false
+    default: ''
+  api-url:
+    description: 'BoardFlow API URL'
+    required: false
+    default: 'https://api.boardflow.example.com'
+  fail-on-drc:
+    description: 'Fail action on DRC errors'
+    required: false
+    default: 'false'
+  fail-on-erc:
+    description: 'Fail action on ERC errors'
+    required: false
+    default: 'false'
+outputs:
+  result:
+    description: 'JSON summary of processed projects'
+runs:
+  using: 'docker'
+  image: 'Dockerfile'
