@@ -116,15 +116,25 @@ for entry in "${VALID_PROJECTS[@]}"; do
     rel_dir="."
   fi
 
+  # R-2: project_path is .kicad_pro relative path
+  rel_pro="${pro_file#$WORKSPACE/}"
   yml_rel="$rel_dir/.boardflow.yml"
-  files=$(list_project_files "$project_dir" "$all_excludes" | jq -R -s 'split("\n") | map(select(. != ""))')
+
+  # R-3: files array with per-file sha256
+  files_json="[]"
+  while IFS= read -r rel_path; do
+    [ -z "$rel_path" ] && continue
+    local_hash=$(compute_file_sha256 "$project_dir/$rel_path")
+    files_json=$(echo "$files_json" | jq --arg p "$rel_path" --arg h "sha256:$local_hash" \
+      '. + [{"path": $p, "sha256": $h}]')
+  done < <(list_project_files "$project_dir" "$all_excludes" | LC_ALL=C sort)
 
   plan_projects=$(echo "$plan_projects" | jq \
-    --arg path "$rel_dir" \
+    --arg path "$rel_pro" \
     --arg config_path "$yml_rel" \
     --arg project_dir "$rel_dir" \
     --arg hash "sha256:$tree_hash" \
-    --argjson files "$files" \
+    --argjson files "$files_json" \
     '. + [{"project_path": $path, "config_path": $config_path, "project_dir": $project_dir, "tree_hash": $hash, "files": $files}]')
 done
 
@@ -168,7 +178,8 @@ for i in "${!VALID_PROJECTS[@]}"; do
     rel_dir="."
   fi
 
-  rel_project_path="$rel_dir"
+  # R-2: project_path is .kicad_pro relative path
+  rel_project_path="${pro_file#$WORKSPACE/}"
 
   decision=$(echo "$decisions" | jq -r --arg path "$rel_project_path" '.[] | select(.project_path == $path) | .decision // "skip"')
 
@@ -220,12 +231,12 @@ for i in "${!VALID_PROJECTS[@]}"; do
   run_erc "$sch_file" "$erc_json"
   erc_exit=$?
   if [ $erc_exit -eq 0 ] || [ $erc_exit -eq 5 ]; then
-    artifacts_status=$(echo "$artifacts_status" | jq '. + [{"name":"erc","status":"success"}]')
+    artifacts_status=$(add_artifact_available "$artifacts_status" "erc_report" "checks/erc.json" "application/json" "$erc_json")
     if [ "$erc_exit" -eq 5 ] && [ "$FAIL_ON_ERC" = "true" ]; then
       EXIT_CODE=1
     fi
   else
-    artifacts_status=$(echo "$artifacts_status" | jq '. + [{"name":"erc","status":"failed"}]')
+    artifacts_status=$(add_artifact_failed "$artifacts_status" "erc_report" "ERC execution failed")
   fi
 
   # Run DRC
@@ -233,12 +244,12 @@ for i in "${!VALID_PROJECTS[@]}"; do
   run_drc "$pcb_file" "$drc_json"
   drc_exit=$?
   if [ $drc_exit -eq 0 ] || [ $drc_exit -eq 5 ]; then
-    artifacts_status=$(echo "$artifacts_status" | jq '. + [{"name":"drc","status":"success"}]')
+    artifacts_status=$(add_artifact_available "$artifacts_status" "drc_report" "checks/drc.json" "application/json" "$drc_json")
     if [ "$drc_exit" -eq 5 ] && [ "$FAIL_ON_DRC" = "true" ]; then
       EXIT_CODE=1
     fi
   else
-    artifacts_status=$(echo "$artifacts_status" | jq '. + [{"name":"drc","status":"failed"}]')
+    artifacts_status=$(add_artifact_failed "$artifacts_status" "drc_report" "DRC execution failed")
   fi
 
   # Export PCB PDF
@@ -246,17 +257,17 @@ for i in "${!VALID_PROJECTS[@]}"; do
   mkdir -p "$pdf_dir"
   run_pcb_pdf "$pcb_file" "$pdf_dir/pcb.pdf"
   if [ $? -eq 0 ]; then
-    artifacts_status=$(echo "$artifacts_status" | jq '. + [{"name":"pcb_pdf","status":"success"}]')
+    artifacts_status=$(add_artifact_available "$artifacts_status" "pcb_pdf" "review/pcb.pdf" "application/pdf" "$pdf_dir/pcb.pdf")
   else
-    artifacts_status=$(echo "$artifacts_status" | jq '. + [{"name":"pcb_pdf","status":"failed"}]')
+    artifacts_status=$(add_artifact_failed "$artifacts_status" "pcb_pdf" "PCB PDF export failed")
   fi
 
   # Export Schematic PDF
   run_sch_pdf "$sch_file" "$pdf_dir/schematic.pdf"
   if [ $? -eq 0 ]; then
-    artifacts_status=$(echo "$artifacts_status" | jq '. + [{"name":"sch_pdf","status":"success"}]')
+    artifacts_status=$(add_artifact_available "$artifacts_status" "schematic_pdf" "review/schematic.pdf" "application/pdf" "$pdf_dir/schematic.pdf")
   else
-    artifacts_status=$(echo "$artifacts_status" | jq '. + [{"name":"sch_pdf","status":"failed"}]')
+    artifacts_status=$(add_artifact_failed "$artifacts_status" "schematic_pdf" "Schematic PDF export failed")
   fi
 
   # Export SVG
@@ -264,36 +275,54 @@ for i in "${!VALID_PROJECTS[@]}"; do
   mkdir -p "$svg_dir"
   run_pcb_svg_top "$pcb_file" "$svg_dir/pcb_top.svg"
   if [ $? -eq 0 ]; then
-    artifacts_status=$(echo "$artifacts_status" | jq '. + [{"name":"pcb_svg_top","status":"success"}]')
+    artifacts_status=$(add_artifact_available "$artifacts_status" "pcb_top_svg" "review/pcb_top.svg" "image/svg+xml" "$svg_dir/pcb_top.svg")
   else
-    artifacts_status=$(echo "$artifacts_status" | jq '. + [{"name":"pcb_svg_top","status":"failed"}]')
+    artifacts_status=$(add_artifact_failed "$artifacts_status" "pcb_top_svg" "PCB top SVG export failed")
   fi
 
   run_pcb_svg_bottom "$pcb_file" "$svg_dir/pcb_bottom.svg"
   if [ $? -eq 0 ]; then
-    artifacts_status=$(echo "$artifacts_status" | jq '. + [{"name":"pcb_svg_bottom","status":"success"}]')
+    artifacts_status=$(add_artifact_available "$artifacts_status" "pcb_bottom_svg" "review/pcb_bottom.svg" "image/svg+xml" "$svg_dir/pcb_bottom.svg")
   else
-    artifacts_status=$(echo "$artifacts_status" | jq '. + [{"name":"pcb_svg_bottom","status":"failed"}]')
+    artifacts_status=$(add_artifact_failed "$artifacts_status" "pcb_bottom_svg" "PCB bottom SVG export failed")
   fi
 
   # Export Gerber
   gerber_dir="$output_dir/gerber"
   mkdir -p "$gerber_dir"
   run_gerber_export "$pcb_file" "$gerber_dir"
-  if [ $? -eq 0 ]; then
-    artifacts_status=$(echo "$artifacts_status" | jq '. + [{"name":"gerber","status":"success"}]')
-  else
-    artifacts_status=$(echo "$artifacts_status" | jq '. + [{"name":"gerber","status":"failed"}]')
-  fi
+  gerber_exit=$?
 
   # Export Drill
   drill_dir="$output_dir/drill"
   mkdir -p "$drill_dir"
   run_drill_export "$pcb_file" "$drill_dir"
-  if [ $? -eq 0 ]; then
-    artifacts_status=$(echo "$artifacts_status" | jq '. + [{"name":"drill","status":"success"}]')
+  drill_exit=$?
+
+  # Create zip archives for gerber/drill/fabrication before tracking artifacts
+  gerbers_zip="$output_dir/gerbers.zip"
+  drill_zip="$output_dir/drill.zip"
+  fab_zip="$output_dir/fabrication.zip"
+  if [ $gerber_exit -eq 0 ]; then
+    (cd "$gerber_dir" && zip -qr "$gerbers_zip" . 2>/dev/null)
+    artifacts_status=$(add_artifact_available "$artifacts_status" "gerber_zip" "fabrication/gerbers.zip" "application/zip" "$gerbers_zip")
   else
-    artifacts_status=$(echo "$artifacts_status" | jq '. + [{"name":"drill","status":"failed"}]')
+    artifacts_status=$(add_artifact_failed "$artifacts_status" "gerber_zip" "Gerber export failed")
+  fi
+
+  if [ $drill_exit -eq 0 ]; then
+    (cd "$drill_dir" && zip -qr "$drill_zip" . 2>/dev/null)
+    artifacts_status=$(add_artifact_available "$artifacts_status" "drill_zip" "fabrication/drill.zip" "application/zip" "$drill_zip")
+  else
+    artifacts_status=$(add_artifact_failed "$artifacts_status" "drill_zip" "Drill export failed")
+  fi
+
+  # Create combined fabrication.zip
+  create_fabrication_zip "$gerber_dir" "$drill_dir" "$fab_zip"
+  if [ $? -eq 0 ]; then
+    artifacts_status=$(add_artifact_available "$artifacts_status" "fabrication_zip" "fabrication/fabrication.zip" "application/zip" "$fab_zip")
+  else
+    artifacts_status=$(add_artifact_failed "$artifacts_status" "fabrication_zip" "Fabrication zip creation failed")
   fi
 
   # Export BOM
@@ -301,9 +330,9 @@ for i in "${!VALID_PROJECTS[@]}"; do
   mkdir -p "$bom_dir"
   run_bom_export "$sch_file" "$bom_dir/bom.csv"
   if [ $? -eq 0 ]; then
-    artifacts_status=$(echo "$artifacts_status" | jq '. + [{"name":"bom","status":"success"}]')
+    artifacts_status=$(add_artifact_available "$artifacts_status" "bom_csv" "assembly/bom.csv" "text/csv" "$bom_dir/bom.csv")
   else
-    artifacts_status=$(echo "$artifacts_status" | jq '. + [{"name":"bom","status":"failed"}]')
+    artifacts_status=$(add_artifact_failed "$artifacts_status" "bom_csv" "BOM export failed")
   fi
 
   # Export Position
@@ -311,9 +340,9 @@ for i in "${!VALID_PROJECTS[@]}"; do
   mkdir -p "$pos_dir"
   run_position_export "$pcb_file" "$pos_dir/position.csv"
   if [ $? -eq 0 ]; then
-    artifacts_status=$(echo "$artifacts_status" | jq '. + [{"name":"position","status":"success"}]')
+    artifacts_status=$(add_artifact_available "$artifacts_status" "position_csv" "assembly/position.csv" "text/csv" "$pos_dir/position.csv")
   else
-    artifacts_status=$(echo "$artifacts_status" | jq '. + [{"name":"position","status":"failed"}]')
+    artifacts_status=$(add_artifact_failed "$artifacts_status" "position_csv" "Position export failed")
   fi
 
   # Export 3D renders
@@ -321,16 +350,16 @@ for i in "${!VALID_PROJECTS[@]}"; do
   mkdir -p "$render_dir"
   run_3d_render "$pcb_file" "$render_dir/top.png" "top"
   if [ $? -eq 0 ]; then
-    artifacts_status=$(echo "$artifacts_status" | jq '. + [{"name":"3d_top","status":"success"}]')
+    artifacts_status=$(add_artifact_available "$artifacts_status" "render_top_png" "review/render_top.png" "image/png" "$render_dir/top.png")
   else
-    artifacts_status=$(echo "$artifacts_status" | jq '. + [{"name":"3d_top","status":"failed"}]')
+    artifacts_status=$(add_artifact_failed "$artifacts_status" "render_top_png" "3D top render failed")
   fi
 
   run_3d_render "$pcb_file" "$render_dir/bottom.png" "bottom"
   if [ $? -eq 0 ]; then
-    artifacts_status=$(echo "$artifacts_status" | jq '. + [{"name":"3d_bottom","status":"success"}]')
+    artifacts_status=$(add_artifact_available "$artifacts_status" "render_bottom_png" "review/render_bottom.png" "image/png" "$render_dir/bottom.png")
   else
-    artifacts_status=$(echo "$artifacts_status" | jq '. + [{"name":"3d_bottom","status":"failed"}]')
+    artifacts_status=$(add_artifact_failed "$artifacts_status" "render_bottom_png" "3D bottom render failed")
   fi
 
   # Run iBOM
@@ -338,14 +367,32 @@ for i in "${!VALID_PROJECTS[@]}"; do
   mkdir -p "$ibom_dir"
   run_ibom "$pcb_file" "$ibom_dir"
   if [ $? -eq 0 ]; then
-    artifacts_status=$(echo "$artifacts_status" | jq '. + [{"name":"ibom","status":"success"}]')
+    ibom_file=$(find "$ibom_dir" -name "*.html" -type f | head -1)
+    if [ -n "$ibom_file" ]; then
+      artifacts_status=$(add_artifact_available "$artifacts_status" "ibom" "assembly/ibom.html" "text/html" "$ibom_file")
+    else
+      artifacts_status=$(add_artifact_failed "$artifacts_status" "ibom" "iBOM HTML not found")
+    fi
   else
-    artifacts_status=$(echo "$artifacts_status" | jq '. + [{"name":"ibom","status":"failed"}]')
+    artifacts_status=$(add_artifact_failed "$artifacts_status" "ibom" "iBOM generation failed")
   fi
 
-  # Create fabrication.zip (H-7: individual gerbers.zip and drill.zip)
-  fab_zip="$output_dir/fabrication.zip"
-  create_fabrication_zip "$gerber_dir" "$drill_dir" "$fab_zip"
+  # R-1: Add KiCad source artifacts
+  while IFS= read -r src_file; do
+    [ -z "$src_file" ] && continue
+    src_rel="${src_file#$project_dir/}"
+    if ! is_excluded "$src_rel" "$all_excludes"; then
+      kicad_type=""
+      case "$src_rel" in
+        *.kicad_pro) kicad_type="kicad_project" ;;
+        *.kicad_sch) kicad_type="kicad_schematic" ;;
+        *.kicad_pcb) kicad_type="kicad_pcb" ;;
+        *.kicad_wks) kicad_type="kicad_worksheet" ;;
+      esac
+      staging_path="kicad/$rel_dir/$src_rel"
+      artifacts_status=$(add_artifact_available "$artifacts_status" "$kicad_type" "$staging_path" "application/octet-stream" "$src_file")
+    fi
+  done < <(find "$project_dir" -maxdepth 1 -type f \( -name "*.kicad_pro" -o -name "*.kicad_sch" -o -name "*.kicad_pcb" -o -name "*.kicad_wks" \) | LC_ALL=C sort)
 
   # M-3: Generate diff metadata files
   diff_dir="$output_dir/diff"
@@ -372,6 +419,8 @@ for i in "${!VALID_PROJECTS[@]}"; do
   cp "$pdf_dir/pcb.pdf" "$staging_dir/review/" 2>/dev/null
   cp "$svg_dir/pcb_top.svg" "$staging_dir/review/" 2>/dev/null
   cp "$svg_dir/pcb_bottom.svg" "$staging_dir/review/" 2>/dev/null
+  cp "$render_dir/top.png" "$staging_dir/review/render_top.png" 2>/dev/null
+  cp "$render_dir/bottom.png" "$staging_dir/review/render_bottom.png" 2>/dev/null
 
   # assembly/
   cp "$ibom_dir"/*.html "$staging_dir/assembly/ibom.html" 2>/dev/null
@@ -379,8 +428,8 @@ for i in "${!VALID_PROJECTS[@]}"; do
   cp "$pos_dir/position.csv" "$staging_dir/assembly/" 2>/dev/null
 
   # fabrication/ (H-7: individual zips)
-  (cd "$gerber_dir" && zip -qr "$staging_dir/fabrication/gerbers.zip" . 2>/dev/null)
-  (cd "$drill_dir" && zip -qr "$staging_dir/fabrication/drill.zip" . 2>/dev/null)
+  cp "$gerbers_zip" "$staging_dir/fabrication/gerbers.zip" 2>/dev/null
+  cp "$drill_zip" "$staging_dir/fabrication/drill.zip" 2>/dev/null
   cp "$fab_zip" "$staging_dir/fabrication/fabrication.zip" 2>/dev/null
 
   # checks/
