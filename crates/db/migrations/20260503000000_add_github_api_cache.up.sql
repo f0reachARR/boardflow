@@ -9,3 +9,5 @@ CREATE TABLE github_api_cache (
 );
 
 CREATE INDEX idx_github_api_cache_expires_at ON github_api_cache (expires_at);
+
+CREATE INDEX idx_users_github_access_token ON users (github_access_token) WHERE github_access_token IS NOT NULL;

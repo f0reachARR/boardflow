@@ -407,3 +407,76 @@ let checker: DynGithubAccessChecker =
 - `installation_repositories` Webhook によるキャッシュ invalidation は別 Issue で対応が自然
 - ユーザーの GitHub トークンが他アプリと共有 → BoardFlow 側でのレートリミット残量は把握できない
 - secondary rate limit の正確なしきい値は非公開 → キャッシュで呼び出し頻度を下げるのが最善策
+
+---
+
+## レビューフェーズ（2026-05-03 review エージェント）
+
+### 対象
+
+- Issue ID: #63
+- タイトル: GitHub APIレスポンスのDBキャッシュとレートリミット対策
+
+### レビュー結果
+
+- `pr_ready: false`
+
+### 指摘事項
+
+1. **major**: stale フォールバックが `RateLimited` だけでなく `TokenExpired` や任意の `Upstream` エラーにも適用されている
+    - `CachedGithubAccessChecker::list_accessible_repo_ids` は inner 呼び出し失敗時に無条件で stale キャッシュを返そうとするため、GitHub セッション失効時でも古い repository access list を返しうる
+    - `list_repositories` は本来 `TokenExpired` を 401 に変換する設計だが、この実装だと stale キャッシュが優先されて 401 が握りつぶされる
+    - 修正案: stale フォールバックは `AccessError::RateLimited` のみ、必要なら明示的に `AccessError::Upstream` の一部だけへ限定する。`TokenExpired` は必ずそのまま返す
+
+2. **major**: invalidate は API/worker/webhook などの実運用経路に接続されておらず、Issue 要件としては未完了
+    - `invalidate_cache(user_id)` は concrete type のメソッドとして追加されているが、アプリ起動時には `Arc<dyn GithubAccessChecker>` に erase されるため、通常経路から呼べない
+    - 現状の参照はテストのみで、本番コードからは invalidate 不能
+    - 修正案: webhook や明示 API から invalidate を呼べる導線を追加するか、少なくとも invalidate 用の抽象を別 trait / service として公開する
+
+3. **minor**: 429/stale fallback の統合テストが実際の振る舞いを検証していない
+    - テスト自身が `RealGithubAccessChecker` 固定のため true fallback を検証できないことをコメントで認めており、実際には stale 取得クエリの確認に留まっている
+    - 修正案: `CachedGithubAccessChecker` が任意の `GithubAccessChecker` を inner に取れるようにして、`RateLimitedGithubAccessChecker` を注入した振る舞いテストを追加する
+
+4. **minor**: token 逆引きクエリが無索引で、キャッシュ導入後の新しいホットパスになっている
+    - `find_by_github_access_token` は request ごとに `users.github_access_token` を検索するが、現行 schema に index がない
+    - 修正案: `github_access_token` へ index 追加を検討する。トークン列の取り扱い方針次第ではハッシュ化 + hash index/BTREE への移行も候補
+
+### 必須修正
+
+- stale フォールバック条件を `AccessError::RateLimited` に限定し、`TokenExpired` を確実に 401 へ流す
+- invalidate を実際に利用できる本番経路へ接続し、Issue 要件の「invalidate」を満たす
+- 429/RateLimited 時の stale fallback を本当に検証するテストを追加する
+
+### 任意改善
+
+- `CachedGithubAccessChecker` の inner を trait object / generic にして、Decorator としての再利用性とテスト容易性を上げる
+- `users.github_access_token` の索引戦略を明示する
+- `cleanup_expired_cache` の定期実行経路を追加し、古いキャッシュ行の滞留を防ぐ
+
+### テスト不足
+
+- `RateLimited` 発生時に stale が返る実挙動のテスト
+- `TokenExpired` 発生時に stale を返さず 401 相当エラーが返るテスト
+- invalidate の本番導線（例: webhook / service）を通したテスト
+
+### ドキュメント確認
+
+- 確認対象: `docs/spec.md`, `docs/technology.md`, `docs/external/github-api-rate-limit-cache.md`, `README.md`, `docs/logs/63/worklog.md`
+- `CONTRIBUTING.md` は repository 内に見当たらず未確認
+- docs への恒久的な反映は未実施。少なくとも invalidate 方針と stale fallback の制約は backend 方針や運用メモへ残した方がよい
+
+### plan / research / docs との不整合
+
+- 計画では「429/レートリミット時は stale キャッシュでフォールバック」となっているが、実装は `TokenExpired` を含む全エラーへ拡張されている
+- 計画では invalidate を要件化しているが、実装は concrete method の追加のみで、運用経路がない
+- 実装概要では stale fallback テスト完了と読めるが、実テストは fallback 振る舞いを直接検証していない
+
+### PR/完了結果
+
+- 現時点では `pr_ready: false`
+- 主因はセッション失効時の stale 返却リスクと invalidate 未接続
+
+### 残リスク
+
+- GitHub token の失効・権限変更直後に stale データが返ると、閲覧可能 repository の判定が過大になる可能性がある
+- cleanup が未接続のため、テーブルサイズは運用期間に応じて増加する

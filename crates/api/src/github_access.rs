@@ -44,6 +44,12 @@ pub trait GithubAccessChecker: Send + Sync {
         &self,
         github_access_token: &str,
     ) -> Result<Option<Vec<i64>>, AccessError>;
+
+    /// Invalidate cached repository data for a given user.
+    /// Default implementation is a no-op (for non-caching implementations).
+    async fn invalidate_repo_cache(&self, _user_id: uuid::Uuid) -> Result<(), AccessError> {
+        Ok(())
+    }
 }
 
 // ─── Production implementation ───────────────────────────────────────────────
@@ -275,23 +281,46 @@ impl GithubAccessChecker for UpstreamErrorGithubAccessChecker {
     }
 }
 
+// ─── Mock: token expired ─────────────────────────────────────────────────────
+
+/// Mock implementation that always returns TokenExpired (for error handling tests).
+pub struct TokenExpiredGithubAccessChecker;
+
+#[async_trait::async_trait]
+impl GithubAccessChecker for TokenExpiredGithubAccessChecker {
+    async fn check_access(&self, _token: &str, _owner: &str, _name: &str) -> AccessResult {
+        AccessResult::Error(AccessError::TokenExpired)
+    }
+
+    async fn list_accessible_repo_ids(
+        &self,
+        _token: &str,
+    ) -> Result<Option<Vec<i64>>, AccessError> {
+        Err(AccessError::TokenExpired)
+    }
+}
+
 pub type DynGithubAccessChecker = Arc<dyn GithubAccessChecker>;
 
 // ─── Cached implementation ───────────────────────────────────────────────────
 
 /// Caching decorator that stores `list_accessible_repo_ids` results in PostgreSQL.
-/// Falls back to stale cache on rate-limit / upstream errors (stale-while-error).
+/// Falls back to stale cache on rate-limit errors (stale-while-error).
 pub struct CachedGithubAccessChecker {
-    inner: RealGithubAccessChecker,
+    inner: Arc<dyn GithubAccessChecker>,
     pool: sqlx::PgPool,
 }
 
 impl CachedGithubAccessChecker {
     pub fn new(pool: sqlx::PgPool) -> Self {
         Self {
-            inner: RealGithubAccessChecker::new(),
+            inner: Arc::new(RealGithubAccessChecker::new()),
             pool,
         }
+    }
+
+    pub fn with_inner(inner: Arc<dyn GithubAccessChecker>, pool: sqlx::PgPool) -> Self {
+        Self { inner, pool }
     }
 
     /// Invalidate all cached data for a given user.
@@ -377,8 +406,8 @@ impl GithubAccessChecker for CachedGithubAccessChecker {
                 }
                 Ok(result)
             }
-            Err(e) => {
-                // 5. On error (rate limit / upstream) – try stale cache
+            Err(ref e @ AccessError::RateLimited) => {
+                // 5. On RateLimited only – try stale cache
                 let stale_duration = chrono::Duration::seconds(STALE_MAX_SECONDS);
                 if let Ok(Some(stale)) = boardflow_db::queries::github_api_cache::get_stale_cache(
                     &self.pool,
@@ -392,13 +421,24 @@ impl GithubAccessChecker for CachedGithubAccessChecker {
                         tracing::warn!(
                             user_id = %user_id,
                             error = %format!("{e:?}"),
-                            "using stale cache for accessible_repo_ids"
+                            "using stale cache for accessible_repo_ids due to rate limiting"
                         );
                         return Ok(Some(ids));
                     }
                 }
+                Err(AccessError::RateLimited)
+            }
+            Err(e) => {
+                // 6. Non-rate-limit errors (TokenExpired, Upstream) – propagate directly
                 Err(e)
             }
         }
+    }
+
+    async fn invalidate_repo_cache(&self, user_id: uuid::Uuid) -> Result<(), AccessError> {
+        boardflow_db::queries::github_api_cache::delete_cache_by_user(&self.pool, user_id)
+            .await
+            .map_err(|e| AccessError::Upstream(format!("db error: {e}")))?;
+        Ok(())
     }
 }
