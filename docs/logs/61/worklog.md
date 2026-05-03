@@ -543,3 +543,55 @@ cargo test --workspace — ALL PASSED
 
 - 現状のままでは `GITHUB_APP_ID` typo が silent degradation になり、GitHub 連携ジョブだけが実行されない状態を見逃しやすい。
 - README と `.env.example` の不整合により、環境構築時に旧変数名や旧デフォルト値を前提とした設定ミスが入りやすい。
+
+## レビュー修正 (2026-05-03 impl agent)
+
+### 修正内容
+
+レビュー指摘6点すべてに対応:
+
+1. **GITHUB_APP_ID 不正値ハンドリング** (`crates/worker/src/config.rs`)
+   - `optional_env("GITHUB_APP_ID").and_then(|v| v.parse().ok())` → match式に変更
+   - 設定されているがパース失敗 → `ConfigError::InvalidValue { var: "GITHUB_APP_ID", reason: ... }` を返す
+   - 未設定 → `None` のまま（正常動作）
+
+2. **API lib.rs の env 直接読み取り除去** (`crates/api/src/lib.rs`)
+   - `std::env::var("GITHUB_CLIENT_ID")` → `optional_env("GITHUB_CLIENT_ID").unwrap_or_default()`
+   - `std::env::var("GITHUB_CLIENT_SECRET")` → `optional_env("GITHUB_CLIENT_SECRET").unwrap_or_default()`
+   - `std::env::var("BOARDFLOW_ARTIFACT_SECRET")` → `boardflow_config::required_env("BOARDFLOW_ARTIFACT_SECRET")`
+   - `std::env::var("MINIO_BUCKET_FINAL")` → `optional_env_or("MINIO_BUCKET_FINAL", "boardflow-final")`
+   - `std::env::var("MINIO_BUCKET_STAGING")` → `optional_env_or("MINIO_BUCKET_STAGING", "boardflow-staging")`
+   - `std::env::var("BOARDFLOW_APP_DOMAIN")` → `optional_env_or("BOARDFLOW_APP_DOMAIN", "http://localhost:3000")`
+   - `std::env::var("BOARDFLOW_ARTIFACT_BASE_URL")` → `optional_env_or("BOARDFLOW_ARTIFACT_BASE_URL", "http://localhost:8080")`
+   - `use boardflow_config::{optional_env, optional_env_or};` をインポートに追加
+
+3. **README.md 更新**
+   - `MINIO_BUCKET_FINAL` デフォルト値: `boardflow-artifacts` → `boardflow-final` に修正
+   - `APP_BASE_URL` → `BOARDFLOW_APP_DOMAIN` に変更、後方互換フォールバック注記を追加
+
+4. **.env.example に APP_BASE_URL 追加**
+   - `# APP_BASE_URL=http://localhost:3000  # deprecated: use BOARDFLOW_APP_DOMAIN instead` をコメント付きで追記
+
+5. **boardflow-config 単体テスト追加** (13テスト)
+   - `helpers.rs`: `required_env` 未設定 → MissingEnvVar、設定時 → 値取得
+   - `helpers.rs`: `optional_env` 未設定 → None、設定時 → Some
+   - `helpers.rs`: `optional_env_or` 未設定 → デフォルト値、設定時 → 値取得
+   - `helpers.rs`: `parse_env_or` 未設定 → デフォルト値、設定時 → パース成功、パース失敗 → InvalidValue
+   - `database.rs`: `DatabaseConfig::from_env()` 正常系・異常系
+   - `s3.rs`: `S3Config::from_env()` デフォルト値確認・カスタム値確認
+
+6. **docs/backend/summary.md 更新**
+   - サービス構成リストに `crates/config` を追加
+   - 設計ポイントに config crate の役割説明を追加
+
+### テスト結果
+
+```
+cargo test --workspace — ALL PASSED
+cargo test -p boardflow-config — 13 tests passed
+```
+
+### 残リスク
+
+- `create_app_with_config()` のOption引数フォールバックは `boardflow_config` ヘルパーを使用するが、テスト時にOption引数で値を渡した場合はenv読み取りをスキップする（意図通り）。
+- Rust 2024 edition では `env::set_var` / `env::remove_var` が unsafe のため、テスト内で `unsafe` ブロックを使用。テスト並列実行時のレースコンディションに注意（`cargo test` はデフォルトでスレッド並列のため影響あり得る）。
