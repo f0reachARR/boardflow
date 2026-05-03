@@ -782,7 +782,7 @@ cargo test -p boardflow-config — 13 tests passed
 
 ### PR作成結果
 
-- PR URL: （下記にリンクを記載）
+- PR URL: https://github.com/f0reachARR/boardflow/pull/66
 
 ### 残リスク
 
