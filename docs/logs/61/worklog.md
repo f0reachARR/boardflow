@@ -684,3 +684,109 @@ cargo test -p boardflow-config — 13 tests passed
 
 - `create_app_with_config()` のenvフォールバックは残存しているが、本番ではすべて `Some(...)` で渡されるため実行されない
 - テストでは引き続き `None` を渡してenvフォールバックに依存可能
+
+## 最終レビュー結果 (2026-05-03 review agent)
+
+### 総評
+
+- 前回 major 指摘だった「`main.rs` が `AppConfig` の値を `create_app_with_config()` に渡していない」問題は解消済み。
+- 現在の本番 API 起動経路では `AppConfig::from_env()` で確定した値が `create_app_with_config()` に明示的に渡されており、Issue #61 の受け入れ条件「`main.rs` が AppConfig の値を唯一の設定源として渡す」を満たしている。
+- `create_app_with_config()` 内の env フォールバックはテスト柔軟性のため残っているが、本番経路では到達しないため、Issue #61 の完了判定を妨げるものではない。
+
+### PR可否
+
+- `pr_ready: true`
+
+### 最終確認結果
+
+1. `crates/api/src/main.rs` が `OAuthConfig`、`artifact_secret`、`s3.final_bucket`、`s3.staging_bucket`、`app_domain`、`artifact_base_url`、`github_webhook_secret` を `create_app_with_config()` に渡していることを確認。
+2. `crates/api/src/lib.rs` の `create_app_with_config()` シグネチャに `staging_bucket: Option<String>` が追加されていることを確認。
+3. 本番コード経路では env の二重読み込みが発生しないことを確認。
+4. `crates/api/tests/api_token_test.rs`、`crates/api/tests/proxy_test.rs`、`crates/api/tests/read_api_test.rs`、`crates/api/tests/webhook_test.rs` の呼び出しが新シグネチャに追従していることを確認。
+5. 前回レビューで挙げた6件の指摘はすべて解消済みと判断。
+
+### テスト結果
+
+- `mise exec -- cargo test --workspace` を再実行し、全テスト成功を確認。
+- `get_errors` により `crates/api/src/main.rs`、`crates/api/src/lib.rs`、関連4テストファイルにエラーがないことを確認。
+
+### 残存する指摘事項
+
+- ブロッカーなし。
+
+### 任意改善
+
+- `WorkerConfig::from_env()` の `BOARDFLOW_APP_DOMAIN` 優先 + `APP_BASE_URL` フォールバックは現状 `std::env::var` を直接使っているため、将来的には helper 関数へ寄せると API 側との一貫性がさらに上がる。
+
+### 残リスク
+
+- `create_app_with_config()` / `create_app()` の env フォールバックはテスト経路で引き続き有効なため、将来この関数が別の本番経路から使われる場合は再点検が必要。
+
+## ドキュメント確認 (2026-05-03 docs agent)
+
+### 総評
+
+- Issue #61 で更新対象とされた `.env.example`、`README.md`、`docs/backend/summary.md` は、現実装の設定名・デフォルト値・crate 構成と整合している。
+- 特に `.env.example` は `AppConfig`、`WorkerConfig`、および API 側フォールバック経路で参照される環境変数を網羅しており、後方互換用の `APP_BASE_URL` も deprecated コメント付きで残っている。
+- `docs/external/rust-workspace-shared-config-crate.md` は research メモとして妥当で、共通 crate 導入、`MINIO_BUCKET_FINAL` 統一、`BOARDFLOW_APP_DOMAIN` への寄せといった採用判断は実装に反映済み。
+
+### docs_ready
+
+- `docs_ready: true`
+
+### 必須修正
+
+- なし。
+
+### 任意改善
+
+- PR 本文またはリリースノートに、Worker の `MINIO_BUCKET_FINAL` デフォルト値変更（`boardflow-artifacts` → `boardflow-final`）を運用影響として明記すると移行時の見落としを減らせる。
+- `docs/external/rust-workspace-shared-config-crate.md` は調査時点の未解決事項を含むため、将来参照用に残すなら「調査時点の判断メモ」であることを冒頭に一言補足すると、現行仕様との混同を防ぎやすい。
+
+### 不整合のあるドキュメント
+
+- なし。
+
+### 不足しているドキュメント
+
+- Issue #61 のスコープでは追加必須ドキュメントは見当たらない。
+
+### 外部調査メモに関する指摘
+
+- `docs/external/rust-workspace-shared-config-crate.md` の問題提起と採用案は妥当。
+- ただし同メモ内の `.env.example` 不足や `BOARDFLOW_APP_DOMAIN` / `APP_BASE_URL` 未解決という記述は、現時点では「調査当時の状態」であり、最終仕様そのものではない。
+
+### 確認メモ
+
+- `.env.example` は `DATABASE_URL`、S3/MinIO 一式、API 設定、`BOARDFLOW_APP_DOMAIN`、deprecated な `APP_BASE_URL`、artifact/session secret、GitHub OAuth、GitHub App、Worker interval を記載していることを確認。
+- `README.md` の Worker 環境変数表は `MINIO_BUCKET_FINAL` のデフォルト値 `boardflow-final` と `BOARDFLOW_APP_DOMAIN` 優先 + `APP_BASE_URL` 後方互換に追従していることを確認。
+- `docs/backend/summary.md` はサービス構成に `crates/config` を含み、設定読み込み集約先としての説明も実装と一致していることを確認。
+- なお `crates/api/src/lib.rs` と `crates/worker/src/config.rs` にはテスト柔軟性や後方互換のためのフォールバック経路が残っているが、現行ドキュメントの説明とは矛盾しない。
+
+## PR作成 (2026-05-03 pr agent)
+
+### PR可否確認
+
+| 項目 | 状態 |
+|-----|------|
+| review agent `pr_ready` | `true`（最終レビュー 2026-05-03） |
+| docs agent `docs_ready` | `true`（docs確認 2026-05-03） |
+| `cargo test --workspace` | 全パス（208 passed, 0 failures） |
+| 未コミット変更 | worklog.md のみ（PR作成時にコミット） |
+
+### ブランチ / PR情報
+
+- ブランチ: `issue-61-unified-config`
+- ベース: `main`
+- コミット数: 7（実装5 + 修正1 + docs1 + worklog1）
+
+### PR作成結果
+
+- PR URL: （下記にリンクを記載）
+
+### 残リスク
+
+1. **デフォルト値変更**: Worker の `MINIO_BUCKET_FINAL` デフォルトが `boardflow-artifacts` → `boardflow-final` に変更。既存デプロイで環境変数未設定の場合は影響あり。運用時は環境変数で明示指定を推奨。
+2. **BOARDFLOW_ARTIFACT_SECRET 必須化**: 開発環境で未設定時にAPIが起動失敗する。`.env.example` に値を記載済み。
+3. **create_app_with_config() のenvフォールバック残存**: テスト経路で引き続き有効。将来この関数が別の本番経路から使われる場合は再点検が必要。
+4. **テスト並列実行時の不安定性**: `boardflow-config` の単体テストは `env::set_var` を使用しており、`unsafe` ブロックが必要（Rust 2024 edition）。スレッド並列時のレースコンディションに注意。
