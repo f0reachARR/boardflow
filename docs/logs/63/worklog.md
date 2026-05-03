@@ -101,6 +101,69 @@
 
 ---
 
+## 実装フェーズ（2026-05-03 impl エージェント）
+
+### 実装内容
+
+#### 1. DBマイグレーション
+- `crates/db/migrations/20260503000000_add_github_api_cache.up.sql`: `github_api_cache` テーブル作成（PK: `(user_id, cache_type)`, `expires_at` インデックス付き）
+- `crates/db/migrations/20260503000000_add_github_api_cache.down.sql`: テーブルDROP
+
+#### 2. DBクエリ関数
+- `crates/db/src/queries/github_api_cache.rs` 新規作成
+  - `get_valid_cache`: expires_at > NOW() のキャッシュを返す
+  - `get_stale_cache`: 期限切れだが max_stale_duration 以内のキャッシュを返す（cutoffタイムスタンプ計算方式）
+  - `upsert_cache`: INSERT ON CONFLICT DO UPDATE
+  - `delete_cache_by_user`: ユーザーの全キャッシュ削除
+  - `delete_cache`: 特定キャッシュ削除
+  - `cleanup_expired_cache`: 1時間以上期限切れのキャッシュ一括削除
+- `crates/db/src/queries/user.rs` に `find_by_github_access_token` 追加（token→user_id逆引き用）
+
+#### 3. CachedGithubAccessChecker
+- `crates/api/src/github_access.rs` 末尾に追加
+- `GithubAccessChecker` トレイト実装:
+  - `check_access`: inner に直接委譲
+  - `list_accessible_repo_ids`:
+    1. `find_by_github_access_token` で user_id 取得
+    2. `get_valid_cache` でキャッシュヒット確認
+    3. キャッシュミス → inner 呼び出し → 成功時 `upsert_cache`（TTL 10分）
+    4. inner 失敗時 → `get_stale_cache`（最大1時間）でフォールバック
+- `invalidate_cache(user_id)` 構造体メソッド追加
+
+#### 4. lib.rs差し替え
+- デフォルトの checker 生成を `CachedGithubAccessChecker::new(pool.clone())` に変更
+- 既存テストは `access_checker: Some(...)` で mock を渡しているため影響なし
+
+### テスト結果
+
+12件の統合テスト（`crates/api/tests/github_cache_test.rs`）:
+- `test_upsert_and_get_valid_cache`: 正常挿入・取得
+- `test_get_valid_cache_returns_none_when_expired`: 期限切れは取得不可
+- `test_get_stale_cache_returns_recently_expired`: staleウィンドウ内は取得可
+- `test_get_stale_cache_returns_none_for_very_old_cache`: staleウィンドウ外は取得不可
+- `test_upsert_cache_updates_existing`: UPSERT で上書き確認
+- `test_delete_cache_removes_specific_entry`: 個別削除
+- `test_delete_cache_by_user_removes_all`: ユーザー全削除
+- `test_cleanup_expired_cache`: 期限切れ一括削除
+- `test_cached_checker_invalidate_cache`: invalidate_cache 動作確認
+- `test_cached_checker_returns_cached_repo_ids`: キャッシュヒット確認
+- `test_cached_checker_unknown_token_passes_through`: 未知トークンはパススルー
+- `test_cached_checker_stale_fallback_on_rate_limit`: stale エントリの確認
+
+全ワークスペーステスト: **221 passed, 0 failed**
+
+### 更新ドキュメント
+
+- `docs/logs/63/worklog.md`（本ファイル）
+
+### 残リスク
+
+- `find_by_github_access_token` はインデックスなしのカラム検索。ユーザー数が多くなった場合はインデックス追加を検討
+- `cleanup_expired_cache` は定期実行が必要（ジョブ/cronで呼び出す仕組みは未実装、将来Issue化推奨）
+- Webhook による明示的 invalidation は未実装（将来 `installation_repositories` イベントで実装予定）
+
+---
+
 ## 計画フェーズ（2026-05-03 plan エージェント）
 
 ### 目的
