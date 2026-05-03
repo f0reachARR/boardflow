@@ -270,3 +270,21 @@
 
 ### 残リスク
 - UI 振る舞いの回帰自体は worklog ではなくテストで担保すべきため、将来的には create / revoke ダイアログの操作テスト追加余地がある。
+
+## PR作成 (2026-05-03)
+
+### PR作成前チェック
+- review: pr_ready: true (3回目レビューで承認)
+- docs: docs_ready: true (2回目docs確認で承認)
+- 未コミット変更: なし (`git status` でクリーン)
+- テスト: `pnpm tsc --noEmit` / `pnpm build` PASS
+
+### PR/完了結果
+- PR作成: https://github.com/f0reachARR/boardflow/pull/58
+- ブランチ: `feature/issue-37-api-token-management-ui` → `main`
+- Closes #37
+
+### 残リスク
+- Dialog close抑止はUI振る舞いのため、ビルドだけでは回帰検知不可
+- Chakra UI v3 更新時のDialog.Root props変更リスク
+- E2E/コンポーネントテスト未整備（UIテスト基盤が未整備のためMVPスコープ外）
