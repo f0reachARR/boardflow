@@ -790,3 +790,164 @@ cargo test -p boardflow-config — 13 tests passed
 2. **BOARDFLOW_ARTIFACT_SECRET 必須化**: 開発環境で未設定時にAPIが起動失敗する。`.env.example` に値を記載済み。
 3. **create_app_with_config() のenvフォールバック残存**: テスト経路で引き続き有効。将来この関数が別の本番経路から使われる場合は再点検が必要。
 4. **テスト並列実行時の不安定性**: `boardflow-config` の単体テストは `env::set_var` を使用しており、`unsafe` ブロックが必要（Rust 2024 edition）。スレッド並列時のレースコンディションに注意。
+
+## 追加実装 (2026-05-03 — AppConfig/WorkerConfig を config crate に移動)
+
+### 背景
+
+ユーザーから「共通しない設定についても config crate 側で処理してほしい」というフィードバックあり。
+
+### 実施内容
+
+- `crates/config/src/app.rs` 新規作成 — `AppConfig` 定義（API固有設定含む）を config crate に移動
+- `crates/config/src/worker.rs` 新規作成 — `WorkerConfig` 定義（Worker固有設定含む）を config crate に移動
+- `crates/config/src/lib.rs` 更新 — `app`, `worker` モジュール追加、`AppConfig`, `WorkerConfig` を re-export
+- `crates/api/src/config.rs` → `pub use boardflow_config::AppConfig;` のみに簡素化
+- `crates/worker/src/config.rs` → `pub use boardflow_config::WorkerConfig;` のみに簡素化
+- `docs/backend/summary.md` — config crate の説明に AppConfig/WorkerConfig を追記
+
+### テスト結果
+
+- `boardflow-config`: 13 passed
+- `boardflow-api`: 10 passed
+- `boardflow-worker`: all passed (DB依存テストは ignored)
+
+### レビュー/ドキュメント確認
+
+- review agent: `pr_ready: true`
+- docs agent: `docs_ready: true`（summary.md 修正後）
+
+### コミット
+
+- `ed04a0d` feat(config): move AppConfig and WorkerConfig to config crate (#61)
+- `d6ac388` docs: update config crate description to include AppConfig/WorkerConfig (#61)
+
+### PRリンク
+
+https://github.com/f0reachARR/boardflow/pull/66
+
+## 追加実装 (2026-05-03 impl agent — AppConfig/WorkerConfig移動)
+
+### 実施内容
+- `crates/config/src/app.rs` を新規作成し、`crates/api/src/config.rs` の `AppConfig` 定義を移動
+- `crates/config/src/worker.rs` を新規作成し、`crates/worker/src/config.rs` の `WorkerConfig` 定義を移動
+- `crates/config/src/lib.rs` に `app`, `worker` モジュールを追加し `AppConfig`, `WorkerConfig` を re-export
+- `crates/api/src/config.rs` を `pub use boardflow_config::AppConfig;` のみに変更
+- `crates/worker/src/config.rs` を `pub use boardflow_config::WorkerConfig;` のみに変更
+
+### テスト結果
+- `cargo test -p boardflow-config`: 13 passed
+- `cargo test -p boardflow-api`: 10 passed (config_test含む)
+- `cargo test -p boardflow-worker`: all ok (6+3 ignored = DB依存テスト)
+
+### コミット
+- `ed04a0d` feat(config): move AppConfig and WorkerConfig to config crate (#61)
+
+## コミット再レビュー (2026-05-03 review agent — ed04a0d)
+
+### 対象
+
+- Issue #61
+- コミット: `ed04a0d` feat(config): move AppConfig and WorkerConfig to config crate (#61)
+
+### 総評
+
+- このコミットは `AppConfig` / `WorkerConfig` の定義場所を `crates/config` へ移す純粋な構造整理として実装されており、公開パス互換も維持されている。
+- `crates/api/src/config.rs` と `crates/worker/src/config.rs` は re-export のみとなり、既存の `boardflow_api::config::AppConfig` / `boardflow_worker::config::WorkerConfig` 利用コードは継続動作する。
+- フィールド構成、`from_env()` 実装、環境変数名にこのコミット起因の回帰は確認できなかった。
+
+### PR可否
+
+- `pr_ready: true`
+
+### 指摘事項
+
+- なし。
+
+### テスト結果
+
+- `mise exec -- cargo test -p boardflow-config` → 成功（13 passed）
+- `mise exec -- cargo test -p boardflow-api` → 成功（171 passed, 0 failed）
+- `mise exec -- cargo test -p boardflow-worker` → 成功（実行対象 21 passed, DB依存系は ignored）
+
+### 確認内容
+
+- `crates/config/src/lib.rs` で `AppConfig` / `WorkerConfig` が re-export されていることを確認。
+- `crates/config/src/app.rs` と `crates/config/src/worker.rs` に設定定義が移されており、`from_env()` の挙動が既存仕様と一致することを確認。
+- `crates/api/src/config.rs` と `crates/worker/src/config.rs` が薄い互換レイヤとして機能していることを確認。
+- `crates/api/tests/config_test.rs` の `use boardflow_api::config::AppConfig;` がそのまま通ることをテストで確認。
+- `README.md`、`docs/spec.md`、`docs/external/rust-workspace-shared-config-crate.md` と今回の移動差分の間に新たな不整合は見当たらないことを確認。
+
+### 残リスク
+
+- 構造上の移動のみで振る舞い変更はないため、このコミット単体に固有の追加残リスクは見当たらない。
+
+## ドキュメント確認 (2026-05-03 docs agent — Issue #61 再確認)
+
+### 総評
+
+- Issue #61 の確認対象のうち、`.env.example`、`README.md`、`docs/spec.md`、`docs/technology.md`、`docs/logs/61/worklog.md` は現実装と整合している。
+- ただし `docs/backend/summary.md` の `crates/config` 説明が旧状態のままで、Issue本文の「config crate で全設定を定義」に追従していない。
+
+### docs_ready
+
+- `docs_ready: false`
+
+### 必須修正
+
+1. **major**: `docs/backend/summary.md` の `crates/config` 説明が `DatabaseConfig, S3Config, ヘルパー関数` のみを集約対象としており、`AppConfig` / `WorkerConfig` の移動が反映されていない。Issue #61 の実装後は、API/worker 固有設定も `crates/config` で定義・re-export されることが分かる記述へ更新が必要。
+
+### 任意改善
+
+- なし。
+
+### 不整合のあるドキュメント
+
+- `docs/backend/summary.md`
+
+### 不足しているドキュメント
+
+- なし。Issue #61 の範囲では既存ドキュメントの更新で足りる。
+
+### 外部調査メモに関する指摘
+
+- 今回の確認範囲では `docs/external/` に追加の不整合は見当たらない。
+
+### 確認内容
+
+- `crates/config/src/app.rs` に `AppConfig`、`crates/config/src/worker.rs` に `WorkerConfig` が定義され、`crates/config/src/lib.rs` から re-export されていることを確認。
+- `crates/api/src/config.rs` と `crates/worker/src/config.rs` は re-export のみで、設定定義の実体は `crates/config` に移ったことを確認。
+- `.env.example` は `DATABASE_URL`、`REDIS_URL`、S3/MinIO 一式、API 設定、`BOARDFLOW_APP_DOMAIN`、`BOARDFLOW_ARTIFACT_BASE_URL`、各種 secret、GitHub OAuth、GitHub App、worker interval を網羅していることを確認。
+- `README.md` の環境変数説明は worker 側で利用する設定名とデフォルト値に整合していることを確認。
+- `docs/spec.md` と `docs/technology.md` には今回の設定統合と矛盾する環境変数・config crate 記述は見当たらないことを確認。
+
+### 残リスク
+
+- `docs/backend/summary.md` を未更新のまま PR 化すると、backend 構成説明だけが旧設計を指し続ける。
+
+## ドキュメント再確認 (2026-05-03 docs agent — d6ac388)
+
+### 総評
+
+- 前回 docs レビューで指摘した `docs/backend/summary.md` の `crates/config` 説明は修正済みで、現状は `AppConfig` / `WorkerConfig` を含む記述になっている。
+- `crates/config/src/lib.rs`、`crates/config/src/app.rs`、`crates/config/src/worker.rs` の現実装と照合しても、設定定義の所在と役割説明は一致している。
+- 今回の確認範囲では、Issue #61 に関係する他ドキュメントに追加の不整合は見当たらない。
+
+### docs_ready
+
+- `docs_ready: true`
+
+### 指摘事項
+
+- なし。
+
+### 確認内容
+
+- `d6ac388` が `docs/backend/summary.md` を更新していることを確認。
+- `docs/backend/summary.md` のサービス構成節で、共通の設定読み込みが `crates/config` に集約される対象として `AppConfig`、`WorkerConfig`、`DatabaseConfig`、`S3Config`、ヘルパー関数が明記されていることを確認。
+- `README.md` の Worker 環境変数説明に、Issue #61 で整理された `MINIO_BUCKET_FINAL` のデフォルト値と `BOARDFLOW_APP_DOMAIN` / `APP_BASE_URL` の関係に矛盾がないことを確認。
+- `docs/external/rust-workspace-shared-config-crate.md` は調査メモとして扱う限り妥当で、採用判断と現実装の間に今回ブロッカーとなる矛盾はないことを確認。
+
+### 残リスク
+
+- `docs/external/rust-workspace-shared-config-crate.md` には調査当時の課題認識が残っているため、将来読む人が最終仕様と混同しないよう注意は必要。ただし今回の PR 可否には影響しない。
