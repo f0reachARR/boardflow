@@ -68,7 +68,7 @@ crates/jobs
 設計上のポイント:
 
 - HTTP 層は薄く保つ
-- 共通の設定読み込みは `crates/config` に集約する（DatabaseConfig, S3Config, ヘルパー関数）
+- 共通の設定読み込みは `crates/config` に集約する（AppConfig, WorkerConfig, DatabaseConfig, S3Config, ヘルパー関数）
 - 業務ロジックは `crates/domain` に寄せる
 - GitHub API、artifact storage、DB は明確な境界で分ける
 - worker からも再利用できるユースケースにしておく
