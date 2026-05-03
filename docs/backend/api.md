@@ -539,6 +539,11 @@ Response (200):
 Web UI read API は GitHub OAuth session を前提にし、backend が repository 権限を確認する。
 存在しない resource と閲覧不可 resource は、情報漏洩を避けるためどちらも `404 not_found` を返してよい。
 
+repository 権限の判定に使う `list_accessible_repo_ids` は、backend 内で PostgreSQL テーブル `github_api_cache` を使ってキャッシュしてよい。
+現在の実装は user ごとに `accessible_repo_ids` を 10 分 TTL で保持し、GitHub API が `RateLimited` を返した場合のみ、期限切れ後 1 時間以内の stale cache を read API の継続提供に使う。
+`TokenExpired` とその他の upstream error では stale cache を使わず、そのまま認証エラーまたは server error を返す。
+明示的 invalidation 用のフックはあるが、この時点では read API のキャッシュ失効は TTL ベースを基本とし、Webhook 連動の invalidation は未接続である。
+
 ### 3.1 Repository 一覧
 
 ```http

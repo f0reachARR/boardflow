@@ -1601,6 +1601,26 @@ board_project_issue_history
 - created_at
 ```
 
+### 10.14 github_api_cache
+
+Web UI read API の GitHub repository 可視性判定に使う補助キャッシュ。
+
+```text
+github_api_cache
+- user_id
+- cache_type          # accessible_repo_ids
+- value_json
+- expires_at
+- created_at
+- updated_at
+```
+
+`user_id + cache_type` にunique制約を置き、MVPでは `accessible_repo_ids` を JSONB で保持する。
+このキャッシュは read API の権限判定用であり、GitHub OAuth user access token に対する `/user/repos` 相当の結果を 10 分 TTL で再利用する。
+GitHub API が rate limit に達した場合のみ、期限切れ後 1 時間以内の stale cache を read API のフォールバックに使ってよい。
+token expired やその他の upstream error では stale cache を使わない。
+明示的 invalidation のフックは持つが、MVPでは TTL ベースの自然失効を基本とし、Webhook 連動の cache invalidation は将来拡張とする。
+
 ---
 
 ## 11. GitHub App連携仕様
