@@ -77,6 +77,11 @@ pub fn create_app_with_config(
         std::env::var("MINIO_BUCKET_FINAL").unwrap_or_else(|_| "boardflow-final".to_string())
     }));
 
+    let staging = StagingBucket(
+        std::env::var("MINIO_BUCKET_STAGING")
+            .unwrap_or_else(|_| "boardflow-staging".to_string()),
+    );
+
     let domain = AppDomain(app_domain.unwrap_or_else(|| {
         std::env::var("BOARDFLOW_APP_DOMAIN")
             .unwrap_or_else(|_| "http://localhost:3000".to_string())
@@ -109,6 +114,7 @@ pub fn create_app_with_config(
         .layer(Extension(oauth))
         .layer(Extension(ArtifactSecret(secret)))
         .layer(Extension(bucket))
+        .layer(Extension(staging))
         .layer(Extension(domain))
         .layer(Extension(base_url))
         .layer(Extension(checker))
@@ -126,6 +132,9 @@ pub struct WebhookSecret(pub Option<String>);
 
 #[derive(Clone)]
 pub struct FinalBucket(pub String);
+
+#[derive(Clone)]
+pub struct StagingBucket(pub String);
 
 #[derive(Clone)]
 pub struct AppDomain(pub String);

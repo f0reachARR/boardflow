@@ -12,13 +12,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     tracing::info!("Starting BoardFlow API server");
 
-    let pool = boardflow_db::create_pool(&config.database_url).await?;
+    let pool = boardflow_db::create_pool(&config.db.database_url).await?;
     tracing::info!("Database connection established");
 
-    let s3_client = if let Some(endpoint) = &config.minio_endpoint {
+    let s3_client = if let Some(endpoint) = &config.s3.endpoint {
         let creds = aws_sdk_s3::config::Credentials::new(
-            config.minio_access_key.as_deref().unwrap_or("minioadmin"),
-            config.minio_secret_key.as_deref().unwrap_or("minioadmin"),
+            config.s3.access_key.as_deref().unwrap_or("minioadmin"),
+            config.s3.secret_key.as_deref().unwrap_or("minioadmin"),
             None,
             None,
             "env",

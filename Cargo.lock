@@ -703,6 +703,7 @@ dependencies = [
  "aws-sdk-s3",
  "axum",
  "base64",
+ "boardflow-config",
  "boardflow-db",
  "boardflow-domain",
  "chrono",
@@ -741,6 +742,13 @@ dependencies = [
  "tracing",
  "uuid",
  "zip",
+]
+
+[[package]]
+name = "boardflow-config"
+version = "0.0.1"
+dependencies = [
+ "thiserror",
 ]
 
 [[package]]
@@ -793,6 +801,7 @@ dependencies = [
  "async-trait",
  "aws-sdk-s3",
  "boardflow-artifact",
+ "boardflow-config",
  "boardflow-db",
  "boardflow-domain",
  "boardflow-github",

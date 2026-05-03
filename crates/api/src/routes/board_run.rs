@@ -109,12 +109,10 @@ pub struct ImportArtifactBundleResponse {
 
 async fn generate_upload_info(
     s3_client: &Option<aws_sdk_s3::Client>,
+    bucket: &str,
     object_key: &str,
     expires_in_secs: u64,
 ) -> Result<ArtifactBundleInfo, AppError> {
-    let bucket =
-        std::env::var("MINIO_BUCKET_STAGING").unwrap_or_else(|_| "boardflow-staging".to_string());
-
     match s3_client {
         Some(client) => {
             let presigning_config = aws_sdk_s3::presigning::PresigningConfig::expires_in(
@@ -124,7 +122,7 @@ async fn generate_upload_info(
 
             let presigned = client
                 .put_object()
-                .bucket(&bucket)
+                .bucket(bucket)
                 .key(object_key)
                 .presigned(presigning_config)
                 .await
@@ -176,6 +174,7 @@ pub async fn create_board_run(
     Extension(request_id): Extension<RequestId>,
     State(pool): State<PgPool>,
     Extension(s3_client): Extension<Option<aws_sdk_s3::Client>>,
+    Extension(staging_bucket): Extension<crate::StagingBucket>,
     payload: Result<Json<CreateBoardRunRequest>, JsonRejection>,
 ) -> Result<Json<CreateBoardRunResponse>, AppError> {
     let rid = &request_id.0;
@@ -251,7 +250,7 @@ pub async fn create_board_run(
             "staging/runs/{}/bundle.zip",
             format_board_run_id(existing.id)
         );
-        let upload_info = generate_upload_info(&s3_client, &object_key, 3600).await?;
+        let upload_info = generate_upload_info(&s3_client, &staging_bucket.0, &object_key, 3600).await?;
         return Ok(Json(CreateBoardRunResponse {
             board_run_id: format_board_run_id(existing.id),
             status: status_str.to_string(),
@@ -297,7 +296,7 @@ pub async fn create_board_run(
     })?;
 
     // 7. Generate presigned URL
-    let upload_info = generate_upload_info(&s3_client, &object_key, 3600).await?;
+    let upload_info = generate_upload_info(&s3_client, &staging_bucket.0, &object_key, 3600).await?;
 
     Ok(Json(CreateBoardRunResponse {
         board_run_id: format_board_run_id(board_run.id),

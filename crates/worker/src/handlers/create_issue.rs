@@ -50,7 +50,7 @@ pub async fn handle(
         bp.github_repository_id,
         &bp.project_path,
         board_project_id,
-        &config.app_base_url,
+        &config.app_domain,
         bp.latest_completed_run_id,
     );
 
@@ -305,17 +305,19 @@ mod tests {
             .expect("connect_lazy should not fail");
 
         let config = WorkerConfig {
-            database_url: String::new(),
-            staging_bucket: String::new(),
-            artifacts_bucket: String::new(),
-            s3_endpoint: None,
-            s3_access_key: None,
-            s3_secret_key: None,
+            db: boardflow_config::DatabaseConfig { database_url: String::new() },
+            s3: boardflow_config::S3Config {
+                endpoint: None,
+                access_key: None,
+                secret_key: None,
+                staging_bucket: String::new(),
+                final_bucket: String::new(),
+            },
             poll_interval_secs: 2,
             timeout_sweep_interval_secs: 60,
             github_app_id: None,
             github_private_key_pem: None,
-            app_base_url: "https://test.example.com".into(),
+            app_domain: "https://test.example.com".into(),
         };
 
         // Minimal mock that should never be called

@@ -202,7 +202,7 @@ pub async fn sweep_expired_staging_bundles(
         let key = bundle.staging_object_key.as_deref().unwrap();
         match s3_client
             .delete_object()
-            .bucket(&config.staging_bucket)
+            .bucket(&config.s3.staging_bucket)
             .key(key)
             .send()
             .await

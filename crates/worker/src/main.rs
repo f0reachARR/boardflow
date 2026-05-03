@@ -12,10 +12,10 @@ async fn main() {
         .json()
         .init();
 
-    let config = WorkerConfig::from_env();
+    let config = WorkerConfig::from_env().expect("Failed to load worker config");
     tracing::info!("BoardFlow worker starting");
 
-    let pool = boardflow_db::create_pool(&config.database_url)
+    let pool = boardflow_db::create_pool(&config.db.database_url)
         .await
         .expect("failed to connect to database");
 
@@ -23,11 +23,11 @@ async fn main() {
         let mut builder =
             aws_sdk_s3::config::Builder::new().region(aws_sdk_s3::config::Region::new("us-east-1"));
 
-        if let Some(ref endpoint) = config.s3_endpoint {
+        if let Some(ref endpoint) = config.s3.endpoint {
             builder = builder.endpoint_url(endpoint).force_path_style(true);
         }
 
-        if let (Some(access_key), Some(secret_key)) = (&config.s3_access_key, &config.s3_secret_key)
+        if let (Some(access_key), Some(secret_key)) = (&config.s3.access_key, &config.s3.secret_key)
         {
             builder = builder.credentials_provider(aws_sdk_s3::config::Credentials::new(
                 access_key, secret_key, None, None, "env",

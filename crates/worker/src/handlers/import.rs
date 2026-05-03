@@ -72,7 +72,7 @@ async fn process_import_job(
     tracing::info!(key = %payload.staging_object_key, "Downloading bundle from S3");
     let data = download_bundle(
         s3_client,
-        &config.staging_bucket,
+        &config.s3.staging_bucket,
         &payload.staging_object_key,
     )
     .await?;
@@ -114,7 +114,7 @@ async fn process_import_job(
         {
             upload_artifact(
                 s3_client,
-                &config.artifacts_bucket,
+                &config.s3.final_bucket,
                 &storage_key,
                 extracted.data.clone(),
                 &manifest_entry.content_type,

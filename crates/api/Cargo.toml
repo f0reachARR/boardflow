@@ -4,6 +4,7 @@ version = "0.0.1"
 edition = "2024"
 
 [dependencies]
+boardflow-config = { path = "../config" }
 boardflow-db = { path = "../db" }
 boardflow-domain = { path = "../domain" }
 axum = { workspace = true }
@@ -30,6 +31,7 @@ futures = { workspace = true }
 rand = { workspace = true }
 
 [dev-dependencies]
+boardflow-config = { path = "../config" }
 http-body-util = "0.1"
 serial_test = { workspace = true }
 tower = { version = "0.5", features = ["util"] }
