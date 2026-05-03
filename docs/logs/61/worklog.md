@@ -427,3 +427,66 @@ TIMEOUT_SWEEP_INTERVAL_SECS=60
 
 - Worker がデプロイ済み環境で `MINIO_BUCKET_FINAL` 未設定の場合、デフォルト値が `boardflow-artifacts` → `boardflow-final` に変わるため、既存データへのアクセスが変わる可能性。`.env.example` とリリースノートで明記する。
 - `BOARDFLOW_ARTIFACT_SECRET` を必須化するため、開発環境で設定漏れだとAPIが起動しなくなる。`.env.example` に値を記載して対策。
+
+## 実装内容 (2026-05-03 impl agent)
+
+### 実施した変更
+
+計画のStep 1〜10をすべて実装完了。
+
+**新規作成:**
+- `crates/config/Cargo.toml` — boardflow-config crate定義
+- `crates/config/src/lib.rs` — re-export
+- `crates/config/src/error.rs` — `ConfigError` enum (MissingEnvVar, InvalidValue)
+- `crates/config/src/helpers.rs` — `required_env`, `optional_env`, `optional_env_or`, `parse_env_or`
+- `crates/config/src/database.rs` — `DatabaseConfig { database_url }`
+- `crates/config/src/s3.rs` — `S3Config { endpoint, access_key, secret_key, staging_bucket, final_bucket }`
+
+**API変更:**
+- `crates/api/Cargo.toml` — `boardflow-config` 依存追加（通常 + dev）
+- `crates/api/src/config.rs` — `AppConfig` を共通型ベースに全面書き換え、`artifact_secret` を必須化
+- `crates/api/src/lib.rs` — `StagingBucket` newtype追加、Extension layer追加
+- `crates/api/src/main.rs` — `config.db.database_url`, `config.s3.*` に更新
+- `crates/api/src/routes/board_run.rs` — `std::env::var("MINIO_BUCKET_STAGING")` → `Extension<StagingBucket>` + 引数渡し
+- `crates/api/tests/config_test.rs` — 新フィールド構造に対応、`ConfigError::InvalidValue` に変更
+
+**Worker変更:**
+- `crates/worker/Cargo.toml` — `boardflow-config` 依存追加（通常 + dev）
+- `crates/worker/src/config.rs` — `WorkerConfig` を共通型ベースに全面書き換え、`from_env()` が `Result` を返す
+- `crates/worker/src/main.rs` — `from_env().expect(...)` + フィールドパス更新
+- `crates/worker/src/dispatcher.rs` — `config.s3.staging_bucket`
+- `crates/worker/src/handlers/import.rs` — `config.s3.staging_bucket`, `config.s3.final_bucket`
+- `crates/worker/src/handlers/create_issue.rs` — `config.app_domain` + インラインテスト修正
+- `crates/worker/src/handlers/create_dashboard_comment.rs` — `config.app_domain`
+- `crates/worker/src/handlers/update_dashboard_comment.rs` — `config.app_domain`
+- `crates/worker/src/handlers/create_run_result_comment.rs` — `config.app_domain`
+- `crates/worker/tests/dashboard_comment_test.rs` — `make_config()` 更新
+- `crates/worker/tests/run_result_comment_test.rs` — `make_config()` 更新
+- `crates/worker/tests/create_issue_test.rs` — `make_config()` 更新
+
+**その他:**
+- `Cargo.toml` (workspace) — members に `"crates/config"` 追加
+- `.env.example` — 全環境変数をセクション分けして記載
+
+### テスト結果
+
+```
+cargo test --workspace — ALL PASSED
+- 208 tests passed
+- 41 tests ignored (require DATABASE_URL)
+- 0 failures
+```
+
+### バグ修正
+
+- `MINIO_BUCKET_FINAL` デフォルト値を API/Worker 両方で `"boardflow-final"` に統一（Workerは旧来 `"boardflow-artifacts"` だった）
+
+### 更新ドキュメント
+
+- `.env.example` — 全環境変数網羅（セクション分け済み）
+
+### 残リスク
+
+1. **デフォルト値変更**: Worker の `MINIO_BUCKET_FINAL` デフォルトが `boardflow-artifacts` → `boardflow-final` に変更。既存デプロイで環境変数未設定の場合は影響あり。
+2. **BOARDFLOW_ARTIFACT_SECRET 必須化**: 開発環境で未設定時にAPIが起動失敗する。`.env.example` に値を記載済み。
+3. **lib.rs のフォールバック残存**: `create_app_with_config()` はテスト柔軟性のため `std::env::var` フォールバックを維持（計画通り）。実運用では `AppConfig::from_env()` で事前検証される。
