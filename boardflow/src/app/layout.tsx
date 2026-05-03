@@ -1,5 +1,5 @@
 import type { Metadata } from "next"
-import { Provider } from "@/components/ui/provider"
+import { Providers } from "@/components/providers"
 
 export const metadata: Metadata = {
   title: "BoardFlow",
@@ -14,7 +14,7 @@ export default function RootLayout({
   return (
     <html lang="ja" suppressHydrationWarning>
       <body>
-        <Provider>{children}</Provider>
+        <Providers>{children}</Providers>
       </body>
     </html>
   )

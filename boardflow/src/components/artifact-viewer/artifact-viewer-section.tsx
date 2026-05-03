@@ -1,8 +1,8 @@
 "use client"
 
-import { useEffect, useRef, useState, useCallback } from "react"
 import { Box, Heading, Badge, Tabs, Text } from "@chakra-ui/react"
-import type { ViewerEntry, ViewerSourcesResponse, ViewerSource } from "@/lib/api/schema-types"
+import { useQuery } from "@tanstack/react-query"
+import type { ViewerEntry, ViewerSource } from "@/lib/api/schema-types"
 import { PdfViewer } from "./pdf-viewer"
 import { SvgViewer } from "./svg-viewer"
 import { IbomViewer } from "./ibom-viewer"
@@ -30,49 +30,19 @@ export function ArtifactViewerSection({
   expiresAt: initialExpiresAt,
   boardRunId,
 }: ArtifactViewerSectionProps) {
-  const [viewers, setViewers] = useState(initialViewers)
-  const [expiresAt, setExpiresAt] = useState(initialExpiresAt)
-  const [refreshError, setRefreshError] = useState(false)
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  const refreshViewerSources = useCallback(async () => {
-    try {
+  const { data, isError: refreshError } = useQuery({
+    queryKey: ["viewer-sources", boardRunId],
+    queryFn: async (): Promise<{ viewers: Record<string, ViewerEntry>; expires_at?: string }> => {
       const res = await fetch(`/api/viewer-sources/${encodeURIComponent(boardRunId)}`)
-      if (!res.ok) {
-        setRefreshError(true)
-        return
-      }
-      const data: ViewerSourcesResponse = await res.json()
-      setViewers(data.viewers)
-      setExpiresAt(data.expires_at)
-      setRefreshError(false)
-    } catch {
-      setRefreshError(true)
-    }
-  }, [boardRunId])
+      if (!res.ok) throw new Error("Failed to refresh viewer sources")
+      return res.json()
+    },
+    initialData: { viewers: initialViewers, expires_at: initialExpiresAt },
+    refetchInterval: 4 * 60 * 1000,
+    refetchIntervalInBackground: true,
+  })
 
-  useEffect(() => {
-    if (!expiresAt) return
-
-    const expiresMs = new Date(expiresAt).getTime()
-    const refreshAt = expiresMs - 5 * 60 * 1000 // 5 minutes before expiry
-    const delay = refreshAt - Date.now()
-
-    if (delay <= 0) {
-      refreshViewerSources()
-      return
-    }
-
-    timerRef.current = setTimeout(() => {
-      refreshViewerSources()
-    }, delay)
-
-    return () => {
-      if (timerRef.current) {
-        clearTimeout(timerRef.current)
-      }
-    }
-  }, [expiresAt, refreshViewerSources])
+  const viewers = data.viewers
 
   // Build visible tabs from definitions, filtering out "skipped" viewers
   const visibleTabs = TAB_DEFINITIONS.filter((def) => {
