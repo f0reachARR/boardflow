@@ -36,7 +36,7 @@ export function RevokeTokenDialog({ repositoryId, tokenId, tokenName, open, onOp
   }
 
   return (
-    <Dialog.Root role="alertdialog" open={open} onOpenChange={(e) => onOpenChange(e.open)}>
+    <Dialog.Root role="alertdialog" open={open} onOpenChange={(e) => onOpenChange(e.open)} closeOnInteractOutside={!loading} closeOnEscape={!loading}>
       <Portal>
         <Dialog.Backdrop />
         <Dialog.Positioner>
@@ -56,7 +56,7 @@ export function RevokeTokenDialog({ repositoryId, tokenId, tokenName, open, onOp
             </Dialog.Body>
             <Dialog.Footer>
               <HStack>
-                <Button variant="outline" onClick={() => onOpenChange(false)}>
+                <Button variant="outline" onClick={() => onOpenChange(false)} disabled={loading}>
                   キャンセル
                 </Button>
                 <Button colorPalette="red" onClick={handleRevoke} loading={loading}>
@@ -64,7 +64,7 @@ export function RevokeTokenDialog({ repositoryId, tokenId, tokenName, open, onOp
                 </Button>
               </HStack>
             </Dialog.Footer>
-            <Dialog.CloseTrigger />
+            {!loading && <Dialog.CloseTrigger />}
           </Dialog.Content>
         </Dialog.Positioner>
       </Portal>

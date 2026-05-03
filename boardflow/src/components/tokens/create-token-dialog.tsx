@@ -56,8 +56,8 @@ export function CreateTokenDialog({ repositoryId, open, onOpenChange, onCreated 
     <Dialog.Root
       open={open}
       onOpenChange={(e) => handleClose(e.open)}
-      closeOnInteractOutside={!createdToken}
-      closeOnEscape={!createdToken}
+      closeOnInteractOutside={!createdToken && !loading}
+      closeOnEscape={!createdToken && !loading}
     >
       <Portal>
         <Dialog.Backdrop />
@@ -102,7 +102,7 @@ export function CreateTokenDialog({ repositoryId, open, onOpenChange, onCreated 
                 <Button onClick={() => handleClose(false)}>閉じる</Button>
               ) : (
                 <HStack>
-                  <Button variant="outline" onClick={() => handleClose(false)}>
+                  <Button variant="outline" onClick={() => handleClose(false)} disabled={loading}>
                     キャンセル
                   </Button>
                   <Button
@@ -116,7 +116,7 @@ export function CreateTokenDialog({ repositoryId, open, onOpenChange, onCreated 
                 </HStack>
               )}
             </Dialog.Footer>
-            {!createdToken && <Dialog.CloseTrigger />}
+            {!createdToken && !loading && <Dialog.CloseTrigger />}
           </Dialog.Content>
         </Dialog.Positioner>
       </Portal>

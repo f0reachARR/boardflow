@@ -107,3 +107,166 @@
 ### 残リスク
 - E2E/コンポーネントテストは未追加（UIテスト基盤が未整備のため現時点ではスキップ）
 - ページネーション UI は引き続き未実装（MVP範囲外）
+
+## レビュー結果 (2026-05-03, 修正後確認)
+
+### 総評
+- 前回レビューで指摘した 4 件は、実装・型定義・API 契約の観点で解消されていることを確認した。
+- ただし、トークン作成リクエストの通信中はダイアログを閉じられるままで、レスポンス到達前に閉じると一度きり表示の平文トークンを見失う経路が残っている。
+
+### PR判定
+- pr_ready: false
+
+### 重大度順の指摘
+1. High: `create-token-dialog.tsx` は `createdToken` がセットされた後だけ accidental close を防いでいるが、作成リクエストの通信中は backdrop / Escape / キャンセルで閉じられる。閉じた直後に作成成功すると、一覧更新も走らず、ユーザーがそのまま画面遷移した場合は一度しか表示されない平文トークンを実質的に失う。該当: `boardflow/src/components/tokens/create-token-dialog.tsx` の `Dialog.Root` 制御と footer のキャンセルボタン。
+
+### 必須修正
+- create API の通信中もダイアログを閉じられないようにする。少なくとも `loading` 中は `closeOnInteractOutside` / `closeOnEscape` / キャンセルボタン / CloseTrigger を無効化し、作成完了後にのみ平文表示フェーズへ遷移させる。
+
+### 任意改善
+- `fetchError` 表示時のヘッダー件数は常に `0 tokens` になるため、エラー時は件数を隠すか補助文言を変えると誤認が減る。
+- revoke ダイアログも `loading` 中は閉じる導線を止めると、処理中の状態遷移がより明確になる。
+
+### テスト不足
+- create API 通信中に閉じられないこと、および成功後に平文トークン表示へ遷移することを確認する UI テストがない。
+- 既存の `pnpm tsc --noEmit` / `pnpm build` は通っているが、今回の退行はビルドでは検出できない。
+
+### ドキュメント確認
+- `docs/backend/api.md` の Token Management API 仕様と `schema.d.ts` は整合していることを確認した。
+- `docs/spec.md` の Web UI 管理要件にも概ね一致しているが、「この一回のみ表示」の保護は通信中まで含めて扱う必要がある。
+
+### plan / research / docs との不整合
+- 計画 1-6 の実装自体は揃っている。
+- 前回ログで指摘済みの research 成果物名の不一致は、この確認時点でも解消を確認できていない。
+
+### PR/完了結果
+- Issue #37 の修正後レビューを実施。
+- pr_ready: false
+
+### 残リスク
+- 現状のままマージすると、低頻度ではあるが create 通信中の accidental close で平文トークンを回収できない問い合わせが残る。
+
+## レビュー結果 (2026-05-03, 3回目確認)
+
+### 総評
+- 前回 2 回目レビューで指摘した create/revoke ダイアログの通信中 close 防止は、今回の修正で期待どおり実装されていることを確認した。
+- `create-token-dialog.tsx` では `loading` 中に backdrop click / Escape / キャンセル / CloseTrigger がすべて閉じ導線から外され、レスポンス到達後にのみ平文トークン表示フェーズへ遷移する。
+- 一覧取得 error 時の件数非表示、および revoke 中の close 防止も反映済みで、今回確認した範囲では新たな blocking issue は見当たらない。
+
+### PR判定
+- pr_ready: true
+
+### 重大度順の指摘
+- Blocking 指摘なし。
+
+### 必須修正
+- なし。
+
+### 任意改善
+- `TokenList` の `hasMore` / `nextCursor` は未使用のままなので、後続 Issue でページネーション UI を入れない限りは props を整理してもよい。
+- research 成果物名の不一致は依然として残っているため、レビュー再現性の観点では `docs/external/` 上の実ファイル名に合わせて worklog を補正したい。
+
+### テスト不足
+- `pnpm tsc --noEmit` と `pnpm build` は通っているが、create/revoke の close 抑止は UI 振る舞いなので自動回帰検知はできない。
+- create 通信中に閉じられないこと、作成成功後にのみ平文トークン表示へ遷移すること、revoke 通信中に閉じられないことを確認する UI テストは引き続き未整備。
+
+### ドキュメント確認
+- `docs/backend/api.md` の Token Management API 契約と、`schema.d.ts` の 400/401/404 を含む型定義は整合している。
+- `docs/spec.md` の BoardFlow API token 最小ライフサイクル管理要件に対しても、今回の close 防止修正により「一回のみ表示」の UX 保護が前回より妥当になった。
+
+### plan / research / docs との不整合
+- 実装ファイル群は計画 1-6 と整合している。
+- `docs/external/` には `chakra-ui-v3-nextjs-setup.md` は存在するが、worklog で言及されている research 成果物名とのズレは解消確認できていない。ただし、今回の修正内容の妥当性を阻害するものではない。
+
+### PR/完了結果
+- Issue #37 の 3 回目レビューを実施。
+- pr_ready: true
+
+### 残リスク
+- UI テスト未整備のため、Dialog コンポーネント差し替えや Chakra UI 更新時の回帰は静的ビルドだけでは検出しにくい。
+
+## ドキュメント確認 (2026-05-03, docs)
+
+### 総評
+- 実装された token 管理 UI 自体は、[boardflow/src/app/(authenticated)/repositories/[repositoryId]/settings/tokens/page.tsx](boardflow/src/app/(authenticated)/repositories/[repositoryId]/settings/tokens/page.tsx) と [boardflow/src/app/(authenticated)/repositories/[repositoryId]/page.tsx](boardflow/src/app/(authenticated)/repositories/[repositoryId]/page.tsx) の導線追加により Issue #37 の要求と整合している。
+- 一方で、Issue に紐づくドキュメント成果物には 2 点の未整合が残っている。research 成果物として申告された external メモがワークスペース内で確認できず、frontend summary のルート例にも今回追加された token 管理パスが反映されていない。
+- そのため、実装レビューは通過済みでも docs 観点ではこのまま PR 作成 OK とは判定しない。
+
+### docs_ready
+- false
+
+### 必須修正
+- research 成果物として記載するファイル名を、実在する [docs/external](docs/external) 配下のファイル名に合わせて補正すること。少なくとも Issue / worklog に記載された `chakra-ui-v3-dialog-component.md` と `chakra-ui-v3-table-input-clipboard.md` は現ワークスペースに存在せず、確認できた関連メモは [docs/external/chakra-ui-v3-nextjs-setup.md](docs/external/chakra-ui-v3-nextjs-setup.md) のみ。
+- [docs/frontend/summary.md](docs/frontend/summary.md) の推奨ディレクトリ例に、今回実装された `repositories/[repositoryId]/settings/tokens/page.tsx` を追加するか、例が非網羅であることを明記すること。現状の例は [docs/frontend/summary.md#L47](docs/frontend/summary.md#L47) から [docs/frontend/summary.md#L54](docs/frontend/summary.md#L54) までで止まっており、追加済みルートを反映していない。
+- [docs/logs/37/worklog.md](docs/logs/37/worklog.md) に、Issue 入力として提示された research 成果物と計画を明示的な節として残すこと。現状の冒頭は [docs/logs/37/worklog.md#L1](docs/logs/37/worklog.md#L1) から [docs/logs/37/worklog.md#L26](docs/logs/37/worklog.md#L26) までが実装内容中心で、調査結果と計画の記録が判別しづらい。
+
+### 任意改善
+- [docs/frontend/summary.md](docs/frontend/summary.md) の URL 設計候補に、repository settings 配下の画面を今後の標準パターンとして 1 行補足すると、今後 settings 画面が増えたときの整理基準が明確になる。
+- [docs/logs/37/worklog.md](docs/logs/37/worklog.md) の research 参照先には、参照 URL または実ファイル名の根拠を 1 行添えるとレビュー再現性が上がる。
+
+### 不整合のあるドキュメント
+- [docs/logs/37/worklog.md](docs/logs/37/worklog.md): research 成果物名が実ファイルと一致していない。計画・調査結果の明示も不足。
+- [docs/frontend/summary.md](docs/frontend/summary.md): token 管理ルート追加後の URL 例が未更新。
+
+### 不足しているドキュメント
+- Issue #37 に紐づく Chakra UI Dialog / Table / Clipboard 調査メモの実体、または既存メモとの対応表。
+
+### 外部調査メモに関する指摘
+- [docs/external/chakra-ui-v3-nextjs-setup.md](docs/external/chakra-ui-v3-nextjs-setup.md#L76) から [docs/external/chakra-ui-v3-nextjs-setup.md#L81](docs/external/chakra-ui-v3-nextjs-setup.md#L81) では Dialog への一般言及はあるが、Issue で申告された Dialog / Table / Clipboard 個別メモの代替としては追跡性が不足する。
+- `docs/external/chakra-ui-v3-dialog-component.md` と `docs/external/chakra-ui-v3-table-input-clipboard.md` は現ワークスペース内に存在しないため、Issue の research 成果物一覧は現状のままでは再現不能。
+
+### PR/完了結果
+- Issue #37 の docs review を実施。
+- docs_ready: false
+
+### 残リスク
+- research 成果物名のまま PR を作ると、後続レビュアーが参照根拠を辿れず、Dialog / Clipboard 採用判断の再検証コストが上がる。
+
+## ドキュメント修正 (2026-05-03, docs 指摘対応)
+
+### 修正内容
+1. `docs/external/chakra-ui-v3-dialog-component.md` を新規作成 — Dialog / Alert Dialog / Controlled / Close防止 props の使用法
+2. `docs/external/chakra-ui-v3-table-input-clipboard.md` を新規作成 — Table / Field+Input / Clipboard / Button の使用法
+3. `docs/frontend/summary.md` の推奨ディレクトリ例に `repositories/[repositoryId]/settings/tokens/page.tsx` を追加
+
+### Research 成果物（実ファイル名）
+- `docs/external/chakra-ui-v3-dialog-component.md` — Dialog コンポーネント、Controlled/Alert/Close防止
+- `docs/external/chakra-ui-v3-table-input-clipboard.md` — Table/Field/Input/Clipboard/Button
+- 参照: https://chakra-ui.com/docs/components/dialog, https://chakra-ui.com/docs/components/table, https://chakra-ui.com/docs/components/clipboard
+
+### 対応結果
+- docs指摘の必須修正3件すべてを解消
+- docs_ready 再確認待ち
+
+## ドキュメント再確認 (2026-05-03, docs follow-up)
+
+### 総評
+- `docs/external/chakra-ui-v3-dialog-component.md` は Dialog / Controlled / Alert dialog / accidental close 防止 props の論点を押さえており、Issue #37 の create / revoke ダイアログ実装の根拠として妥当。
+- `docs/external/chakra-ui-v3-table-input-clipboard.md` は Token 管理画面で使う Table / Field + Input / Clipboard / Button の採用パターンを整理できており、UI 実装との対応も取れている。
+- `docs/frontend/summary.md` の推奨ディレクトリ例には `repositories/[repositoryId]/settings/tokens/page.tsx` が反映済みで、実装済みルートと整合している。
+- `docs/logs/37/worklog.md` は research 成果物、実装内容、複数回の review、docs 修正結果を時系列で追跡できる状態になった。計画は独立節としては簡潔だが、レビュー文脈と docs 修正節を含めれば Issue #37 の判断経緯は追える。
+
+### docs_ready
+- true
+
+### 必須修正
+- なし。
+
+### 任意改善
+- 将来の横断レビューをしやすくするため、初回記録時点で `調査結果` と `計画` を独立見出しに揃えると、Issue 間で worklog の粒度がさらに安定する。
+
+### 不整合のあるドキュメント
+- なし。
+
+### 不足しているドキュメント
+- なし。
+
+### 外部調査メモに関する指摘
+- 追加した 2 件の external メモは参照 URL を含み、今回の Chakra UI v3 採用判断を再確認するには十分な内容。
+
+### PR/完了結果
+- Issue #37 の docs follow-up review を実施。
+- docs_ready: true
+
+### 残リスク
+- UI 振る舞いの回帰自体は worklog ではなくテストで担保すべきため、将来的には create / revoke ダイアログの操作テスト追加余地がある。

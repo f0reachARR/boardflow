@@ -31,7 +31,8 @@ export function TokenList({ items, repositoryId, fetchError }: Props) {
   return (
     <Box>
       <HStack justify="space-between" mb={4}>
-        <Text fontSize="sm" color="gray.600">{items.length} tokens</Text>
+        {!fetchError && <Text fontSize="sm" color="gray.600">{items.length} tokens</Text>}
+        {fetchError && <Box />}
         <Button colorPalette="blue" size="sm" onClick={() => setCreateOpen(true)}>
           新しいトークンを作成
         </Button>

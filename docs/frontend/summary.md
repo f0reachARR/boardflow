@@ -49,6 +49,7 @@ KiCad 実行、成果物生成、GitHub Issue 更新などの副作用は backen
 ```text
 app/
   repositories/[repositoryId]/page.tsx
+  repositories/[repositoryId]/settings/tokens/page.tsx
   repositories/[repositoryId]/boards/[boardProjectId]/page.tsx
   repositories/[repositoryId]/boards/[boardProjectId]/runs/page.tsx
   repositories/[repositoryId]/boards/[boardProjectId]/runs/[boardRunId]/page.tsx
