@@ -551,3 +551,160 @@ let checker: DynGithubAccessChecker =
 
 - GitHub token の失効・権限変更直後に stale データが返ると、閲覧可能 repository の判定が過大になる可能性がある
 - cleanup が未接続のため、テーブルサイズは運用期間に応じて増加する
+
+---
+
+## レビューフェーズ（2026-05-03 review エージェント / 再レビュー）
+
+### 対象
+
+- Issue ID: #63
+- タイトル: GitHub APIレスポンスのDBキャッシュとレートリミット対策
+
+### レビュー結果
+
+- `pr_ready: true`
+
+### 総評
+
+- 前回レビューで指摘した 4 件のコード修正とテスト補強は、現行実装ではいずれも反映済み
+- `CachedGithubAccessChecker` は `RateLimited` 時だけ stale を返し、`TokenExpired` / `Upstream` はそのまま上位へ返すため、前回の 401 握りつぶしリスクは解消済み
+- invalidate は `GithubAccessChecker` トレイト経由で呼べる形になっており、`DynGithubAccessChecker` 越しの呼び出しテストでも成立している
+- `inner` の trait object 化と `with_inner` により、レートリミット系の振る舞いをモック注入で検証できるようになっている
+- `users.github_access_token` へのインデックス追加も実装済みで、今回導入した逆引きホットパスと整合している
+
+### 指摘事項
+
+1. **minor**: 1件のテストが外部 GitHub 応答に依存しており、CI のネットワーク条件次第で非決定的になる
+    - `crates/api/tests/github_cache_test.rs` の `test_cached_checker_unknown_token_passes_through` は `CachedGithubAccessChecker::new` を使って実際の `RealGithubAccessChecker` を呼ぶ
+    - 現状の assert は `is_err()` のみなので壊れにくいが、外部通信・DNS・GitHub 側の遅延に影響される integration test になっている
+    - 修正案: `with_inner(...)` で専用モックを注入し、「未知トークン時は DB キャッシュを使わず inner に委譲する」こと自体をローカルに検証する
+
+### 必須修正
+
+- なし
+
+### 任意改善
+
+- `test_cached_checker_unknown_token_passes_through` をモックベースに置き換えてテストの決定性を上げる
+- `cleanup_expired_cache` の実行導線を将来 Issue で追加し、1時間超の失効行が残留し続けないようにする
+- webhook など invalidate の実呼び出し元を追加する際は、今回追加した trait メソッドをそのまま利用して結合テストも追加する
+
+### テスト不足
+
+- blocking な不足は見当たらない
+- ただし未知トークン時の pass-through は現在 external dependency を含むため、純粋なローカルテストへ寄せる余地がある
+
+### ドキュメント確認
+
+- 確認対象: `docs/spec.md`, `docs/external/github-api-rate-limit-cache.md`, `README.md`, `docs/logs/63/worklog.md`
+- `CONTRIBUTING.md` は repository 内に存在せず未確認
+- 恒久ドキュメントへの追記は必須ではないが、現状この変更の運用上の注意点は `docs/logs/63/worklog.md` に集約されている
+
+### plan / research / docs との整合
+
+- research の推奨事項である DB キャッシュ、TTL、RateLimited 限定 stale fallback、Decorator パターン、token 逆引きインデックス追加と整合している
+- plan の受け入れ条件 1 から 5 に対して、コードとテストの両方で概ね一致している
+- 前回レビューで指摘した stale 条件、invalidate 導線、inner の trait object 化、インデックス、テスト補強もいずれも反映済み
+
+### PR/完了結果
+
+- `pr_ready: true`
+- 現時点では PR 作成を止める blocking issue は確認できなかった
+
+### 残リスク
+
+- webhook 連携による明示 invalidate と cleanup の定期実行は未接続のため、権限変更即時反映とキャッシュ掃除は TTL / 手動運用に依存する
+- users テーブルに GitHub access token を保持して逆引きしている構造自体は既存設計の延長であり、今回の変更で新たな SQL injection リスクは見当たらないが、トークン保管方針そのものは将来的な設計論点として残る
+
+---
+
+## ドキュメント確認フェーズ（2026-05-03 docs エージェント）
+
+### 確認対象
+
+- `docs/backend/api.md`
+- `docs/backend/summary.md`
+- `docs/spec.md`
+- `docs/external/github-api-rate-limit-cache.md`
+- `docs/logs/63/worklog.md`
+
+### 確認結果
+
+- 実装済みの `CachedGithubAccessChecker`、`github_api_cache`、TTL 10分、RateLimited 時のみ stale-while-error 最大1時間、`invalidate_repo_cache` フック追加を確認
+- `docs/external/github-api-rate-limit-cache.md` の採用判断と実装は整合している
+- 一方で backend / spec ドキュメントには、Web UI read API の認可用 GitHub API キャッシュが未記載だった
+- 既存の webhook 実装には `invalidate_repo_cache` 呼び出しが未接続であり、ここを「invalidate 実装済み」とだけ書くと過剰記述になるため、TTL ベース運用と将来拡張を明記するのが正しい
+
+### 反映した更新
+
+- `docs/backend/api.md`: read API の repository 可視性判定で DB キャッシュを使うこと、TTL 10分、RateLimited 時のみ stale cache、TokenExpired / Upstream では stale 不使用、Webhook invalidation 未接続を追記
+- `docs/backend/summary.md`: backend アーキテクチャに `github_api_cache` と `CachedGithubAccessChecker` の役割を追記
+- `docs/spec.md`: 補助テーブル `github_api_cache` と read API 権限判定用キャッシュ運用を追記
+
+### ドキュメント判定
+
+- `docs_ready: true`
+
+### 必須修正
+
+- なし
+
+### 任意改善
+
+- 将来 `installation_repositories` webhook から `invalidate_repo_cache` を実際に呼ぶ段階で、`docs/backend/api.md` と `docs/spec.md` の invalidation 記述を「将来拡張」から「実装済み」に更新する
+- 運用タスクとして `cleanup_expired_cache` の定期実行方式が決まったら、backend 運用手順書にも追記する
+
+### テスト結果
+
+- ドキュメント更新のみのため追加テストは未実施
+
+### レビュー結果
+
+- 実装とドキュメントの不整合は解消済み
+- PR作成可否: `docs_ready: true`
+
+### 残リスク
+
+- explicit invalidation のフック自体は実装済みだが、本番コードからの呼び出し経路は未接続
+- `cleanup_expired_cache` の定期実行手段は引き続き未文書化
+
+---
+
+## PR作成フェーズ（2026-05-03 pr エージェント）
+
+### PR/完了結果
+
+- PRを作成: **https://github.com/f0reachARR/boardflow/pull/68**
+- タイトル: `feat: GitHub APIレスポンスのDBキャッシュとレートリミット対策 (#63)`
+- base: `main` ← head: `feature/63-github-api-cache`
+- Closes #63
+
+### PR作成前確認
+
+| 確認項目 | 結果 |
+|---|---|
+| `pr_ready: true`（review エージェント） | ✓ |
+| `docs_ready: true`（docs エージェント） | ✓ |
+| 未コミット変更なし（worklog除く） | ✓ |
+| `cargo build --workspace` | ✓ |
+| `cargo test --workspace` | ✓ |
+| `cargo clippy --workspace` | ✓ |
+| `cargo fmt --all` | ✓ |
+
+### コミット構成
+
+| コミット | 内容 |
+|---|---|
+| `9b1738c` | feat(#63): add GitHub API cache layer with DB-backed TTL and stale-while-error |
+| `4c6e3ec` | test(#63): add integration tests for GitHub API cache layer |
+| `b8e0898` | docs(#63): update worklog with implementation details and test results |
+| `07b284a` | fix(#63): address review feedback on GitHub API cache |
+| `3d37cf6` | docs(#63): update worklog with review fix phase details |
+| `b1912c8` | docs(#63): add cache layer documentation to api.md, summary.md and spec.md |
+
+### 残リスク
+
+- `cleanup_expired_cache` の定期実行（ジョブ/cron）は未実装 → 将来 Issue 化推奨
+- Webhook (`installation_repositories`) による明示的 invalidation は未実装 → 別 Issue 予定
+- `invalidate_repo_cache` の実際の呼び出しユースケース（Webhook 受信時など）は本 Issue 範囲外
