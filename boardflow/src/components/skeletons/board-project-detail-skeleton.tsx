@@ -14,7 +14,7 @@ export function BoardProjectDetailSkeleton() {
         </Box>
         <Box borderWidth="1px" borderRadius="md" p={4}>
           <VStack align="stretch" gap={3}>
-            {Array.from({ length: 3 }).map((_, i) => (
+            {Array.from({ length: 4 }).map((_, i) => (
               <HStack key={i} justify="space-between">
                 <Skeleton height="16px" width="100px" />
                 <Skeleton height="16px" width="150px" />
@@ -23,13 +23,15 @@ export function BoardProjectDetailSkeleton() {
           </VStack>
         </Box>
         <Box>
-          <Heading size="md" mb={4}>Recent Runs</Heading>
+          <Heading size="md" mb={3}>Recent Runs</Heading>
           <Table.Root size="sm" variant="outline">
             <Table.Header>
               <Table.Row>
                 <Table.ColumnHeader>Status</Table.ColumnHeader>
                 <Table.ColumnHeader>Commit</Table.ColumnHeader>
                 <Table.ColumnHeader>Branch</Table.ColumnHeader>
+                <Table.ColumnHeader>ERC</Table.ColumnHeader>
+                <Table.ColumnHeader>DRC</Table.ColumnHeader>
                 <Table.ColumnHeader>Created</Table.ColumnHeader>
               </Table.Row>
             </Table.Header>
@@ -39,6 +41,8 @@ export function BoardProjectDetailSkeleton() {
                   <Table.Cell><Skeleton height="20px" width="80px" /></Table.Cell>
                   <Table.Cell><Skeleton height="20px" width="70px" /></Table.Cell>
                   <Table.Cell><Skeleton height="20px" width="100px" /></Table.Cell>
+                  <Table.Cell><Skeleton height="20px" width="60px" /></Table.Cell>
+                  <Table.Cell><Skeleton height="20px" width="60px" /></Table.Cell>
                   <Table.Cell><Skeleton height="20px" width="100px" /></Table.Cell>
                 </Table.Row>
               ))}

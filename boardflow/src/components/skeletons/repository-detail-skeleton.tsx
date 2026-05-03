@@ -15,6 +15,13 @@ export function RepositoryDetailSkeleton() {
           </HStack>
         </Box>
         <Box>
+          <Heading size="md" mb={4}>Settings</Heading>
+          <HStack gap={2}>
+            <Skeleton height="16px" width="16px" />
+            <Skeleton height="16px" width="100px" />
+          </HStack>
+        </Box>
+        <Box>
           <Heading size="md" mb={4}>Board Projects</Heading>
           <Table.Root size="sm" variant="outline">
             <Table.Header>

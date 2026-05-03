@@ -429,3 +429,134 @@ export default async function RepositoriesPage() {
 ### 更新した作業ログパス
 
 `docs/logs/65/worklog.md`
+
+---
+
+## レビュー結果 (2026-05-04)
+
+### フェーズ: Review
+
+#### 対象Issue
+
+- Issue ID: #65
+- タイトル: Streaming SSRとローディングUI実装
+
+#### 調査結果
+
+- 実装差分を確認: `loading.tsx` / `error.tsx` の追加、`RepositoriesList` の `useSuspenseQuery` 化、`/repositories/page.tsx` の `prefetchQuery` 非同期化を確認
+- QueryClient 設定を確認: `shouldDehydrateQuery` で `pending` を dehydration 対象に含めており、Streaming SSR の成立条件は満たしている
+- 外部整合を確認:
+  - Next.js App Router の `loading.tsx` / `error.tsx` の基本挙動と整合
+  - TanStack Query の `prefetchQuery` + `useSuspenseQuery` パターンと整合
+  - Chakra UI v3 Skeleton API の利用自体は妥当
+- 実行検証を再実施:
+  - `pnpm typecheck` ✅
+  - `pnpm lint` ✅
+  - `pnpm build` ✅
+
+#### レビュー結果
+
+**総評**
+
+- `/repositories` の Streaming SSR 化そのものは成立しており、ビルドも通っている
+- ただし、Suspense エラー時の再試行経路と、CLS 配慮をうたうスケルトン近似度、設計ドキュメントの追従に未解決点が残る
+- この状態では `pr_ready: false`
+
+**重大度順の指摘**
+
+1. **中**: Suspense Query のエラー再試行導線が不完全
+   - `RepositoriesList` は `useSuspenseQuery` を利用している一方で、共通 Provider 配下に `QueryErrorResetBoundary` も `useQueryErrorResetBoundary` も導入されていない
+   - `error.tsx` から渡される `reset` をそのまま押しても、TanStack Query 側の query error state を明示的に reset しないため、失敗キャッシュが残ったまま再描画されるリスクがある
+   - 公式ドキュメントでも Suspense 利用時の Error Boundary reset には Query 側の reset 連携が必要とされている
+
+2. **中**: スケルトン UI が実レイアウトを十分に近似しておらず、Issue の CLS 要件とずれている
+   - `RepositoryDetailSkeleton` は実画面に存在する `Settings` セクションを持たず、`Board Projects` テーブルへ直接遷移する構成になっている
+   - `BoardProjectDetailSkeleton` の `Recent Runs` は 4 列構成だが、実画面は `ERC` / `DRC` を含む 6 列構成
+   - `RunDetailSkeleton` は汎用カード 1 つと大きなプレースホルダ中心で、実画面の `Checks`、`Artifact Summary`、`Changes from Baseline`、viewer セクションをほぼ反映していない
+   - loading UI は存在するが、計画で掲げた「寸法を実コンテンツに近似して CLS を最小化」には未達
+
+3. **低**: 実装方針の要約ドキュメントが最新状態に追従していない
+   - `docs/frontend/summary.md` には依然として「Client Component は `$api.useQuery()` を基本形」とあり、今回導入した `useSuspenseQuery` + `loading.tsx` + Streaming SSR の方針が反映されていない
+   - worklog と research は更新されているが、継続開発で参照されやすい要約ドキュメントが古いままになっている
+
+**必須修正**
+
+- `useSuspenseQuery` のエラー再試行経路を整備する
+  - `QueryErrorResetBoundary` または `useQueryErrorResetBoundary` を導入し、`error.tsx` の `reset` と TanStack Query の reset を接続する
+- 各スケルトンを実画面構成に寄せる
+  - 少なくとも、`RepositoryDetailSkeleton` の `Settings`、`BoardProjectDetailSkeleton` の `ERC` / `DRC` 列、`RunDetailSkeleton` の主要セクションを反映する
+
+**任意改善**
+
+- `/repositories/page.tsx` の `prefetchQuery(...)` には `void` を付け、意図的な fire-and-forget をコード上で明示してもよい
+- `RepositoriesList` の `data?.items ?? []` は Suspense 前提では `data.items ?? []` に寄せると意図が読みやすい
+
+**テスト不足**
+
+- API エラー時に `error.tsx` の `Try again` が実際に復旧経路として機能するかの動作確認がない
+- skeleton 表示から実データ表示への遷移で大きなレイアウトシフトが出ないかの確認が手動観点に留まっている
+
+**ドキュメント確認**
+
+- 更新あり:
+  - `docs/external/chakra-ui-v3-skeleton.md`
+  - `docs/external/nextjs-streaming-ssr-loading.md`
+  - `docs/external/tanstack-query-v5-suspense.md`
+  - `docs/logs/65/worklog.md`
+- 更新漏れ候補:
+  - `docs/frontend/summary.md` に Suspense/Streaming SSR 方針の反映が必要
+- `CONTRIBUTING.md` はリポジトリ内に存在せず、確認不可
+
+**plan / research / docs との不整合**
+
+- research では Suspense エラー時に Query reset 連携が必要と整理されているが、実装には反映されていない
+- 計画では CLS を最小化するためのレイアウト近似を受け入れ条件に含めているが、詳細系 skeleton がそこまで到達していない
+- 計画中の「`docs/frontend/summary.md` 追記」は未実施
+
+**PR/完了結果**
+
+- `pr_ready: false`
+
+**残リスク**
+
+- `/repositories` の初回 API 障害時に、ユーザーが `Try again` を押しても即復旧できない可能性がある
+- 詳細ページ群の skeleton は視覚的には表示されるが、実レイアウトとの差分が大きく CLS を誘発する可能性がある
+
+### 更新した作業ログパス
+
+`docs/logs/65/worklog.md`
+
+---
+
+## レビュー修正 (2026-05-04)
+
+### 指摘と修正内容
+
+| # | 指摘 | 修正 |
+|---|---|---|
+| 1 | `QueryErrorResetBoundary` 未導入 | `error-boundary.tsx` に `useQueryErrorResetBoundary` を追加し、`handleReset` で Query リセット → Next.js reset の順に呼ぶよう変更 |
+| 2-1 | `repository-detail-skeleton.tsx` に Settings セクション欠如 | Settings セクション（アイコン + リンクスケルトン）を Board Projects の前に追加 |
+| 2-2 | `board-project-detail-skeleton.tsx` の Recent Runs に ERC/DRC 列がない | テーブルを4列 → 6列（Status, Commit, Branch, ERC, DRC, Created）に修正。メタ情報行も3→4行に |
+| 2-3 | `run-detail-skeleton.tsx` に Checks/Artifact Summary/Artifacts テーブルが欠如 | 全面書き直し: Header + Checks (2カード) + Artifact Summary + Artifacts テーブル(4列4行)構成に |
+| 3 | `docs/frontend/summary.md` のAPI連携セクションが未更新 | `useSuspenseQuery` / Streaming SSR / `loading.tsx` / `QueryErrorResetBoundary` の記述を追加 |
+
+### テスト結果
+
+| チェック | 結果 |
+|---|---|
+| `pnpm typecheck` | ✅ パス |
+| `pnpm lint` | ✅ パス |
+| `pnpm build` | ✅ パス |
+
+### Git
+
+- コミット: `6d2d9ca` — `fix(frontend): address review feedback for #65`
+
+### 残リスク
+
+- 指摘はすべて解消済み
+- Nginx ストリーミング設定 (`X-Accel-Buffering: no`) は本番デプロイ時に別途対応が必要
+
+### 更新した作業ログパス
+
+`docs/logs/65/worklog.md`
