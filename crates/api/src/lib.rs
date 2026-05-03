@@ -78,17 +78,19 @@ pub fn create_app_with_config(
     let checker: DynGithubAccessChecker =
         access_checker.unwrap_or_else(|| Arc::new(RealGithubAccessChecker::new()));
 
-    let bucket = FinalBucket(final_bucket.unwrap_or_else(|| {
-        optional_env_or("MINIO_BUCKET_FINAL", "boardflow-final")
-    }));
+    let bucket = FinalBucket(
+        final_bucket.unwrap_or_else(|| optional_env_or("MINIO_BUCKET_FINAL", "boardflow-final")),
+    );
 
-    let staging = StagingBucket(staging_bucket.unwrap_or_else(|| {
-        optional_env_or("MINIO_BUCKET_STAGING", "boardflow-staging")
-    }));
+    let staging = StagingBucket(
+        staging_bucket
+            .unwrap_or_else(|| optional_env_or("MINIO_BUCKET_STAGING", "boardflow-staging")),
+    );
 
-    let domain = AppDomain(app_domain.unwrap_or_else(|| {
-        optional_env_or("BOARDFLOW_APP_DOMAIN", "http://localhost:3000")
-    }));
+    let domain = AppDomain(
+        app_domain
+            .unwrap_or_else(|| optional_env_or("BOARDFLOW_APP_DOMAIN", "http://localhost:3000")),
+    );
 
     let base_url = ArtifactBaseUrl(artifact_base_url.unwrap_or_else(|| {
         optional_env_or("BOARDFLOW_ARTIFACT_BASE_URL", "http://localhost:8080")

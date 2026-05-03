@@ -33,7 +33,10 @@ fn test_app_config_from_env() {
         std::env::set_var("BOARDFLOW_ARTIFACT_SECRET", "test-secret");
     }
     let config = AppConfig::from_env().unwrap();
-    assert_eq!(config.db.database_url, "postgres://test:test@localhost/test");
+    assert_eq!(
+        config.db.database_url,
+        "postgres://test:test@localhost/test"
+    );
     assert_eq!(config.api_host, "0.0.0.0");
     assert_eq!(config.api_port, 3000);
     assert_eq!(config.rust_log, "info");
@@ -63,10 +66,7 @@ fn test_app_config_from_env() {
     assert_eq!(config.api_port, 8080);
     assert_eq!(config.rust_log, "debug");
     assert_eq!(config.redis_url.as_deref(), Some("redis://localhost:6379"));
-    assert_eq!(
-        config.s3.endpoint.as_deref(),
-        Some("http://localhost:9000")
-    );
+    assert_eq!(config.s3.endpoint.as_deref(), Some("http://localhost:9000"));
     assert_eq!(config.s3.access_key.as_deref(), Some("minioadmin"));
     assert_eq!(config.s3.secret_key.as_deref(), Some("minioadmin"));
     assert_eq!(config.s3.staging_bucket, "custom-staging");
@@ -78,7 +78,10 @@ fn test_app_config_from_env() {
     }
     let result = AppConfig::from_env();
     assert!(result.is_err(), "無効なポート番号はエラーを返すべき");
-    assert!(matches!(result.unwrap_err(), ConfigError::InvalidValue { .. }));
+    assert!(matches!(
+        result.unwrap_err(),
+        ConfigError::InvalidValue { .. }
+    ));
 
     // 5. ポート番号が範囲外(65536以上)の場合もエラー
     unsafe {
@@ -86,7 +89,10 @@ fn test_app_config_from_env() {
     }
     let result = AppConfig::from_env();
     assert!(result.is_err(), "範囲外のポート番号はエラーを返すべき");
-    assert!(matches!(result.unwrap_err(), ConfigError::InvalidValue { .. }));
+    assert!(matches!(
+        result.unwrap_err(),
+        ConfigError::InvalidValue { .. }
+    ));
 
     // cleanup
     unsafe {

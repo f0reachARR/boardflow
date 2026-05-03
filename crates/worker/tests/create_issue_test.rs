@@ -98,7 +98,9 @@ impl GitHubAppClient for MockGitHubClient {
 
 fn make_config() -> boardflow_worker::WorkerConfig {
     boardflow_worker::WorkerConfig {
-        db: boardflow_config::DatabaseConfig { database_url: String::new() },
+        db: boardflow_config::DatabaseConfig {
+            database_url: String::new(),
+        },
         s3: boardflow_config::S3Config {
             endpoint: None,
             access_key: None,

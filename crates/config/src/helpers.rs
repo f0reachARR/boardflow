@@ -61,20 +61,29 @@ mod tests {
     #[test]
     fn optional_env_returns_some_when_set() {
         unsafe { env::set_var("__TEST_OPTIONAL_SET", "world") };
-        assert_eq!(optional_env("__TEST_OPTIONAL_SET"), Some("world".to_string()));
+        assert_eq!(
+            optional_env("__TEST_OPTIONAL_SET"),
+            Some("world".to_string())
+        );
         unsafe { env::remove_var("__TEST_OPTIONAL_SET") };
     }
 
     #[test]
     fn optional_env_or_returns_default_when_missing() {
         unsafe { env::remove_var("__TEST_OPT_OR_MISSING") };
-        assert_eq!(optional_env_or("__TEST_OPT_OR_MISSING", "default_val"), "default_val");
+        assert_eq!(
+            optional_env_or("__TEST_OPT_OR_MISSING", "default_val"),
+            "default_val"
+        );
     }
 
     #[test]
     fn optional_env_or_returns_value_when_set() {
         unsafe { env::set_var("__TEST_OPT_OR_SET", "custom") };
-        assert_eq!(optional_env_or("__TEST_OPT_OR_SET", "default_val"), "custom");
+        assert_eq!(
+            optional_env_or("__TEST_OPT_OR_SET", "default_val"),
+            "custom"
+        );
         unsafe { env::remove_var("__TEST_OPT_OR_SET") };
     }
 

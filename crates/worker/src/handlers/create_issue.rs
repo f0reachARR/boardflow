@@ -305,7 +305,9 @@ mod tests {
             .expect("connect_lazy should not fail");
 
         let config = WorkerConfig {
-            db: boardflow_config::DatabaseConfig { database_url: String::new() },
+            db: boardflow_config::DatabaseConfig {
+                database_url: String::new(),
+            },
             s3: boardflow_config::S3Config {
                 endpoint: None,
                 access_key: None,

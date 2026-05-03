@@ -250,7 +250,8 @@ pub async fn create_board_run(
             "staging/runs/{}/bundle.zip",
             format_board_run_id(existing.id)
         );
-        let upload_info = generate_upload_info(&s3_client, &staging_bucket.0, &object_key, 3600).await?;
+        let upload_info =
+            generate_upload_info(&s3_client, &staging_bucket.0, &object_key, 3600).await?;
         return Ok(Json(CreateBoardRunResponse {
             board_run_id: format_board_run_id(existing.id),
             status: status_str.to_string(),
@@ -296,7 +297,8 @@ pub async fn create_board_run(
     })?;
 
     // 7. Generate presigned URL
-    let upload_info = generate_upload_info(&s3_client, &staging_bucket.0, &object_key, 3600).await?;
+    let upload_info =
+        generate_upload_info(&s3_client, &staging_bucket.0, &object_key, 3600).await?;
 
     Ok(Json(CreateBoardRunResponse {
         board_run_id: format_board_run_id(board_run.id),
