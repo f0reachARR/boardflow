@@ -249,6 +249,11 @@ export interface paths {
             "application/json": PaginatedResponse<ApiToken>
           }
         }
+        400: {
+          content: {
+            "application/json": ApiError
+          }
+        }
         401: {
           content: {
             "application/json": ApiError

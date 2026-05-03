@@ -12,9 +12,10 @@ interface Props {
   repositoryId: string
   hasMore: boolean
   nextCursor: string | null
+  fetchError?: string
 }
 
-export function TokenList({ items, repositoryId }: Props) {
+export function TokenList({ items, repositoryId, fetchError }: Props) {
   const router = useRouter()
   const [createOpen, setCreateOpen] = useState(false)
   const [revokeTarget, setRevokeTarget] = useState<ApiToken | null>(null)
@@ -36,7 +37,9 @@ export function TokenList({ items, repositoryId }: Props) {
         </Button>
       </HStack>
 
-      {items.length === 0 ? (
+      {fetchError ? (
+        <Text color="red.500">{fetchError}</Text>
+      ) : items.length === 0 ? (
         <Text color="gray.500">APIトークンはまだありません。</Text>
       ) : (
         <Table.Root size="sm" variant="outline">

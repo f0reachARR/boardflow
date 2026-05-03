@@ -26,6 +26,7 @@ export default async function TokensPage({ params }: Props) {
   }
 
   const repo = repoRes.data!
+  const fetchError = tokensRes.error ? "トークン一覧の取得に失敗しました" : undefined
   const tokens = tokensRes.data?.items ?? []
   const hasMore = tokensRes.data?.has_more ?? false
   const nextCursor = tokensRes.data?.next_cursor ?? null
@@ -46,6 +47,7 @@ export default async function TokensPage({ params }: Props) {
           repositoryId={repositoryId}
           hasMore={hasMore}
           nextCursor={nextCursor}
+          fetchError={fetchError}
         />
       </VStack>
     </Box>

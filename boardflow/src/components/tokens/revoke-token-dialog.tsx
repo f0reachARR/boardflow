@@ -15,20 +15,24 @@ interface Props {
 
 export function RevokeTokenDialog({ repositoryId, tokenId, tokenName, open, onOpenChange, onRevoked }: Props) {
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState("")
 
   const handleRevoke = async () => {
+    setError("")
     setLoading(true)
-    const { error } = await apiClient.POST(
+    const { error: apiError } = await apiClient.POST(
       "/api/v1/repositories/{github_repository_id}/api-tokens/{token_id}/revoke",
       {
         params: { path: { github_repository_id: repositoryId, token_id: tokenId } },
       }
     )
     setLoading(false)
-    if (!error) {
-      onRevoked()
-      onOpenChange(false)
+    if (apiError) {
+      setError(apiError.error.message)
+      return
     }
+    onRevoked()
+    onOpenChange(false)
   }
 
   return (
@@ -44,6 +48,11 @@ export function RevokeTokenDialog({ repositoryId, tokenId, tokenName, open, onOp
               <Text>
                 トークン「{tokenName}」を失効しますか？この操作は取り消せません。
               </Text>
+              {error && (
+                <Text color="red.500" mt={3} fontSize="sm">
+                  {error}
+                </Text>
+              )}
             </Dialog.Body>
             <Dialog.Footer>
               <HStack>
