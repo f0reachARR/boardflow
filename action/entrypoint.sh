@@ -377,7 +377,7 @@ for i in "${!VALID_PROJECTS[@]}"; do
     artifacts_status=$(add_artifact_failed "$artifacts_status" "ibom" "iBOM generation failed")
   fi
 
-  # R-1: Add KiCad source artifacts
+  # R-1: Add KiCad source artifacts (with source_path per spec §8.6)
   while IFS= read -r src_file; do
     [ -z "$src_file" ] && continue
     src_rel="${src_file#$project_dir/}"
@@ -390,7 +390,8 @@ for i in "${!VALID_PROJECTS[@]}"; do
         *.kicad_wks) kicad_type="kicad_worksheet" ;;
       esac
       staging_path="kicad/$rel_dir/$src_rel"
-      artifacts_status=$(add_artifact_available "$artifacts_status" "$kicad_type" "$staging_path" "application/octet-stream" "$src_file")
+      source_path="$rel_dir/$src_rel"
+      artifacts_status=$(add_artifact_source "$artifacts_status" "$kicad_type" "$staging_path" "$source_path" "$src_file")
     fi
   done < <(find "$project_dir" -maxdepth 1 -type f \( -name "*.kicad_pro" -o -name "*.kicad_sch" -o -name "*.kicad_pcb" -o -name "*.kicad_wks" \) | LC_ALL=C sort)
 

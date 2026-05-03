@@ -22,6 +22,28 @@ add_artifact_available() {
     '. + [{"type": $type, "status": "available", "path": $path, "content_type": $ct, "sha256": $sha, "size_bytes": $size}]'
 }
 
+# Add artifact entry for KiCad source file (includes source_path)
+add_artifact_source() {
+  local artifacts_json="$1"
+  local type="$2"
+  local path="$3"
+  local source_path="$4"
+  local file_path="$5"
+
+  local sha256 size_bytes
+  sha256=$(sha256sum "$file_path" | cut -d' ' -f1)
+  size_bytes=$(stat -c%s "$file_path")
+
+  echo "$artifacts_json" | jq \
+    --arg type "$type" \
+    --arg path "$path" \
+    --arg sp "$source_path" \
+    --arg ct "text/plain; charset=utf-8" \
+    --arg sha "sha256:$sha256" \
+    --argjson size "$size_bytes" \
+    '. + [{"type": $type, "status": "available", "path": $path, "source_path": $sp, "content_type": $ct, "sha256": $sha, "size_bytes": $size}]'
+}
+
 # Add artifact entry for failed artifact
 add_artifact_failed() {
   local artifacts_json="$1"
