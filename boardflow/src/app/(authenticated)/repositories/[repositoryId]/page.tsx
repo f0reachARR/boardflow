@@ -3,6 +3,7 @@ import Link from "next/link"
 import { notFound } from "next/navigation"
 import { createServerClient } from "@/lib/api/server"
 import { Breadcrumb } from "@/components/ui/breadcrumb"
+import { Key } from "lucide-react"
 
 function stateColor(state: string): string {
   switch (state) {
@@ -73,6 +74,16 @@ export default async function RepositoryDetailPage({ params }: Props) {
               </a>
             )}
           </HStack>
+        </Box>
+
+        <Box>
+          <Heading size="md" mb={4}>Settings</Heading>
+          <Link href={`/repositories/${repositoryId}/settings/tokens`}>
+            <HStack gap={2} color="blue.600" _hover={{ textDecoration: "underline" }}>
+              <Key size={16} />
+              <Text fontWeight="medium">API Tokens</Text>
+            </HStack>
+          </Link>
         </Box>
 
         <Box>
