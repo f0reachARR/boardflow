@@ -961,3 +961,114 @@ H-NEW-1 (source_path欠落) はbackend検証で拒否される可能性が高く
 1. `bundle.sh` に `add_artifact_kicad_source()` 関数追加（source_path, content_type="text/plain; charset=utf-8" を含む）
 2. `entrypoint.sh` L381-395 で当該関数を使用、rel_dir="." 時のパス正規化を追加
 3. 再レビュー実施
+
+---
+
+## ドキュメント確認
+
+**実施日時**: 2026-05-04
+**対象コミット**: `1e7fc9b` (fix: add source_path to KiCad source artifacts (H-NEW-1))
+
+### 1. spec.md §2.2 workflow例 vs action.yml
+
+| 項目 | spec.md §2.2 | action.yml | 整合性 |
+|------|-------------|------------|--------|
+| uses | `example/boardflow-action@v1` | - | ✅ 参考パス |
+| token | `${{ secrets.BOARDFLOW_TOKEN }}` | input定義あり | ✅ |
+| mode | `${{ github.event.inputs.mode \|\| 'auto' }}` | default: 'auto' | ✅ |
+| exclude-paths | 複数行glob | input定義あり | ✅ |
+| api-url | (未使用) | default設定あり | ✅ |
+| fail-on-drc | (未使用) | default: 'false' | ✅ |
+| fail-on-erc | (未使用) | default: 'false' | ✅ |
+
+**結果**: ✅ 整合
+
+### 2. spec.md §5.2 Action inputs vs action.yml
+
+| 項目 | spec §5.2 | action.yml (実装) | 整合性 |
+|------|-----------|-------------------|--------|
+| name | `BoardFlow` | `BoardFlow Action` | ⚠️ 軽微差異（機能影響なし） |
+| description | `Build KiCad projects and upload artifacts to BoardFlow` | `KiCad CI/CD - Generate artifacts and upload to BoardFlow` | ⚠️ 軽微差異 |
+| inputs 全6項目 | 定義あり | 完全一致 | ✅ |
+| outputs.result | なし | 定義あり（追加） | ✅ 追加は問題なし |
+| runs.using | `docker` | `docker` | ✅ |
+| runs.image | `Dockerfile` | `Dockerfile` | ✅ |
+| runs.args | `- run` | **なし** | ⚠️ 乖離あり |
+
+**乖離点**: spec §5.2 では `args: - run` を定義しているが、action.yml にはargsが含まれない。entrypoint.shはargs不要で動作するため機能影響はないが、将来サブコマンド追加時に不整合となる。
+
+**推奨対応**: spec.md側の `args: - run` を削除するか、action.ymlに `args: - run` を追加してentrypoint.shで引数を受け取るようにする。現時点ではどちらも実害なし。
+
+### 3. docs/external/kicad-docker-cli.md §4 vs action/Dockerfile
+
+| 項目 | §4参考例 | 実装Dockerfile | 整合性 |
+|------|---------|---------------|--------|
+| ベースイメージ | `kicad/kicad:9.0` | `kicad/kicad:9.0` | ✅ |
+| USER root | あり | あり | ✅ |
+| python3-pip | あり | あり | ✅ |
+| xvfb | あり | あり | ✅ |
+| interactivehtmlbom | `pip install` | `pip3 install` | ✅ 同等 |
+| --break-system-packages | あり | あり | ✅ |
+| 追加パッケージ | なし | jq, curl, zip, ca-certificates, python3-yaml | ✅ 正当な追加 |
+| ENTRYPOINT | コメントアウト | `/action/entrypoint.sh` | ✅ |
+
+**結果**: ✅ 整合。実装は参考例を適切に拡張している。
+
+### 4. docs/external/github-actions-docker-action.md の正確性
+
+| セクション | 内容 | 正確性 |
+|-----------|------|--------|
+| ファイル構成 | action.yml / Dockerfile / entrypoint.sh | ✅ |
+| action.yml スキーマ | runs.using, image, args等 | ✅ |
+| image指定方法 | Dockerfile / docker:// | ✅ |
+| **inputs受け渡し** | `INPUT_` + 大文字化 (ハイフンはそのまま) | ❌ **誤り** |
+| outputs設定 | `$GITHUB_OUTPUT` | ✅ |
+| Job Summary | `$GITHUB_STEP_SUMMARY` | ✅ |
+| 環境変数一覧 | GITHUB_* 各種 | ✅ |
+| Docker制約 | Linux限定, imageビルドキャッシュなし | ✅ |
+
+**重大な誤り**: ドキュメント内の inputs 受け渡しセクションに以下の記述がある:
+
+> `input-id: api-url` → 環境変数 `INPUT_API-URL`
+> 変換規則: `INPUT_` + 大文字化 (ハイフンはそのまま)
+
+**実際の動作**: GitHub Actionsはハイフンをアンダースコアに変換する。正しくは:
+- `input-id: api-url` → 環境変数 `INPUT_API_URL`
+- 変換規則: `INPUT_` + 大文字化 + ハイフン→アンダースコア変換
+
+entrypoint.shの実装（C-1修正後）は `INPUT_API_URL` で正しく参照しており、ドキュメントの方が不正確。
+
+### 5. docs/logs/60/worklog.md の正確性
+
+| セクション | 内容 | 正確性 |
+|-----------|------|--------|
+| Issue経緯 | 既存issue/docの参照 | ✅ |
+| 調査結果 | action.yml仕様, env変数, Job Summary | ✅（上記INPUT_*の誤り除く） |
+| 計画 | ファイル構成, 関数設計, 実装順序 | ✅ |
+| 実装内容 | ファイル一覧, 主要判断 | ✅ |
+| レビュー結果 (初回) | C-1〜C-3, H-1〜H-7, M-1〜M-6 | ✅ 指摘は正確 |
+| 再レビュー結果 | R-1〜R-6 | ✅ |
+| 最終レビュー結果 | H-NEW-1, M-NEW-1, M-NEW-2 | ✅ |
+
+### 6. 未修正の残存乖離（M-NEW-2）
+
+`entrypoint.sh` L392-393 で `rel_dir="."` 時のパス正規化が未実装:
+
+```bash
+staging_path="kicad/$rel_dir/$src_rel"  # → "kicad/./file.kicad_pro"
+source_path="$rel_dir/$src_rel"          # → "./file.kicad_pro"
+```
+
+spec §8.5 の例では `"kicad/hardware/motor_driver/motor_driver.kicad_pro"` のようにクリーンなパスを要求。root-levelプロジェクトでは `"kicad/file.kicad_pro"` が正しい。
+
+### 判定
+
+**`docs_ready: false`**
+
+### 修正が必要な箇所
+
+| # | ファイル | 内容 | 優先度 |
+|---|---------|------|--------|
+| 1 | `docs/external/github-actions-docker-action.md` | INPUT_* 環境変数のハイフン→アンダースコア変換ルールの記述を修正 | High |
+| 2 | `docs/spec.md` §5.2 または `action/action.yml` | `args: - run` の有無を一致させる | Low |
+| 3 | `action/entrypoint.sh` L392-393 | M-NEW-2: `rel_dir="."` 時のパス正規化（`./` prefix除去） | Medium |

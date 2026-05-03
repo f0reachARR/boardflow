@@ -72,8 +72,8 @@ image: 'docker://ghcr.io/owner/action-image:v1'
 ## inputs の受け渡し
 
 inputsを定義すると、Docker container action内で自動的に環境変数として設定される:
-- `input-id: api-url` → 環境変数 `INPUT_API-URL`
-- 変換規則: `INPUT_` + 大文字化 (ハイフンはそのまま)
+- `input-id: api-url` → 環境変数 `INPUT_API_URL`
+- 変換規則: `INPUT_` + 大文字化 + ハイフンをアンダースコアに変換
 
 ```yaml
 # action.yml
@@ -90,8 +90,8 @@ runs:
 
 ```bash
 # entrypoint.sh 内でのアクセス方法
-# 方法1: 環境変数から (自動注入)
-echo "$INPUT_API-URL"
+# 方法1: 環境変数から (自動注入、ハイフンはアンダースコアに変換される)
+echo "$INPUT_API_URL"
 
 # 方法2: args経由 (位置引数)
 API_URL="$1"

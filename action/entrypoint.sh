@@ -389,8 +389,13 @@ for i in "${!VALID_PROJECTS[@]}"; do
         *.kicad_pcb) kicad_type="kicad_pcb" ;;
         *.kicad_wks) kicad_type="kicad_worksheet" ;;
       esac
-      staging_path="kicad/$rel_dir/$src_rel"
-      source_path="$rel_dir/$src_rel"
+      if [ "$rel_dir" = "." ]; then
+        staging_path="kicad/$src_rel"
+        source_path="$src_rel"
+      else
+        staging_path="kicad/$rel_dir/$src_rel"
+        source_path="$rel_dir/$src_rel"
+      fi
       artifacts_status=$(add_artifact_source "$artifacts_status" "$kicad_type" "$staging_path" "$source_path" "$src_file")
     fi
   done < <(find "$project_dir" -maxdepth 1 -type f \( -name "*.kicad_pro" -o -name "*.kicad_sch" -o -name "*.kicad_pcb" -o -name "*.kicad_wks" \) | LC_ALL=C sort)
@@ -445,7 +450,11 @@ for i in "${!VALID_PROJECTS[@]}"; do
   cp "$diff_dir/previews.json" "$staging_dir/diff/" 2>/dev/null
 
   # H-5: Collect KiCad source files
-  kicad_staging="$staging_dir/kicad/$rel_dir"
+  if [ "$rel_dir" = "." ]; then
+    kicad_staging="$staging_dir/kicad"
+  else
+    kicad_staging="$staging_dir/kicad/$rel_dir"
+  fi
   mkdir -p "$kicad_staging"
   find "$project_dir" -maxdepth 1 \( -name "*.kicad_pro" -o -name "*.kicad_sch" -o -name "*.kicad_pcb" -o -name "*.kicad_wks" \) -type f | while IFS= read -r src_file; do
     src_rel="${src_file#$project_dir/}"
