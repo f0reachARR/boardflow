@@ -1,0 +1,10 @@
+[package]
+name = "boardflow-config"
+version = "0.0.1"
+edition = "2024"
+
+[dependencies]
+thiserror = { workspace = true }
+
+[lints]
+workspace = true

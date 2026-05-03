@@ -195,7 +195,7 @@ pub async fn handle(
         &run,
         board_project_id,
         bp.github_repository_id,
-        &config.app_base_url,
+        &config.app_domain,
     );
 
     // Fallback: if dashboard_comment_id is None, create instead of update

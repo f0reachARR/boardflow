@@ -8,6 +8,7 @@ members = [
     "crates/jobs",
     "crates/github",
     "crates/artifact",
+    "crates/config",
 ]
 
 [workspace.dependencies]

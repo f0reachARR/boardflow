@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 boardflow-artifact = { path = "../artifact" }
+boardflow-config = { path = "../config" }
 boardflow-db = { path = "../db" }
 boardflow-domain = { path = "../domain" }
 boardflow-github = { path = "../github" }
@@ -22,6 +23,7 @@ tracing-subscriber = { workspace = true }
 uuid = { workspace = true }
 
 [dev-dependencies]
+boardflow-config = { path = "../config" }
 rand = { workspace = true }
 serial_test = { workspace = true }
 

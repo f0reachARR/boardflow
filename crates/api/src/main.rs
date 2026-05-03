@@ -12,13 +12,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     tracing::info!("Starting BoardFlow API server");
 
-    let pool = boardflow_db::create_pool(&config.database_url).await?;
+    let pool = boardflow_db::create_pool(&config.db.database_url).await?;
     tracing::info!("Database connection established");
 
-    let s3_client = if let Some(endpoint) = &config.minio_endpoint {
+    let s3_client = if let Some(endpoint) = &config.s3.endpoint {
         let creds = aws_sdk_s3::config::Credentials::new(
-            config.minio_access_key.as_deref().unwrap_or("minioadmin"),
-            config.minio_secret_key.as_deref().unwrap_or("minioadmin"),
+            config.s3.access_key.as_deref().unwrap_or("minioadmin"),
+            config.s3.secret_key.as_deref().unwrap_or("minioadmin"),
             None,
             None,
             "env",
@@ -38,12 +38,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let app = boardflow_api::create_app_with_config(
         pool,
         s3_client,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
+        Some(boardflow_api::routes::auth::OAuthConfig {
+            client_id: config.github_client_id.unwrap_or_default(),
+            client_secret: config.github_client_secret.unwrap_or_default(),
+        }),
+        Some(config.artifact_secret.into_bytes()),
+        None, // access_checker - not from config
+        Some(config.s3.final_bucket),
+        Some(config.s3.staging_bucket),
+        Some(config.app_domain),
+        Some(config.artifact_base_url),
         config.github_webhook_secret,
     );
 

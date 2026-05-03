@@ -214,7 +214,7 @@ pub async fn handle(
         &current_run,
         board_project_id,
         bp.github_repository_id,
-        &config.app_base_url,
+        &config.app_domain,
     );
 
     // Create comment via GitHub API

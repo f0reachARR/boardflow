@@ -98,17 +98,21 @@ impl GitHubAppClient for MockGitHubClient {
 
 fn make_config() -> boardflow_worker::WorkerConfig {
     boardflow_worker::WorkerConfig {
-        database_url: String::new(),
-        staging_bucket: "test-staging".into(),
-        artifacts_bucket: "test-artifacts".into(),
-        s3_endpoint: None,
-        s3_access_key: None,
-        s3_secret_key: None,
+        db: boardflow_config::DatabaseConfig {
+            database_url: String::new(),
+        },
+        s3: boardflow_config::S3Config {
+            endpoint: None,
+            access_key: None,
+            secret_key: None,
+            staging_bucket: "test-staging".into(),
+            final_bucket: "test-artifacts".into(),
+        },
         poll_interval_secs: 2,
         timeout_sweep_interval_secs: 60,
         github_app_id: None,
         github_private_key_pem: None,
-        app_base_url: "https://test.boardflow.example.com".into(),
+        app_domain: "https://test.boardflow.example.com".into(),
     }
 }
 
