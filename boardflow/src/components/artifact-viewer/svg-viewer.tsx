@@ -2,7 +2,7 @@
 
 import { Box, HStack, Text, Tabs } from "@chakra-ui/react"
 import { Download, Image as ImageIcon } from "lucide-react"
-import type { ViewerSource } from "@/lib/api/schema"
+import type { ViewerSource } from "@/lib/api/schema-types"
 
 interface SvgViewerProps {
   sources: ViewerSource[]
@@ -43,7 +43,7 @@ export function SvgViewer({ sources }: SvgViewerProps) {
           <Tabs.Content key={tab.value} value={tab.value}>
             <HStack gap={2} mb={2}>
               <a
-                href={tab.source.url}
+                href={tab.source.url ?? undefined}
                 target="_blank"
                 rel="noopener noreferrer"
               >
@@ -55,7 +55,7 @@ export function SvgViewer({ sources }: SvgViewerProps) {
             </HStack>
             <Box borderWidth="1px" borderRadius="md" overflow="hidden">
               <iframe
-                src={tab.source.url}
+                src={tab.source.url ?? undefined}
                 sandbox=""
                 width="100%"
                 height="500px"

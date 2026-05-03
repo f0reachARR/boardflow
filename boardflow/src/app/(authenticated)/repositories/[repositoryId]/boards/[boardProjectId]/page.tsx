@@ -21,7 +21,7 @@ function statusColor(status: string): string {
   }
 }
 
-function checkBadge(status: string | null) {
+function checkBadge(status: string | null | undefined) {
   if (!status) return <Text color="gray.400" fontSize="sm">—</Text>
   const color = status === "passed" ? "green" : status === "failed" ? "red" : "gray"
   return <Badge colorPalette={color} size="sm">{status}</Badge>

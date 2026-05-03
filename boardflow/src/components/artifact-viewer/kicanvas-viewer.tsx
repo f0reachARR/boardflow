@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { Box, Text, Spinner } from "@chakra-ui/react"
-import type { ViewerSource } from "@/lib/api/schema"
+import type { ViewerSource } from "@/lib/api/schema-types"
 
 type LoadState = "loading" | "ready" | "timeout" | "load_error"
 
@@ -93,7 +93,7 @@ export function KiCanvasViewer({ sources }: KiCanvasViewerProps) {
     .map((s) => ({
       type: s.kind as "project" | "schematic" | "board" | "worksheet",
       name: s.name ?? "",
-      url: s.url,
+      url: s.url ?? undefined,
     }))
 
   return (

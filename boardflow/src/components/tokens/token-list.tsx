@@ -3,7 +3,7 @@
 import { useState } from "react"
 import { Badge, Box, Button, HStack, Table, Text } from "@chakra-ui/react"
 import { useRouter } from "next/navigation"
-import type { ApiToken } from "@/lib/api/schema"
+import type { ApiToken } from "@/lib/api/schema-types"
 import { CreateTokenDialog } from "./create-token-dialog"
 import { RevokeTokenDialog } from "./revoke-token-dialog"
 

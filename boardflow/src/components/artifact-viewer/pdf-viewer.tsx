@@ -2,7 +2,7 @@
 
 import { Box, HStack, Text } from "@chakra-ui/react"
 import { Download, FileText } from "lucide-react"
-import type { ViewerSource } from "@/lib/api/schema"
+import type { ViewerSource } from "@/lib/api/schema-types"
 
 interface PdfViewerProps {
   primary: ViewerSource
@@ -16,7 +16,7 @@ export function PdfViewer({ primary }: PdfViewerProps) {
         <Text fontSize="sm" fontWeight="medium">
           Schematic PDF
         </Text>
-        <a href={primary.url} target="_blank" rel="noopener noreferrer">
+        <a href={primary.url ?? undefined} target="_blank" rel="noopener noreferrer">
           <HStack gap={1} color="blue.600" _hover={{ textDecoration: "underline" }}>
             <Download size={14} />
             <Text fontSize="sm">Download</Text>
@@ -25,7 +25,7 @@ export function PdfViewer({ primary }: PdfViewerProps) {
       </HStack>
       <Box borderWidth="1px" borderRadius="md" overflow="hidden">
         <iframe
-          src={primary.url}
+          src={primary.url ?? undefined}
           width="100%"
           height="600px"
           title="Schematic PDF Viewer"

@@ -32,10 +32,10 @@ export default async function RepositoryDetailPage({ params }: Props) {
 
   const [repoRes, projectsRes] = await Promise.all([
     client.GET("/api/v1/repositories/{github_repository_id}", {
-      params: { path: { github_repository_id: repositoryId } },
+      params: { path: { github_repository_id: Number(repositoryId) } },
     }),
     client.GET("/api/v1/repositories/{github_repository_id}/board-projects", {
-      params: { path: { github_repository_id: repositoryId }, query: { limit: 50 } },
+      params: { path: { github_repository_id: Number(repositoryId) }, query: { limit: 50 } },
     }),
   ])
 

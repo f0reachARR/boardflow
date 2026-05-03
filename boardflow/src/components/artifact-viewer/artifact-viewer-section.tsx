@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from "react"
 import { Box, Heading, Badge, Tabs, Text } from "@chakra-ui/react"
-import type { ViewerEntry, ViewerSourcesResponse } from "@/lib/api/schema"
+import type { ViewerEntry, ViewerSourcesResponse, ViewerSource } from "@/lib/api/schema-types"
 import { PdfViewer } from "./pdf-viewer"
 import { SvgViewer } from "./svg-viewer"
 import { IbomViewer } from "./ibom-viewer"
@@ -85,7 +85,7 @@ export function ArtifactViewerSection({
       const kicanvasViewer = viewers["kicanvas"]
       if (kicanvasViewer?.status === "available" && kicanvasViewer.sources?.length) {
         const relevantKind = def.key === "schematic" ? "schematic" : "board"
-        return kicanvasViewer.sources.some(s => s.kind === relevantKind)
+        return kicanvasViewer.sources.some((s: ViewerSource) => s.kind === relevantKind)
       }
     }
     return true
@@ -196,9 +196,9 @@ function renderViewerContent(name: string, viewer: ViewerEntry, allViewers: Reco
     case "schematic": {
       const kicanvasViewer = allViewers["kicanvas"]
       const kicanvasSchSources = kicanvasViewer?.status === "available"
-        ? kicanvasViewer.sources?.filter(s => s.kind === "schematic" || s.kind === "project") ?? []
+        ? kicanvasViewer.sources?.filter((s: ViewerSource) => s.kind === "schematic" || s.kind === "project") ?? []
         : []
-      const hasKicanvas = kicanvasSchSources.some(s => s.kind === "schematic")
+      const hasKicanvas = kicanvasSchSources.some((s: ViewerSource) => s.kind === "schematic")
 
       // static viewer が missing/failed でも KiCanvas があれば表示
       if (!hasKicanvas && (viewer.status === "missing" || viewer.status === "failed")) {
@@ -219,9 +219,9 @@ function renderViewerContent(name: string, viewer: ViewerEntry, allViewers: Reco
     case "pcb_preview": {
       const kicanvasViewer = allViewers["kicanvas"]
       const kicanvasPcbSources = kicanvasViewer?.status === "available"
-        ? kicanvasViewer.sources?.filter(s => s.kind === "board" || s.kind === "project") ?? []
+        ? kicanvasViewer.sources?.filter((s: ViewerSource) => s.kind === "board" || s.kind === "project") ?? []
         : []
-      const hasKicanvas = kicanvasPcbSources.some(s => s.kind === "board")
+      const hasKicanvas = kicanvasPcbSources.some((s: ViewerSource) => s.kind === "board")
 
       // static viewer が missing/failed でも KiCanvas があれば表示
       if (!hasKicanvas && (viewer.status === "missing" || viewer.status === "failed")) {
@@ -256,7 +256,7 @@ function renderViewerContent(name: string, viewer: ViewerEntry, allViewers: Reco
             <DownloadList downloads={viewer.downloads} title={`${name} Downloads`} />
           )}
           {(!viewer.downloads || viewer.downloads.length === 0) && viewer.primary && (
-            <a href={viewer.primary.url} target="_blank" rel="noopener noreferrer">
+            <a href={viewer.primary.url ?? undefined} target="_blank" rel="noopener noreferrer">
               <Text color="blue.600" fontSize="sm" _hover={{ textDecoration: "underline" }}>
                 Open {viewer.primary.artifact_type ?? name}
               </Text>

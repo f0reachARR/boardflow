@@ -17,7 +17,7 @@ function severityColor(severity: string): string {
   }
 }
 
-function locationText(finding: { sheet_path: string | null; pcb_layer: string | null; pos_mm: { x: number; y: number } | null }): string {
+function locationText(finding: { sheet_path?: string | null; pcb_layer?: string | null; pos_mm?: { x: number; y: number } | null }): string {
   if (finding.sheet_path) {
     return `${finding.sheet_path} (schematic)`
   }

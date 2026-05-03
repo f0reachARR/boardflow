@@ -28,7 +28,7 @@ export function CreateTokenDialog({ repositoryId, open, onOpenChange, onCreated 
     const { data, error: apiError } = await apiClient.POST(
       "/api/v1/repositories/{github_repository_id}/api-tokens",
       {
-        params: { path: { github_repository_id: repositoryId } },
+        params: { path: { github_repository_id: Number(repositoryId) } },
         body: { name: trimmed },
       }
     )

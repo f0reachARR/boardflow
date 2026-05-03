@@ -16,7 +16,7 @@ export async function getCurrentUser(): Promise<CurrentUser | null> {
 
   try {
     const res = await fetch(
-      `${process.env.API_BASE_URL ?? "http://localhost:3001"}/api/v1/auth/me`,
+      `${process.env.API_BASE_URL ?? "http://localhost:3000"}/api/v1/auth/me`,
       {
         headers: {
           Cookie: `boardflow_session=${session.value}`,

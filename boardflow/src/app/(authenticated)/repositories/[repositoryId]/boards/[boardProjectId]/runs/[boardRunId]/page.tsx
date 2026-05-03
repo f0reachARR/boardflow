@@ -2,7 +2,7 @@ import { Box, Heading, Text, VStack, HStack, Badge, Table } from "@chakra-ui/rea
 import Link from "next/link"
 import { notFound } from "next/navigation"
 import { createServerClient } from "@/lib/api/server"
-import type { Artifact, ViewerEntry, DiffResponse } from "@/lib/api/schema"
+import type { Artifact, ViewerEntry, DiffResponse, DiffSummary } from "@/lib/api/schema-types"
 import { Breadcrumb } from "@/components/ui/breadcrumb"
 import { ArtifactViewerSection } from "@/components/artifact-viewer/artifact-viewer-section"
 
@@ -261,7 +261,9 @@ export default async function RunDetailPage({ params }: Props) {
           <Box>
             <Heading size="md" mb={3}>Changes from Baseline</Heading>
             <Box borderWidth="1px" borderRadius="md" p={4} bg="white">
-              {diff.status === "ready" && diff.summary && (
+              {diff.status === "ready" && diff.summary != null && (() => {
+                const summary = diff.summary as DiffSummary
+                return (
                 <VStack align="stretch" gap={2}>
                   {diff.base_board_run_id && (
                     <Text fontSize="sm" color="gray.600">
@@ -273,28 +275,28 @@ export default async function RunDetailPage({ params }: Props) {
                       </Link>
                     </Text>
                   )}
-                  {isFileChanges(diff.summary.file_changes) ? (
+                  {isFileChanges(summary.file_changes) ? (
                     <HStack gap={4} fontSize="sm">
                       <Text>
-                        Files: +{diff.summary.file_changes.added} -{diff.summary.file_changes.removed} ~{diff.summary.file_changes.changed} ({diff.summary.file_changes.unchanged} unchanged)
+                        Files: +{summary.file_changes.added} -{summary.file_changes.removed} ~{summary.file_changes.changed} ({summary.file_changes.unchanged} unchanged)
                       </Text>
                     </HStack>
                   ) : (
                     <Text fontSize="sm" color="gray.500">File changes: data format not recognized</Text>
                   )}
-                  {isBomChanges(diff.summary.bom_changes) ? (
+                  {isBomChanges(summary.bom_changes) ? (
                     <HStack gap={4} fontSize="sm">
                       <Text>
-                        BOM: +{diff.summary.bom_changes.added} -{diff.summary.bom_changes.removed} ~{diff.summary.bom_changes.changed}
+                        BOM: +{summary.bom_changes.added} -{summary.bom_changes.removed} ~{summary.bom_changes.changed}
                       </Text>
                     </HStack>
                   ) : (
                     <Text fontSize="sm" color="gray.500">BOM changes: data format not recognized</Text>
                   )}
-                  {isRecord(diff.summary.checks) && Object.entries(diff.summary.checks).filter(([, v]) => isCheckEntry(v)).length > 0 && (
+                  {isRecord(summary.checks) && Object.entries(summary.checks).filter(([, v]) => isCheckEntry(v)).length > 0 && (
                     <HStack gap={4} fontSize="sm" flexWrap="wrap">
                       <Text>Checks:</Text>
-                      {Object.entries(diff.summary.checks).filter(([, v]) => isCheckEntry(v)).map(([kind, c]) => {
+                      {Object.entries(summary.checks).filter(([, v]) => isCheckEntry(v)).map(([kind, c]) => {
                         const check = c as { status_change: string; error_delta: number; warning_delta: number }
                         return (
                           <Text key={kind}>
@@ -304,10 +306,10 @@ export default async function RunDetailPage({ params }: Props) {
                       })}
                     </HStack>
                   )}
-                  {isArtifactChanges(diff.summary.artifacts) ? (
+                  {isArtifactChanges(summary.artifacts) ? (
                     <HStack gap={4} fontSize="sm">
                       <Text>
-                        Artifacts: +{diff.summary.artifacts.added} -{diff.summary.artifacts.removed} ~{diff.summary.artifacts.changed}
+                        Artifacts: +{summary.artifacts.added} -{summary.artifacts.removed} ~{summary.artifacts.changed}
                       </Text>
                     </HStack>
                   ) : (
@@ -319,7 +321,8 @@ export default async function RunDetailPage({ params }: Props) {
                     </Text>
                   </Link>
                 </VStack>
-              )}
+                )
+              })()}
               {diff.status === "no_baseline" && (
                 <Text fontSize="sm" color="gray.500">
                   This is the first run. No baseline for comparison.

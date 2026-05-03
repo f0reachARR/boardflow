@@ -2,7 +2,8 @@ import { Box, Heading, Text, VStack, HStack, Badge } from "@chakra-ui/react"
 import Link from "next/link"
 import { notFound } from "next/navigation"
 import { createServerClient } from "@/lib/api/server"
-import type { DiffResponse, DiffSummary } from "@/lib/api/schema"
+import type { DiffResponse } from "@/lib/api/schema-types"
+import type { DiffSummary } from "@/lib/api/schema-types"
 import { Breadcrumb } from "@/components/ui/breadcrumb"
 
 function diffStatusColor(status: string): string {
@@ -147,13 +148,13 @@ export default async function DiffPage({ params }: Props) {
           </Box>
         )}
 
-        {diff.status === "ready" && diff.summary && (
+        {diff.status === "ready" && diff.summary != null && (
           <>
-            <FileChangesSection summary={diff.summary} metadata={diff.metadata} />
-            <BomChangesSection summary={diff.summary} metadata={diff.metadata} />
-            <ChecksSection summary={diff.summary} />
-            <ArtifactChangesSection summary={diff.summary} metadata={diff.metadata} />
-            <PreviewLinksSection metadata={diff.metadata} repositoryId={repositoryId} boardProjectId={boardProjectId} boardRunId={boardRunId} baseRunId={diff.base_board_run_id} />
+            <FileChangesSection summary={diff.summary as DiffSummary} metadata={diff.metadata ?? null} />
+            <BomChangesSection summary={diff.summary as DiffSummary} metadata={diff.metadata ?? null} />
+            <ChecksSection summary={diff.summary as DiffSummary} />
+            <ArtifactChangesSection summary={diff.summary as DiffSummary} metadata={diff.metadata ?? null} />
+            <PreviewLinksSection metadata={diff.metadata ?? null} repositoryId={repositoryId} boardProjectId={boardProjectId} boardRunId={boardRunId} baseRunId={diff.base_board_run_id ?? null} />
           </>
         )}
       </VStack>
@@ -271,7 +272,7 @@ function ChecksSection({ summary }: { summary: DiffSummary }) {
     )
   }
 
-  const validChecks = Object.entries(summary.checks).filter(([, v]) => isCheckEntry(v))
+  const validChecks = Object.entries(summary.checks).filter((entry): entry is [string, { status_change: string; error_delta: number; warning_delta: number }] => isCheckEntry(entry[1]))
   if (validChecks.length === 0) return null
 
   return (

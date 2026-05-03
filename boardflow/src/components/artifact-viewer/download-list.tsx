@@ -2,7 +2,7 @@
 
 import { Box, HStack, Text, VStack } from "@chakra-ui/react"
 import { Download } from "lucide-react"
-import type { ViewerDownload } from "@/lib/api/schema"
+import type { ViewerDownload } from "@/lib/api/schema-types"
 
 interface DownloadListProps {
   downloads: ViewerDownload[]

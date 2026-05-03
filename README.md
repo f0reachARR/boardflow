@@ -34,14 +34,21 @@
 
 ## Frontend ローカル開発
 
+バックエンドAPI起動には `DATABASE_URL` 等の環境変数が必要です。`docker-compose.yml` で依存サービスを起動し、ルートディレクトリに `.env` を用意してください。
+
 ```bash
 cd boardflow
 cp .env.local.example .env.local   # API_BASE_URL を確認
 pnpm install
-pnpm dev                            # http://localhost:3000
+
+# バックエンドAPI (port 3000) を先に起動しておく（別ターミナル、要 .env）
+mise exec -- cargo run -p boardflow-api
+
+# フロントエンド開発サーバー起動（別ターミナル）
+pnpm dev --port 3001               # http://localhost:3001
 ```
 
-バックエンドが `http://localhost:3001` で起動している前提で、`/api/v1/*` へのリクエストは Next.js rewrites でプロキシされます。
+バックエンドが `http://localhost:3000` で起動している前提で、`/api/v1/*` へのリクエストは Next.js rewrites でプロキシされます。Next.js はデフォルトでポート 3000 を使用しますが、バックエンドと衝突するため `--port 3001` で別ポートを指定してください。
 
 ### 主要コマンド
 
@@ -52,3 +59,24 @@ pnpm dev                            # http://localhost:3000
 | `pnpm typecheck` | TypeScript 型チェック |
 | `pnpm lint` | ESLint 実行 |
 | `pnpm generate:api` | Backend OpenAPI spec から型定義を再生成 |
+
+### API型定義の再生成
+
+バックエンドのOpenAPI定義が変更された場合、以下の手順で `schema.d.ts` を再生成してください。APIサーバ起動には `DATABASE_URL` 等の環境変数と依存サービス（PostgreSQL、MinIO）が必要です。
+
+```bash
+# 1. APIサーバを起動（別ターミナル、要 .env + docker-compose up）
+mise exec -- cargo run -p boardflow-api
+
+# 2. APIサーバが起動したことを確認
+curl -s http://localhost:3000/api/v1/openapi.json | head -c 100
+
+# 3. 型定義を再生成
+cd boardflow
+pnpm generate:api
+
+# 4. 型チェック
+pnpm typecheck
+```
+
+`schema.d.ts` は自動生成ファイルのため、手動編集しないでください。
