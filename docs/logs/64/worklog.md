@@ -96,6 +96,50 @@ pnpm add @tanstack/react-query @tanstack/react-query-devtools openapi-react-quer
 
 ---
 
+## ドキュメント確認フェーズ（2026-05-04 docs エージェント）
+
+### 確認対象
+
+- `docs/frontend/summary.md`
+- `docs/external/tanstack-query-nextjs-app-router.md`
+- `docs/technology.md`
+- `README.md`
+- フロントエンド実装: `src/lib/query-client.ts`, `src/lib/api/react-query.ts`, `src/components/providers.tsx`, `src/components/repositories/repositories-list.tsx`, `src/components/artifact-viewer/artifact-viewer-section.tsx`, `src/app/(authenticated)/repositories/page.tsx`, `src/app/layout.tsx`
+
+### ドキュメント確認
+
+- `docs/frontend/summary.md` に TanStack Query v5 + `openapi-react-query` を採用スタックとして追記
+- API 連携方針に、Server Component prefetch + `HydrationBoundary`、Client Component での `$api.useQuery()`、viewer URL 更新用 `useQuery` + `refetchInterval` を追記
+- `docs/technology.md` は frontend の要約ドキュメントを参照する構成のため、本 Issue では追加更新不要と判断
+- `README.md` はセットアップ・主要コマンド中心であり、TanStack Query 導入に伴う利用手順変更はないため追加更新不要と判断
+
+### レビュー結果
+
+- 実装と `docs/frontend/summary.md` の整合性は取れた
+- 外部調査メモ `docs/external/tanstack-query-nextjs-app-router.md` は research 成果物として妥当
+- 外部調査メモでは server-side cookie 転送の方針案として「サーバー用 `$api` を別途作成」を推奨しているが、実装は `queryOptions` の `queryFn` オーバーライドを採用している
+- 上記差分は research 時点の選択肢と実装判断の差であり、仕様ドキュメントの不整合ではない。採用判断は本 worklog に記録して補完
+
+### 必須修正
+
+- なし
+
+### 任意改善
+
+- `docs/external/tanstack-query-nextjs-app-router.md` の BoardFlow への示唆に、実装で採用した `queryFn` オーバーライド方式を追記すると後続 Issue での参照がしやすい
+
+### PR/完了結果
+
+- docs_ready: true
+- ドキュメント観点で PR 作成可
+
+### 残リスク
+
+- repositories 一覧以外の Server Component ページはまだ TanStack Query prefetch パターンへ統一されていない
+- React Query DevTools は開発環境限定のため、本番トラブル時の query 状態確認は別手段が必要
+
+---
+
 ## 計画フェーズ（2026-05-03 plan エージェント）
 
 ### 目的
@@ -410,6 +454,180 @@ pnpm build
 
 1. **refetchInterval の値**: artifact-viewer の presigned URL リフレッシュは4分固定で十分か、それとも `expiresAt` からの動的計算が必要か → 4分固定で開始し、問題があれば調整（presigned URL は通常1時間有効なので4分間隔で十分）
 2. **`openapi-react-query` の queryOptions の型**: Server Component で `$api.queryOptions()` を呼べるか（react import が不要な関数のみなら問題なし） → 公式ドキュメントで Server Component 利用例あり、問題なし
+
+### 更新した作業ログパス
+
+`docs/logs/64/worklog.md`
+
+---
+
+## レビューフェーズ（2026-05-04 review エージェント）
+
+### レビュー対象
+
+- Issue ID: #64
+- 対象: TanStack Query によるデータフェッチング・キャッシュ基盤導入
+
+### 実施内容
+
+- 計画、research、実装概要、対象コード、関連仕様を確認
+- 参照:
+  - `docs/external/tanstack-query-nextjs-app-router.md`
+  - `docs/spec.md`
+  - `docs/frontend/summary.md`
+  - `boardflow/src/lib/query-client.ts`
+  - `boardflow/src/lib/api/react-query.ts`
+  - `boardflow/src/components/providers.tsx`
+  - `boardflow/src/app/layout.tsx`
+  - `boardflow/src/components/artifact-viewer/artifact-viewer-section.tsx`
+  - `boardflow/src/app/(authenticated)/repositories/page.tsx`
+  - `boardflow/src/components/repositories/repositories-list.tsx`
+  - `boardflow/package.json`
+- 追加確認:
+  - `pnpm typecheck` ✅
+  - `pnpm eslint src/` ✅
+  - `pnpm build` ✅
+  - Web 調査で TanStack Query v5 / Next.js App Router の prefetch + HydrationBoundary / isServer 分岐パターンを再確認
+
+### レビュー結果
+
+- QueryClient の isServer 分岐、HydrationBoundary、`$api.queryOptions()` と `$api.useQuery()` の queryKey 整合は概ね適切
+- `artifact-viewer-section.tsx` の `useQuery` 化で、リロード導線とバックグラウンド更新は維持されている
+- ただし repositories prefetch のエラー伝播に欠陥があり、サーバー側取得失敗時に失敗を隠して不正な hydrated state を作る可能性があるため、このままでは PR ready にできない
+
+### 必須修正
+
+1. `src/app/(authenticated)/repositories/page.tsx` の prefetch `queryFn` で `serverClient.GET()` の失敗を明示的に throw すること。
+  - 現状は `data!` を返しており、`error` 時に `undefined` を成功値として返しうる。
+  - その場合、repositories 一覧が正しく error state にならず、空データ扱いまたは React Query の不正状態につながる。
+
+### 任意改善
+
+1. `src/components/repositories/repositories-list.tsx` に pending/loading 表示を追加すること。
+  - 現状は `data` 未取得かつ `error` なしの間も空一覧メッセージを描画するため、prefetch ミス時や client fallback 時に誤表示になる。
+2. `src/components/providers.tsx` の `ReactQueryDevtools` を計画どおり開発環境限定かつ lazy import に寄せること。
+  - 計画では本番バンドル非同梱を狙っていたが、実装は常時 import / render になっている。
+3. 未参照の `src/components/ui/provider.tsx` は不要なら削除、残すなら役割を明確化すること。
+
+### テスト不足
+
+1. repositories prefetch の異常系確認がない。
+  - 認証切れ / 5xx 時に page 側で失敗が surface されるか未検証。
+2. `repositories-list.tsx` の client fallback 時の loading 表示確認がない。
+3. artifact viewer の URL 更新は build/lint/typecheck のみで、`expires_at` を跨ぐ動作の自動テストがない。
+4. DevTools の「開発時のみ表示」「本番非同梱」は実測確認が記録されていない。
+
+### ドキュメント確認
+
+- `docs/logs/64/worklog.md` は更新されている
+- ただし計画で更新対象としていた `docs/frontend/summary.md` に TanStack Query 導入方針の追記がない
+
+### plan / research / docs との不整合
+
+1. 計画上のドキュメント更新対象に `docs/frontend/summary.md` が含まれているが未更新
+2. 計画では DevTools を「開発環境のみ表示」「lazy ローディングで本番バンドルに含めない」としているが、実装は常時 import
+3. artifact viewer の期限前更新は research/既存設計では `expires_at` 基準の管理が中心だったが、実装は 4 分固定 interval に簡略化されている
+  - backend 側 `viewer-sources` の `expires_at` が 1 時間である点から直ちに破綻はしない
+  - ただし前提依存が増えたため、期限が将来短縮された際の安全性は明文化しておいた方がよい
+
+### PR / 完了結果
+
+- `pr_ready: false`
+- 理由: repositories prefetch のエラー伝播欠落は、SSR/CSR で失敗を隠して誤表示または不正 cache state を作る可能性があり、Issue の「適切なデータフェッチ基盤導入」を満たし切れていないため
+
+### 残リスク
+
+1. `openapi-fetch` 0.17.0 への更新は今回の touched path では明確な破綻は見えないが、型推論や baseUrl 周辺の upstream 変更点に対する回帰確認は薄い
+2. repositories 一覧以外の read 画面はまだ TanStack Query へ移行されておらず、取得方式が混在したまま
+3. viewer URL 更新ロジックは backend の 1 時間 TTL に依存しており、TTL 変更時にフロントが気づきにくい
+
+### 更新した作業ログパス
+
+`docs/logs/64/worklog.md`
+
+---
+
+## レビューフェーズ（2026-05-04 review エージェント, follow-up）
+
+### Issueまでの経緯
+
+- 2026-05-04 初回レビューでは repositories prefetch のエラー伝播欠落を High として指摘し、`pr_ready: false` と判定した
+- ユーザーから当該指摘への修正完了報告を受け、再レビューを実施した
+
+### ユーザー要望
+
+- 前回の必須修正が正しく解消されたか確認する
+- 他に blocking な問題がなければ `pr_ready: true` を返す
+- レビュー結果を `docs/logs/64/worklog.md` に追記する
+
+### 調査結果
+
+- `src/app/(authenticated)/repositories/page.tsx` の prefetch `queryFn` で `serverClient.GET()` の戻り値から `error` を明示判定し、失敗時に throw する実装へ修正済み
+- `src/components/repositories/repositories-list.tsx` で `isPending` を見て Spinner を表示する分岐が追加済み
+- `src/components/providers.tsx` で `ReactQueryDevtools` は `process.env.NODE_ENV === "development"` 条件下のみ描画される
+- `get_errors` では再レビュー対象 3 ファイルにエラーなし
+- 外部調査で再確認した TanStack Query の SSR/Hydration 推奨パターンとも、prefetch 時の失敗を throw して hydration させない方針は整合する
+
+### 計画
+
+- 前回 High 指摘の解消確認を最優先とする
+- 追加で Medium/Low の修正有無、仕様・research・ドキュメントとの差分、残リスクを確認する
+- blocking がなければ PR 作成可と判定する
+
+### 実装内容
+
+- 実装自体の追加変更はなし
+- 再レビューとして、以下の修正反映を確認した
+  1. repositories prefetch のエラー伝播修正
+  2. repositories list の pending 表示追加
+  3. React Query DevTools の development 限定表示
+
+### テスト結果
+
+- ユーザー報告:
+  - `pnpm tsc --noEmit`: ✅
+  - `pnpm eslint src/`: ✅
+- 再レビュー時確認:
+  - 対象ファイルの診断エラー: なし
+
+### レビュー結果
+
+- 前回の High 指摘は解消済み。`src/app/(authenticated)/repositories/page.tsx` で取得失敗時に throw するため、SSR prefetch 失敗を成功扱いで hydration する問題は解消された
+- 前回の Medium 指摘も解消済み。prefetch 漏れや client fallback 時に空状態を誤表示せず、pending を明示できる
+- DevTools の修正も受け入れ可能。lazy import ではないため計画との差分は残るが、少なくとも本番常時描画の問題は解消されており blocking ではない
+- 以上より、PR を止める水準の問題は今回の確認範囲では見当たらない
+
+### 必須修正
+
+- なし
+
+### 任意改善
+
+1. `src/components/providers.tsx` の DevTools は計画どおり lazy import にすると、本番バンドル混入リスクをさらに下げられる
+2. `docs/frontend/summary.md` には TanStack Query 導入方針の追記がまだなく、計画との軽微なズレが残っている
+
+### テスト不足
+
+1. repositories prefetch の異常系を自動テストまたは手動確認記録で残せていない
+2. hydration 後に repositories 一覧で追加 fetch が発生しないことの確認記録は未記載
+3. DevTools の本番非表示は条件分岐上は妥当だが、本番ビルドでの実測記録はない
+
+### ドキュメント確認
+
+- `docs/spec.md`: 今回修正と矛盾なし
+- `docs/external/tanstack-query-nextjs-app-router.md`: 実装方針と概ね整合
+- `docs/frontend/summary.md`: TanStack Query 導入の追記は未確認
+
+### PR/完了結果
+
+- `pr_ready: true`
+- 理由: 前回の blocking 指摘が解消され、残件は任意改善または記録不足の範囲に留まるため
+
+### 残リスク
+
+1. DevTools は conditional render で十分実用的だが、静的 import を残しているため最適化余地はある
+2. `docs/frontend/summary.md` 未更新により、採用済み基盤の認識がドキュメントで追いついていない
+3. repositories 以外では取得方式が混在しており、今後の移行時にパターン統一が必要
 
 ### 更新した作業ログパス
 

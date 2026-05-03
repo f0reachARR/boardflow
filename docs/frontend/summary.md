@@ -22,6 +22,7 @@ KiCad 実行、成果物生成、GitHub Issue 更新などの副作用は backen
 | UI | Chakra UI | SaaS 管理画面を短期間で組みやすく、アクセシビリティも確保しやすい |
 | アイコン | lucide-react | 軽量で一覧画面や状態表示に合わせやすい |
 | API 型 | `openapi-typescript` などの生成型 | OpenAPI と UI の齟齬を減らせる |
+| データ取得 | TanStack Query v5 + openapi-react-query | Client Component のキャッシュ、再取得、prefetch + hydration を型安全に扱える |
 | E2E | Playwright | 主要導線の smoke test に向く |
 
 ## 3. 画面アーキテクチャ
@@ -114,6 +115,14 @@ frontend は backend の OpenAPI 契約に追従する。
 - `GET /api/v1/board-runs/{board_run_id}/viewer-sources`
 
 OpenAPI から TypeScript 型を生成して、画面側の props と API response をなるべく一致させる。
+
+データ取得基盤は `openapi-fetch` を低レベル client とし、その上に TanStack Query v5 + `openapi-react-query` を重ねる。
+
+- Server Component は認証 cookie を forward できる `createServerClient()` で prefetch を行い、`HydrationBoundary` 経由で Client Component に渡す
+- Client Component は `$api.useQuery()` を基本形にして、queryKey を手動設計しない
+- Repository 一覧のような read 画面は、Server Component で prefetch し、描画は Client Component に寄せる
+- presigned URL の更新が必要な viewer 系は、通常の API query と分けて `useQuery` + `refetchInterval` で短命 URL を更新する
+- React Query DevTools は開発環境だけで有効化し、本番 UI には含めない
 
 ## 8. テスト方針
 

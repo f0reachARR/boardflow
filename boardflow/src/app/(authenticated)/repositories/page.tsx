@@ -15,10 +15,11 @@ export default async function RepositoriesPage() {
   await queryClient.prefetchQuery({
     ...options,
     queryFn: async () => {
-      const { data } = await serverClient.GET("/api/v1/repositories", {
+      const { data, error } = await serverClient.GET("/api/v1/repositories", {
         params: { query: { limit: 50 } },
       })
-      return data!
+      if (error) throw new Error("Failed to fetch repositories")
+      return data
     },
   })
 
