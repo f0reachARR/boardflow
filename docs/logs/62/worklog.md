@@ -178,3 +178,142 @@ APIサーバ側のOpenAPI定義が適切に活用されていない。APIサー�
 ### 未解決の疑問
 
 - なし（ユーザーからの情報で全て解決済み）
+
+## レビューフェーズ（2026-05-03）
+
+### レビュー結果
+
+- `git diff main` と関連ドキュメント、research 成果物、README、生成済み `schema.d.ts` を確認した。
+- `schema.d.ts` は openapi-typescript の自動生成ヘッダに置き換わっており、手動スタブのままではないことを確認した。
+- `boardflow/package.json` の `generate:api` は `http://localhost:3000/api/v1/openapi.json` を参照するよう修正されている。
+- `boardflow/src/lib/api/server.ts` と `boardflow/next.config.ts` のデフォルト URL は `3000` に更新されている。
+- ただし、実装内に `http://localhost:3001` の既定値が 2 箇所残存していた。
+   - `boardflow/src/lib/auth.ts`
+   - `boardflow/src/app/api/viewer-sources/[boardRunId]/route.ts`
+- 上記残存により、`API_BASE_URL` 未設定時の一部サーバーサイド通信が 3001 を参照し続け、ポート統一が完了していない。
+- README は backend を `http://localhost:3000` 前提としつつ frontend 開発サーバーも `http://localhost:3000` と記載しており、同時起動手順として不正確だった。
+- `schema-types.ts` の convenience alias 追加自体は妥当。`DiffSummary` は generated 型が `unknown` のため、runtime guard 前提の frontend 専用 shape として導入されている点も一貫している。
+
+### テスト結果
+
+- `cd boardflow && pnpm typecheck`: 成功
+- `cd boardflow && pnpm lint`: 成功
+- `curl http://localhost:3000/api/v1/openapi.json`: 実行環境では接続不可（HTTP code `000` / exit code 7）のため、レビュー中に `pnpm generate:api` の再実行までは未確認
+
+### ドキュメント確認
+
+- `README.md` の型生成手順セクションは追加済み。
+- ただし frontend の起動ポート説明が backend の 3000 前提と衝突しており、受け入れ条件 4 を満たしたとは判断しない。
+- research 成果物 `docs/external/openapi-typescript-fetch.md` には 3001 前提の記述が残るが、実装参照先ではないため参考情報として扱う。必要なら後続で整合更新を検討。
+
+### PR/完了結果
+
+- `pr_ready: false`
+- 必須修正:
+   1. `boardflow/src/lib/auth.ts` と `boardflow/src/app/api/viewer-sources/[boardRunId]/route.ts` のデフォルト API URL を 3000 に統一する。
+   2. `README.md` の frontend 開発手順を実態に合わせて修正し、backend が 3000 を使う場合の frontend 起動ポート（例: `PORT=3001 pnpm dev` または auto-port）を明記する。
+
+### 残リスク
+
+- `pnpm generate:api` の実行性は、レビュー時点では API サーバー未起動のため再現確認できていない。
+- OpenAPI の `summary` が依然 `unknown` であるため、frontend 側の runtime guard 運用は継続前提。
+
+---
+
+## 再レビュー（2026-05-03）
+
+### 再レビュー結果
+
+- 前回指摘していた 2 件は修正済みであることを確認した。
+   - `boardflow/src/lib/auth.ts` のデフォルト API URL は `http://localhost:3000` に更新済み。
+   - `boardflow/src/app/api/viewer-sources/[boardRunId]/route.ts` のデフォルト API URL は `http://localhost:3000` に更新済み。
+- `git diff main` の全体確認により、Issue #62 の目的である OpenAPI 生成運用整備に沿って以下が反映されていることを確認した。
+   - `boardflow/package.json` の `generate:api` は `http://localhost:3000/api/v1/openapi.json` を参照。
+   - `boardflow/src/lib/api/server.ts` と `boardflow/next.config.ts` のデフォルト API URL は `3000` に統一済み。
+   - `boardflow/.env.local.example` は `API_BASE_URL=http://localhost:3000` に更新済み。
+   - `boardflow/src/lib/api/schema.d.ts` は openapi-typescript の自動生成ヘッダを持つ生成物へ置換済み。
+- `boardflow/src/**` を対象に `localhost:3001` を再検索し、残存がないことを確認した。
+- `README.md` は backend を `3000`、frontend を `pnpm dev --port 3001` で起動する手順に修正されており、前回指摘のポート衝突説明不備は解消している。
+
+### テスト結果
+
+- `cd boardflow && pnpm typecheck`: 成功
+- `boardflow/src/**` 内の `localhost:3001` 検索: 該当なし
+- `git diff --name-only main` / `git diff --stat main`: 差分範囲を確認し、Issue #62 に関連する変更として妥当と判断
+
+### ドキュメント確認
+
+- `README.md` の開発手順は今回の受け入れ条件と整合している。
+- `docs/external/openapi-typescript-v7-cli.md` の調査結果と実装内容に齟齬はない。
+- 参考資料や過去ログには `localhost:3001` の旧記述が残るが、実装・README・受け入れ条件の対象外であり、今回の PR ブロッカーではない。
+
+### PR/完了結果
+
+- `pr_ready: true`
+- 重大な指摘事項なし。
+
+### 残リスク
+
+- 今回の再レビューでは API サーバーを起動して `pnpm generate:api` を再実行していないため、生成コマンド自体の実行確認は差分と生成物ヘッダ、および既存テスト結果に基づく判断である。
+
+---
+
+## ドキュメント再確認（2026-05-03）
+
+### レビュー結果
+
+- Issue #62 の前回指摘 2 件について、`README.md` の該当箇所を再確認した。
+- Frontend ローカル開発手順には、バックエンド API 起動に `DATABASE_URL` 等の環境変数が必要であり、`docker-compose.yml` で依存サービスを起動し、ルートに `.env` を用意する前提が明記されている。
+- API 型定義再生成手順には、API サーバ起動に `DATABASE_URL` 等の環境変数と依存サービス（PostgreSQL、MinIO）が必要である旨が明記されている。
+- あわせて、OpenAPI エンドポイントを `curl` で確認する手順も追加されている。
+- 前回指摘していた README 上の不足は解消済みと判断した。
+
+### ドキュメント確認
+
+- `README.md` 単体の確認範囲では、前回指摘に対する修正内容と整合している。
+- 今回の確認では新たな README 上のブロッカーは確認していない。
+
+### PR/完了結果
+
+- `docs_ready: true`
+
+### 残リスク
+
+- 今回の依頼は README の再確認に限定されており、実行手順そのものの再試験は行っていない。
+
+---
+
+## ドキュメント確認フェーズ（2026-05-03）
+
+### ドキュメント確認結果
+
+- 対象: `README.md`、`docs/external/openapi-typescript-v7-cli.md`、`docs/logs/62/worklog.md`
+- `README.md` のポート説明自体は実装と整合している。`generate:api` の参照先が `http://localhost:3000/api/v1/openapi.json` である点も `boardflow/package.json` と一致している。
+- ただし `README.md` の再生成手順は、`mise exec -- cargo run -p boardflow-api` をそのまま実行すればよいように読める一方で、実際には `DATABASE_URL` 未設定で起動失敗したため、現状の記述だけでは再現不能である。
+- `docs/external/openapi-typescript-v7-cli.md` は、公式 CLI / migration guide の内容と整合している。単一リモートスキーマ + `-o` の基本構文継続、`--check` フラグ追加、認証の Redocly config への移行、`defaultNonNullable: true` デフォルト化、globbing 廃止の整理はいずれも妥当。
+- `docs/logs/62/worklog.md` には調査・計画・実装・再レビューの流れが記録されているが、今回のドキュメント確認で判明した README の再現性不足は未記録だったため、この節で追記した。
+
+### 検証結果
+
+- `cd /home/f0reach/workspace/boardflow && mise exec -- cargo run -p boardflow-api`
+- 結果: `Error: MissingEnvVar("DATABASE_URL")`
+- 上記により、README の API 起動手順には前提条件の明記が不足していることを確認した。
+
+### ドキュメント判定
+
+- `docs_ready: false`
+
+### 必須修正
+
+- `README.md` の Frontend ローカル開発と API 型定義再生成の手順に、API 起動前提として必要な backend 環境セットアップを追記すること。
+- 少なくとも `DATABASE_URL` を含む必須環境変数の準備方法、またはそれを満たす起動手順（例: 使用する `.env` / compose 起動手順）を、`mise exec -- cargo run -p boardflow-api` の前に明示すること。
+
+### 任意改善
+
+- `pnpm generate:api` 実行前提として「API サーバーが `http://localhost:3000` で疎通可能であること」を README に明記すると、失敗時の切り分けがしやすい。
+- 参考資料として `docs/external/openapi-typescript-fetch.md` には旧ポート記述が残っているため、別 Issue で整合更新すると混乱を減らせる。
+
+### 残リスク
+
+- 今回は API 起動失敗により `pnpm generate:api` の実行再確認までは行っていない。
+- そのため、README に前提条件を追記した後は、API 起動から `pnpm generate:api` 完了までを通しで再検証する必要がある。
