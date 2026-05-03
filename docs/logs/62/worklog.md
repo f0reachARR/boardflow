@@ -50,8 +50,8 @@ APIサーバ側のOpenAPI定義が適切に活用されていない。APIサー�
 
 ### 参照URL
 
-- https://openapi-ts.dev/cli - 公式CLIドキュメント
-- https://openapi-ts.dev/migration-guide - v6→v7マイグレーションガイド
+- <https://openapi-ts.dev/cli> - 公式CLIドキュメント
+- <https://openapi-ts.dev/migration-guide> - v6→v7マイグレーションガイド
 
 ### 結論ステータス
 
@@ -188,8 +188,8 @@ APIサーバ側のOpenAPI定義が適切に活用されていない。APIサー�
 - `boardflow/package.json` の `generate:api` は `http://localhost:3000/api/v1/openapi.json` を参照するよう修正されている。
 - `boardflow/src/lib/api/server.ts` と `boardflow/next.config.ts` のデフォルト URL は `3000` に更新されている。
 - ただし、実装内に `http://localhost:3001` の既定値が 2 箇所残存していた。
-   - `boardflow/src/lib/auth.ts`
-   - `boardflow/src/app/api/viewer-sources/[boardRunId]/route.ts`
+  - `boardflow/src/lib/auth.ts`
+  - `boardflow/src/app/api/viewer-sources/[boardRunId]/route.ts`
 - 上記残存により、`API_BASE_URL` 未設定時の一部サーバーサイド通信が 3001 を参照し続け、ポート統一が完了していない。
 - README は backend を `http://localhost:3000` 前提としつつ frontend 開発サーバーも `http://localhost:3000` と記載しており、同時起動手順として不正確だった。
 - `schema-types.ts` の convenience alias 追加自体は妥当。`DiffSummary` は generated 型が `unknown` のため、runtime guard 前提の frontend 専用 shape として導入されている点も一貫している。
@@ -225,13 +225,13 @@ APIサーバ側のOpenAPI定義が適切に活用されていない。APIサー�
 ### 再レビュー結果
 
 - 前回指摘していた 2 件は修正済みであることを確認した。
-   - `boardflow/src/lib/auth.ts` のデフォルト API URL は `http://localhost:3000` に更新済み。
-   - `boardflow/src/app/api/viewer-sources/[boardRunId]/route.ts` のデフォルト API URL は `http://localhost:3000` に更新済み。
+  - `boardflow/src/lib/auth.ts` のデフォルト API URL は `http://localhost:3000` に更新済み。
+  - `boardflow/src/app/api/viewer-sources/[boardRunId]/route.ts` のデフォルト API URL は `http://localhost:3000` に更新済み。
 - `git diff main` の全体確認により、Issue #62 の目的である OpenAPI 生成運用整備に沿って以下が反映されていることを確認した。
-   - `boardflow/package.json` の `generate:api` は `http://localhost:3000/api/v1/openapi.json` を参照。
-   - `boardflow/src/lib/api/server.ts` と `boardflow/next.config.ts` のデフォルト API URL は `3000` に統一済み。
-   - `boardflow/.env.local.example` は `API_BASE_URL=http://localhost:3000` に更新済み。
-   - `boardflow/src/lib/api/schema.d.ts` は openapi-typescript の自動生成ヘッダを持つ生成物へ置換済み。
+  - `boardflow/package.json` の `generate:api` は `http://localhost:3000/api/v1/openapi.json` を参照。
+  - `boardflow/src/lib/api/server.ts` と `boardflow/next.config.ts` のデフォルト API URL は `3000` に統一済み。
+  - `boardflow/.env.local.example` は `API_BASE_URL=http://localhost:3000` に更新済み。
+  - `boardflow/src/lib/api/schema.d.ts` は openapi-typescript の自動生成ヘッダを持つ生成物へ置換済み。
 - `boardflow/src/**` を対象に `localhost:3001` を再検索し、残存がないことを確認した。
 - `README.md` は backend を `3000`、frontend を `pnpm dev --port 3001` で起動する手順に修正されており、前回指摘のポート衝突説明不備は解消している。
 
@@ -255,6 +255,31 @@ APIサーバ側のOpenAPI定義が適切に活用されていない。APIサー�
 ### 残リスク
 
 - 今回の再レビューでは API サーバーを起動して `pnpm generate:api` を再実行していないため、生成コマンド自体の実行確認は差分と生成物ヘッダ、および既存テスト結果に基づく判断である。
+
+---
+
+## PR作成フェーズ（2026-05-03）
+
+### PR作成前チェック
+
+- `pr_ready: true`（再レビューOK、指摘2件修正済み）
+- `docs_ready: true`（README・ドキュメント整合確認済み）
+- 未コミット変更: なし（`git status` でクリーン確認）
+- ブランチ: `feature/issue-62-openapi-schema-generation`（コミット2件）
+- テスト: `pnpm typecheck` / `pnpm lint` 成功
+
+### PR作成結果
+
+- **ブランチpush**: `git push origin feature/issue-62-openapi-schema-generation` — 成功
+- **PR URL**: <https://github.com/f0reachARR/boardflow/pull/67>
+- **タイトル**: `feat(#62): OpenAPI定義からschema.d.ts生成の運用整備`
+- **Closes**: #62
+
+### 残リスク
+
+- APIサーバを起動した状態での `pnpm generate:api` 実行確認はレビュー時未実施（差分・生成物ヘッダ・テスト結果に基づく判断）
+- OpenAPI の `summary` が `unknown` のため、frontend 側の runtime guard 運用は継続前提
+- `--check` フラグによるCI連携は将来Issue
 
 ---
 
