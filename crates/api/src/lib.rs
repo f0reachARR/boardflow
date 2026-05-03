@@ -15,7 +15,7 @@ use utoipa::{Modify, OpenApi};
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
-use github_access::{DynGithubAccessChecker, RealGithubAccessChecker};
+use github_access::{CachedGithubAccessChecker, DynGithubAccessChecker};
 use routes::auth::OAuthConfig;
 
 use boardflow_config::{optional_env, optional_env_or};
@@ -76,7 +76,7 @@ pub fn create_app_with_config(
     });
 
     let checker: DynGithubAccessChecker =
-        access_checker.unwrap_or_else(|| Arc::new(RealGithubAccessChecker::new()));
+        access_checker.unwrap_or_else(|| Arc::new(CachedGithubAccessChecker::new(pool.clone())));
 
     let bucket = FinalBucket(
         final_bucket.unwrap_or_else(|| optional_env_or("MINIO_BUCKET_FINAL", "boardflow-final")),

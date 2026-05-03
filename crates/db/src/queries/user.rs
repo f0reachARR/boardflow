@@ -21,6 +21,16 @@ pub async fn find_by_github_user_id(
         .await
 }
 
+pub async fn find_by_github_access_token(
+    executor: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
+    github_access_token: &str,
+) -> Result<Option<User>, sqlx::Error> {
+    sqlx::query_as::<_, User>("SELECT * FROM users WHERE github_access_token = $1")
+        .bind(github_access_token)
+        .fetch_optional(executor)
+        .await
+}
+
 pub async fn upsert(
     executor: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
     github_user_id: i64,

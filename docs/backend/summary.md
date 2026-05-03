@@ -84,6 +84,10 @@ crates/jobs
 - GitHub job の冪等性を DB 制約で守りやすい
 - manifest や file hashes を JSONB で柔軟に扱える
 
+read API の GitHub repository 可視性判定には補助テーブル `github_api_cache` を使う。
+ここには user ごとの `accessible_repo_ids` を JSONB で保持し、TTL 10 分の DB キャッシュとして扱う。
+GitHub API が rate limit に到達した場合のみ、期限切れ後 1 時間以内の stale cache を read API のフォールバックに使う。
+
 MVP で特に重要な識別:
 
 - BoardProject の同一性は `github_repository_id + project_path`
@@ -213,6 +217,9 @@ MVP では GitHub 中心の構成にする。
 - GitHub App webhook は MVP から含める
 - installation 情報同期と権限確認を backend の責務にする
 - Web UI の閲覧可否は GitHub 権限と揃える
+
+Web UI の repository 可視性判定は `CachedGithubAccessChecker` で行い、内部で GitHub API 呼び出しを DB キャッシュする。
+明示的 invalidation 用の `invalidate_repo_cache` フックは追加済みだが、現時点の本番運用では TTL による自然失効が主であり、`installation_repositories` webhook からの invalidation 呼び出しは今後の作業範囲とする。
 
 GitHub App installation が解除済み、権限不足、または repository 不一致の場合、plan API は build/skip decision ではなく認可エラーを返す。
 Plan API の per-project `decision: error` は、SaaS側で受け取った project payload の不正などproject単位のvalidation失敗に限定する。

@@ -4,6 +4,7 @@ pub mod artifact_bundle;
 pub mod board_project;
 pub mod board_run;
 pub mod diff;
+pub mod github_api_cache;
 pub mod github_job;
 pub mod repository;
 pub mod run_check;
