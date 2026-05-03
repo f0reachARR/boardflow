@@ -1,95 +1,30 @@
-import { Box, Heading, Table, Text, Badge } from "@chakra-ui/react"
-import Link from "next/link"
+import { dehydrate, HydrationBoundary } from "@tanstack/react-query"
+import { getQueryClient } from "@/lib/query-client"
 import { createServerClient } from "@/lib/api/server"
-
-function statusColor(status: string | null): string {
-  switch (status) {
-    case "completed":
-      return "green"
-    case "failed":
-      return "red"
-    case "timed_out":
-      return "orange"
-    case "processing":
-    case "importing":
-      return "blue"
-    default:
-      return "gray"
-  }
-}
+import { $api } from "@/lib/api/react-query"
+import { RepositoriesList } from "@/components/repositories/repositories-list"
 
 export default async function RepositoriesPage() {
-  const client = await createServerClient()
-  const { data, error } = await client.GET("/api/v1/repositories", {
+  const queryClient = getQueryClient()
+  const serverClient = await createServerClient()
+
+  const options = $api.queryOptions("get", "/api/v1/repositories", {
     params: { query: { limit: 50 } },
   })
 
-  if (error) {
-    return (
-      <Box>
-        <Heading size="lg" mb={4}>Repositories</Heading>
-        <Text color="red.500">Failed to load repositories.</Text>
-      </Box>
-    )
-  }
-
-  const repositories = data?.items ?? []
+  await queryClient.prefetchQuery({
+    ...options,
+    queryFn: async () => {
+      const { data } = await serverClient.GET("/api/v1/repositories", {
+        params: { query: { limit: 50 } },
+      })
+      return data!
+    },
+  })
 
   return (
-    <Box>
-      <Heading size="lg" mb={6}>Repositories</Heading>
-
-      {repositories.length === 0 ? (
-        <Text color="gray.500">
-          No repositories found. Install the BoardFlow GitHub App to get started.
-        </Text>
-      ) : (
-        <Table.Root size="sm" variant="outline">
-          <Table.Header>
-            <Table.Row>
-              <Table.ColumnHeader>Repository</Table.ColumnHeader>
-              <Table.ColumnHeader>Projects</Table.ColumnHeader>
-              <Table.ColumnHeader>Latest Status</Table.ColumnHeader>
-              <Table.ColumnHeader>Updated</Table.ColumnHeader>
-            </Table.Row>
-          </Table.Header>
-          <Table.Body>
-            {repositories.map((repo) => (
-              <Table.Row
-                key={repo.github_repository_id}
-                bg={
-                  repo.latest_run_status === "failed" ? "red.50" :
-                  repo.latest_run_status === "timed_out" ? "orange.50" :
-                  undefined
-                }
-              >
-                <Table.Cell>
-                  <Link href={`/repositories/${repo.github_repository_id}`}>
-                    <Text color="blue.600" fontWeight="medium" _hover={{ textDecoration: "underline" }}>
-                      {repo.owner}/{repo.name}
-                    </Text>
-                  </Link>
-                </Table.Cell>
-                <Table.Cell>{repo.board_project_count}</Table.Cell>
-                <Table.Cell>
-                  {repo.latest_run_status ? (
-                    <Badge colorPalette={statusColor(repo.latest_run_status)}>
-                      {repo.latest_run_status}
-                    </Badge>
-                  ) : (
-                    <Text color="gray.400" fontSize="sm">—</Text>
-                  )}
-                </Table.Cell>
-                <Table.Cell>
-                  <Text fontSize="sm" color="gray.600">
-                    {new Date(repo.updated_at).toLocaleDateString()}
-                  </Text>
-                </Table.Cell>
-              </Table.Row>
-            ))}
-          </Table.Body>
-        </Table.Root>
-      )}
-    </Box>
+    <HydrationBoundary state={dehydrate(queryClient)}>
+      <RepositoriesList />
+    </HydrationBoundary>
   )
 }
