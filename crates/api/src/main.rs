@@ -38,12 +38,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let app = boardflow_api::create_app_with_config(
         pool,
         s3_client,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
+        Some(boardflow_api::routes::auth::OAuthConfig {
+            client_id: config.github_client_id.unwrap_or_default(),
+            client_secret: config.github_client_secret.unwrap_or_default(),
+        }),
+        Some(config.artifact_secret.into_bytes()),
+        None, // access_checker - not from config
+        Some(config.s3.final_bucket),
+        Some(config.s3.staging_bucket),
+        Some(config.app_domain),
+        Some(config.artifact_base_url),
         config.github_webhook_secret,
     );
 

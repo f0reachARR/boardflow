@@ -40,6 +40,7 @@ fn create_test_app(pool: PgPool) -> axum::Router {
         None,
         None,
         None,
+        None,
     )
 }
 
@@ -51,6 +52,7 @@ fn create_deny_app(pool: PgPool) -> axum::Router {
         None,
         None,
         Some(checker),
+        None,
         None,
         None,
         None,

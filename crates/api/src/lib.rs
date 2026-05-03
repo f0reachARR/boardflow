@@ -21,7 +21,9 @@ use routes::auth::OAuthConfig;
 use boardflow_config::{optional_env, optional_env_or};
 
 pub fn create_app(pool: PgPool, s3_client: Option<aws_sdk_s3::Client>) -> Router {
-    create_app_with_config(pool, s3_client, None, None, None, None, None, None, None)
+    create_app_with_config(
+        pool, s3_client, None, None, None, None, None, None, None, None,
+    )
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -32,6 +34,7 @@ pub fn create_app_with_config(
     artifact_secret: Option<Vec<u8>>,
     access_checker: Option<DynGithubAccessChecker>,
     final_bucket: Option<String>,
+    staging_bucket: Option<String>,
     app_domain: Option<String>,
     artifact_base_url: Option<String>,
     webhook_secret: Option<String>,
@@ -79,9 +82,9 @@ pub fn create_app_with_config(
         optional_env_or("MINIO_BUCKET_FINAL", "boardflow-final")
     }));
 
-    let staging = StagingBucket(
-        optional_env_or("MINIO_BUCKET_STAGING", "boardflow-staging"),
-    );
+    let staging = StagingBucket(staging_bucket.unwrap_or_else(|| {
+        optional_env_or("MINIO_BUCKET_STAGING", "boardflow-staging")
+    }));
 
     let domain = AppDomain(app_domain.unwrap_or_else(|| {
         optional_env_or("BOARDFLOW_APP_DOMAIN", "http://localhost:3000")
