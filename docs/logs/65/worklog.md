@@ -200,6 +200,57 @@ boardflow/src/app/(authenticated)/repositories/page.tsx
 
 ---
 
+## 実装完了 (2026-05-04)
+
+### 実施内容
+
+計画通り全11タスクを実施。
+
+1. **スケルトンコンポーネント5つ作成** (`src/components/skeletons/`)
+   - `repositories-table-skeleton.tsx` — 5行のスケルトンテーブル
+   - `repository-detail-skeleton.tsx` — Breadcrumb + Heading + Board Projects テーブル
+   - `board-project-detail-skeleton.tsx` — メタ情報 + Recent Runs テーブル
+   - `runs-table-skeleton.tsx` — 5行のRunsテーブル
+   - `run-detail-skeleton.tsx` — ヘッダー + メタデータ + アーティファクト領域
+
+2. **共通エラーUIコンポーネント** (`src/components/error-boundary.tsx`)
+   - `ErrorUI` コンポーネント: エラーメッセージ + "Try again" ボタン
+
+3. **`loading.tsx` 5ファイル配置** — 各ルートセグメントでスケルトンを表示
+
+4. **`error.tsx` 5ファイル配置** — 各ルートセグメントで `ErrorUI` を使用
+
+5. **`RepositoriesList` を `useSuspenseQuery` に変換**
+   - `$api.useQuery` → `$api.useSuspenseQuery`
+   - `isPending` / `error` ハンドリング削除（Suspense/ErrorBoundary に委譲）
+   - `Spinner` インポート削除
+
+6. **`/repositories/page.tsx` を Streaming SSR に変換**
+   - `await queryClient.prefetchQuery(...)` → `queryClient.prefetchQuery(...)` (await 削除)
+   - `<Suspense fallback={<RepositoriesTableSkeleton />}>` でラップ
+   - `Suspense`, `RepositoriesTableSkeleton` をインポート追加
+
+### テスト結果
+
+| チェック | 結果 |
+|---|---|
+| `pnpm typecheck` | ✅ パス |
+| `pnpm lint` | ✅ パス (No ESLint warnings or errors) |
+| `pnpm build` | ✅ パス (全ルート正常ビルド) |
+
+### Git
+
+- ブランチ: `feature/65-streaming-ssr-loading-ui`
+- コミット: `cf34a18` — `feat(frontend): add Streaming SSR with loading/error UI (#65)`
+
+### 残リスク
+
+- **notFound() ページの Streaming SSR**: 詳細ページ（リポジトリ詳細, ボード詳細, ラン詳細, ラン一覧）はサーバーサイドで `notFound()` 判定が必要なため、今回は `loading.tsx` でのカバーに留めている。将来的にページ内を「404判定用サーバーフェッチ」と「Suspense囲みクライアントコンポーネント」に分離する追加リファクタが必要。
+- **CLS 最適化**: スケルトンの寸法は実コンテンツの概算値。実際のデータ量に応じて微調整が必要な可能性あり。
+- **Nginx リバースプロキシ**: 本番環境で Streaming SSR を機能させるには `X-Accel-Buffering: no` ヘッダーの設定が必要。
+
+---
+
 ### 各タスクの実装詳細
 
 #### タスク 1: スケルトンコンポーネント作成
