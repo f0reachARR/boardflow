@@ -164,6 +164,77 @@
 
 ---
 
+## レビュー修正フェーズ（2026-05-03 impl エージェント）
+
+### 指摘事項と対応
+
+#### 1. [MAJOR] staleフォールバックをRateLimited限定にする
+
+**対応完了**: `list_accessible_repo_ids` のエラーハンドリングを変更:
+- `Err(AccessError::RateLimited)` → staleキャッシュを探索して返す
+- `Err(AccessError::TokenExpired)` / `Err(AccessError::Upstream(_))` → staleキャッシュを使わず即座にエラー伝播
+
+#### 2. [MAJOR] invalidateを本番コードから呼べる形にする
+
+**対応完了**: `GithubAccessChecker` トレイトに `invalidate_repo_cache` メソッドを追加:
+- デフォルト実装: `Ok(())` (no-op) → 既存の AllowAll/DenyAll/RateLimited/UpstreamError モック全てが壊れずに動作
+- `CachedGithubAccessChecker` でオーバーライド: `delete_cache_by_user` を呼び出し
+- 本番コードで `DynGithubAccessChecker` (`Arc<dyn GithubAccessChecker>`) 経由で呼び出し可能
+
+#### 3. [MINOR] innerをtrait objectにしてテスト容易性を上げる
+
+**対応完了**: `CachedGithubAccessChecker` の内部構造を変更:
+- `inner: RealGithubAccessChecker` → `inner: Arc<dyn GithubAccessChecker>`
+- `new(pool)` は従来通り `RealGithubAccessChecker` を内部生成（後方互換）
+- `with_inner(inner, pool)` コンストラクタ追加 → テスト時にモック注入可能
+
+#### 4. [MINOR] github_access_tokenにインデックス追加
+
+**対応完了**: マイグレーションファイルに追加:
+```sql
+CREATE INDEX idx_users_github_access_token ON users (github_access_token) WHERE github_access_token IS NOT NULL;
+```
+down マイグレーションにも `DROP INDEX IF EXISTS idx_users_github_access_token;` 追加
+
+#### 5. テスト追加
+
+**対応完了**: 5件の新テストを追加:
+- `test_cached_checker_stale_fallback_with_mock_inner_rate_limited`: RateLimited時にstaleキャッシュが返ることをモックで実証
+- `test_cached_checker_token_expired_no_stale_fallback`: TokenExpired時にstale不使用でエラー伝播
+- `test_cached_checker_upstream_error_no_stale_fallback`: Upstream時にstale不使用でエラー伝播
+- `test_invalidate_repo_cache_via_trait`: `DynGithubAccessChecker` 経由で `invalidate_repo_cache` が呼べることの確認
+- `test_cached_checker_rate_limited_no_stale_returns_error`: RateLimited + staleなし → エラー返却
+
+追加のモック: `TokenExpiredGithubAccessChecker` (常に TokenExpired を返す)
+
+### テスト結果
+
+全ワークスペーステスト: **全パス (0 failures)**
+
+```
+cargo build --workspace     ✓
+cargo test --workspace      ✓
+cargo clippy --workspace    ✓
+cargo fmt --all             ✓
+```
+
+### 変更ファイル一覧
+
+| ファイル | 変更内容 |
+|---|---|
+| `crates/api/src/github_access.rs` | トレイトに `invalidate_repo_cache` 追加、`CachedGithubAccessChecker` の inner を `Arc<dyn>` に変更、stale フォールバック限定化、`TokenExpiredGithubAccessChecker` モック追加 |
+| `crates/api/tests/github_cache_test.rs` | 5件の新テスト追加、既存テストの重複ユーザー問題修正 |
+| `crates/db/migrations/20260503000000_add_github_api_cache.up.sql` | `idx_users_github_access_token` インデックス追加 |
+| `crates/db/migrations/20260503000000_add_github_api_cache.down.sql` | インデックスDROP追加 |
+
+### 残リスク
+
+- `cleanup_expired_cache` は定期実行が必要（ジョブ/cronで呼び出す仕組みは未実装、将来Issue化推奨）
+- Webhook による明示的 invalidation は未実装（将来 `installation_repositories` イベントで実装予定）
+- `invalidate_repo_cache` を実際に呼び出すユースケース（例: Webhook受信時）はこのIssue範囲外
+
+---
+
 ## 計画フェーズ（2026-05-03 plan エージェント）
 
 ### 目的
