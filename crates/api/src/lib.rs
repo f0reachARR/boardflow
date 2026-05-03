@@ -18,6 +18,8 @@ use utoipa_axum::routes;
 use github_access::{DynGithubAccessChecker, RealGithubAccessChecker};
 use routes::auth::OAuthConfig;
 
+use boardflow_config::{optional_env, optional_env_or};
+
 pub fn create_app(pool: PgPool, s3_client: Option<aws_sdk_s3::Client>) -> Router {
     create_app_with_config(pool, s3_client, None, None, None, None, None, None, None)
 }
@@ -60,12 +62,12 @@ pub fn create_app_with_config(
         .split_for_parts();
 
     let oauth = oauth_config.unwrap_or_else(|| OAuthConfig {
-        client_id: std::env::var("GITHUB_CLIENT_ID").unwrap_or_default(),
-        client_secret: std::env::var("GITHUB_CLIENT_SECRET").unwrap_or_default(),
+        client_id: optional_env("GITHUB_CLIENT_ID").unwrap_or_default(),
+        client_secret: optional_env("GITHUB_CLIENT_SECRET").unwrap_or_default(),
     });
 
     let secret = artifact_secret.unwrap_or_else(|| {
-        std::env::var("BOARDFLOW_ARTIFACT_SECRET")
+        boardflow_config::required_env("BOARDFLOW_ARTIFACT_SECRET")
             .expect("BOARDFLOW_ARTIFACT_SECRET must be set")
             .into_bytes()
     });
@@ -74,22 +76,19 @@ pub fn create_app_with_config(
         access_checker.unwrap_or_else(|| Arc::new(RealGithubAccessChecker::new()));
 
     let bucket = FinalBucket(final_bucket.unwrap_or_else(|| {
-        std::env::var("MINIO_BUCKET_FINAL").unwrap_or_else(|_| "boardflow-final".to_string())
+        optional_env_or("MINIO_BUCKET_FINAL", "boardflow-final")
     }));
 
     let staging = StagingBucket(
-        std::env::var("MINIO_BUCKET_STAGING")
-            .unwrap_or_else(|_| "boardflow-staging".to_string()),
+        optional_env_or("MINIO_BUCKET_STAGING", "boardflow-staging"),
     );
 
     let domain = AppDomain(app_domain.unwrap_or_else(|| {
-        std::env::var("BOARDFLOW_APP_DOMAIN")
-            .unwrap_or_else(|_| "http://localhost:3000".to_string())
+        optional_env_or("BOARDFLOW_APP_DOMAIN", "http://localhost:3000")
     }));
 
     let base_url = ArtifactBaseUrl(artifact_base_url.unwrap_or_else(|| {
-        std::env::var("BOARDFLOW_ARTIFACT_BASE_URL")
-            .unwrap_or_else(|_| "http://localhost:8080".to_string())
+        optional_env_or("BOARDFLOW_ARTIFACT_BASE_URL", "http://localhost:8080")
     }));
 
     router

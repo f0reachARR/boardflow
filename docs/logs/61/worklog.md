@@ -490,3 +490,56 @@ cargo test --workspace — ALL PASSED
 1. **デフォルト値変更**: Worker の `MINIO_BUCKET_FINAL` デフォルトが `boardflow-artifacts` → `boardflow-final` に変更。既存デプロイで環境変数未設定の場合は影響あり。
 2. **BOARDFLOW_ARTIFACT_SECRET 必須化**: 開発環境で未設定時にAPIが起動失敗する。`.env.example` に値を記載済み。
 3. **lib.rs のフォールバック残存**: `create_app_with_config()` はテスト柔軟性のため `std::env::var` フォールバックを維持（計画通り）。実運用では `AppConfig::from_env()` で事前検証される。
+
+## レビュー結果 (2026-05-03 review agent)
+
+### 総評
+
+- `boardflow-config` crate 追加、`AppConfig` / `WorkerConfig` の共通化、`MINIO_BUCKET_FINAL` の統一、`board_run.rs` の `StagingBucket` Extension 化は概ね意図どおり実装されている。
+- ただし、受け入れ条件と実装概要に対して未達が残るため、この時点では PR ready ではない。
+
+### PR可否
+
+- `pr_ready: false`
+
+### 重大度順の指摘
+
+1. **major**: `WorkerConfig::from_env()` が `Result` を返す設計に変わった一方で、`GITHUB_APP_ID` の不正値は `None` に握りつぶされる。`crates/worker/src/config.rs` 22行目では `optional_env("GITHUB_APP_ID").and_then(|v| v.parse().ok())` となっており、設定ミスが起動時エラーではなく「GitHub APIジョブを静かに無効化する」挙動になる。計画の「命名統一・エラーハンドリング統一」と整合しない。
+2. **major**: API 側の env 直接読み取り除去が未完了。`crates/api/src/lib.rs` 63-91行目で `GITHUB_CLIENT_ID`、`GITHUB_CLIENT_SECRET`、`BOARDFLOW_ARTIFACT_SECRET`、`MINIO_BUCKET_FINAL`、`MINIO_BUCKET_STAGING`、`BOARDFLOW_APP_DOMAIN`、`BOARDFLOW_ARTIFACT_BASE_URL` を依然として `std::env::var` から読む。Issue 本文・受け入れ条件・実装概要はいずれも `lib.rs` の env 直接読み取り除去を要求しており、worklog の「実施した変更」とも不整合。
+3. **major**: ドキュメント更新が不完全。`README.md` 25行目は `MINIO_BUCKET_FINAL` のデフォルトを旧値 `boardflow-artifacts` のまま記載し、33行目は旧名 `APP_BASE_URL` のみを記載している。一方 `.env.example` 18-35行目は `BOARDFLOW_APP_DOMAIN` を採用しており、利用者が README を見て設定すると実装とずれる。
+4. **minor**: `.env.example` が「全変数網羅」を満たしていない。後方互換のため実装で受け付ける `APP_BASE_URL` が `.env.example` に記載されておらず、移行パスがドキュメント化されていない。
+5. **minor**: `boardflow-config` に単体テストがない。`cargo test -p boardflow-config` 実行結果は 0 tests で、計画にあった `helpers` / `DatabaseConfig` / `S3Config` の境界テストが未実装。
+6. **minor**: `docs/backend/summary.md` 57-64行目のサービス構成に `crates/config` が追加されておらず、計画の更新対象に対する追従漏れがある。
+
+### 必須修正
+
+- `GITHUB_APP_ID` のパース失敗を `ConfigError::InvalidValue` として返し、Worker の設定不備を起動時に検出できるようにする。
+- `crates/api/src/lib.rs` の env 直接読み取りを `AppConfig` 由来の値または明示的なテスト用引数に一本化し、worklog / 計画 / 実装を一致させる。
+- `README.md` の Worker 環境変数説明を現実装に合わせて更新する。少なくとも `MINIO_BUCKET_FINAL` デフォルト値と `BOARDFLOW_APP_DOMAIN` / `APP_BASE_URL` の関係を修正する。
+
+### 任意改善
+
+- `WorkerConfig::from_env()` の `BOARDFLOW_APP_DOMAIN` 優先 + `APP_BASE_URL` フォールバックをヘルパー化し、将来の同種移行でも同じエラーパターンを使えるようにする。
+- `ConfigError` の `InvalidValue` に `reason` だけでなく値も保持するか、少なくとも空文字列の `var` を作らない実装に整理する。
+
+### テスト不足
+
+- `boardflow-config` の単体テストがないため、`required_env` / `optional_env_or` / `parse_env_or` / `DatabaseConfig::from_env()` / `S3Config::from_env()` の境界が未検証。
+- `WorkerConfig::from_env()` の後方互換 (`BOARDFLOW_APP_DOMAIN` 優先、`APP_BASE_URL` フォールバック) と異常系 (`GITHUB_APP_ID` 不正値、間隔設定の不正値) を確認するテストがない。
+
+### ドキュメント確認
+
+- `.env.example`: 新旧変数の整理は概ね改善されたが、後方互換変数 `APP_BASE_URL` の記載がない。
+- `README.md`: 実装と不整合あり。
+- `docs/backend/summary.md`: crate 構成の更新漏れあり。
+
+### 実施したレビュー検証
+
+- `mise exec -- cargo test -p boardflow-config` → 成功、ただし 0 tests
+- `mise exec -- cargo test -p boardflow-api --test config_test` → 成功
+- `mise exec -- cargo test -p boardflow-worker --no-run` → 成功
+
+### 残リスク
+
+- 現状のままでは `GITHUB_APP_ID` typo が silent degradation になり、GitHub 連携ジョブだけが実行されない状態を見逃しやすい。
+- README と `.env.example` の不整合により、環境構築時に旧変数名や旧デフォルト値を前提とした設定ミスが入りやすい。
