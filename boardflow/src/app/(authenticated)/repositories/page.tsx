@@ -1,8 +1,10 @@
 import { dehydrate, HydrationBoundary } from "@tanstack/react-query"
+import { Suspense } from "react"
 import { getQueryClient } from "@/lib/query-client"
 import { createServerClient } from "@/lib/api/server"
 import { $api } from "@/lib/api/react-query"
 import { RepositoriesList } from "@/components/repositories/repositories-list"
+import { RepositoriesTableSkeleton } from "@/components/skeletons/repositories-table-skeleton"
 
 export default async function RepositoriesPage() {
   const queryClient = getQueryClient()
@@ -12,7 +14,8 @@ export default async function RepositoriesPage() {
     params: { query: { limit: 50 } },
   })
 
-  await queryClient.prefetchQuery({
+  // await しない → Streaming SSR: 結果が到着次第クライアントに反映
+  queryClient.prefetchQuery({
     ...options,
     queryFn: async () => {
       const { data, error } = await serverClient.GET("/api/v1/repositories", {
@@ -25,7 +28,9 @@ export default async function RepositoriesPage() {
 
   return (
     <HydrationBoundary state={dehydrate(queryClient)}>
-      <RepositoriesList />
+      <Suspense fallback={<RepositoriesTableSkeleton />}>
+        <RepositoriesList />
+      </Suspense>
     </HydrationBoundary>
   )
 }

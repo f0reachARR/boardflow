@@ -119,8 +119,10 @@ OpenAPI から TypeScript 型を生成して、画面側の props と API respon
 データ取得基盤は `openapi-fetch` を低レベル client とし、その上に TanStack Query v5 + `openapi-react-query` を重ねる。
 
 - Server Component は認証 cookie を forward できる `createServerClient()` で prefetch を行い、`HydrationBoundary` 経由で Client Component に渡す
-- Client Component は `$api.useQuery()` を基本形にして、queryKey を手動設計しない
-- Repository 一覧のような read 画面は、Server Component で prefetch し、描画は Client Component に寄せる
+- Client Component は `$api.useQuery()` を基本形とし、Suspense が必要な箇所では `$api.useSuspenseQuery()` を使用する。queryKey は手動設計しない
+- Repository 一覧のような read 画面は、Server Component で `prefetchQuery`（await なし）し、Client Component で `useSuspenseQuery` + `<Suspense>` boundary で Streaming SSR を実現する
+- 各ルートに `loading.tsx` を配置し、ページナビゲーション時に即座にスケルトンUIを表示する
+- エラー処理は `error.tsx` + `useQueryErrorResetBoundary` で Query のエラー状態もリセットする
 - presigned URL の更新が必要な viewer 系は、通常の API query と分けて `useQuery` + `refetchInterval` で短命 URL を更新する
 - React Query DevTools は開発環境だけで有効化し、本番 UI には含めない
 

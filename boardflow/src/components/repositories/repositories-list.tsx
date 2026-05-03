@@ -1,6 +1,6 @@
 "use client"
 
-import { Box, Heading, Spinner, Table, Text, Badge } from "@chakra-ui/react"
+import { Box, Heading, Table, Text, Badge } from "@chakra-ui/react"
 import Link from "next/link"
 import { $api } from "@/lib/api/react-query"
 
@@ -21,26 +21,9 @@ function statusColor(status: string | null): string {
 }
 
 export function RepositoriesList() {
-  const { data, error, isPending } = $api.useQuery("get", "/api/v1/repositories", {
+  const { data } = $api.useSuspenseQuery("get", "/api/v1/repositories", {
     params: { query: { limit: 50 } },
   })
-
-  if (isPending) {
-    return (
-      <Box display="flex" justifyContent="center" py={8}>
-        <Spinner size="lg" />
-      </Box>
-    )
-  }
-
-  if (error) {
-    return (
-      <Box>
-        <Heading size="lg" mb={4}>Repositories</Heading>
-        <Text color="red.500">Failed to load repositories.</Text>
-      </Box>
-    )
-  }
 
   const repositories = data?.items ?? []
 
