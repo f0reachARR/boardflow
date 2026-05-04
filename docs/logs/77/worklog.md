@@ -419,3 +419,27 @@ pub struct GithubAppId(pub Option<u64>);
 
 ### 更新した作業ログパス
 - `docs/logs/77/worklog.md`
+
+---
+
+## PR/完了結果（2026-05-04 pr）
+
+### PR作成
+- **PR URL**: https://github.com/f0reachARR/boardflow/pull/82
+- **タイトル**: feat(#77): Webhook不着時のリポジトリ一覧取得: Installation Repos APIフォールバック
+- **ベース**: main
+- **ラベル**: bug, backend, api
+- **Closes**: #77
+
+### 最終確認
+- review: `pr_ready: true`（review 3）
+- docs: `docs_ready: true`
+- 未コミット変更: なし（worklog review 3 追記をコミット後プッシュ）
+- テスト: `cargo test -p boardflow-api --test github_cache_test` 26件全パス
+
+### 残リスク
+- 大規模 org では fallback sync がホットパスで動くため、ページ数に応じて一覧 API のレイテンシが伸びる余地あり（将来的にバックグラウンドジョブ化で対応可能）
+- `GITHUB_APP_ID` 未設定または GitHub App user access token 前提が本番で満たされない場合、fallback sync は有効化されないが既存動作への影響はない
+
+### 更新した作業ログパス
+- `docs/logs/77/worklog.md`
