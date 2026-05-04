@@ -1,7 +1,17 @@
 import { Box, Button, Heading, Text, VStack } from '@chakra-ui/react';
 import Link from 'next/link';
 
-export default function LoginPage() {
+export default async function LoginPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ redirect_to?: string }>;
+}) {
+  const params = await searchParams;
+  const redirectTo = params.redirect_to;
+  const loginHref = redirectTo
+    ? `/api/v1/auth/login?redirect_to=${encodeURIComponent(redirectTo)}`
+    : '/api/v1/auth/login';
+
   return (
     <Box minH='100vh' display='flex' alignItems='center' justifyContent='center' bg='gray.50'>
       <VStack gap={6} p={8} bg='white' borderRadius='lg' shadow='md' maxW='sm' w='full'>
@@ -11,7 +21,7 @@ export default function LoginPage() {
             KiCad Board CI/CD Dashboard
           </Text>
         </VStack>
-        <Link href='/api/v1/auth/login' style={{ width: '100%' }}>
+        <Link href={loginHref} style={{ width: '100%' }}>
           <Button colorPalette='gray' size='lg' w='full'>
             Sign in with GitHub
           </Button>

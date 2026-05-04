@@ -15,19 +15,21 @@ export function middleware(request: NextRequest) {
     return NextResponse.redirect(new URL('/login', request.url));
   }
 
-  // Authenticated user accessing login → redirect to repositories
-  if (pathname === '/login' && session) {
-    return NextResponse.redirect(new URL('/repositories', request.url));
-  }
-
-  // Public paths don't require auth
+  // Public paths always accessible (no session check for /login to prevent redirect loop)
   if (PUBLIC_PATHS.some((p) => pathname.startsWith(p))) {
     return NextResponse.next();
   }
 
-  // Unauthenticated → redirect to login
+  // Unauthenticated → redirect to login with redirect_to
   if (!session) {
-    return NextResponse.redirect(new URL('/login', request.url));
+    const loginUrl = new URL('/login', request.url);
+    const redirectTo = pathname + request.nextUrl.search;
+    if (redirectTo !== '/') {
+      loginUrl.searchParams.set('redirect_to', redirectTo);
+    }
+    const response = NextResponse.redirect(loginUrl);
+    response.headers.set('x-middleware-cache', 'no-cache');
+    return response;
   }
 
   return NextResponse.next();

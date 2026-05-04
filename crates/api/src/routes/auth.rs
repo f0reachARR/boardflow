@@ -24,7 +24,7 @@ pub struct OAuthConfig {
 
 #[derive(Debug, Deserialize)]
 pub struct LoginQuery {
-    pub redirect_uri: Option<String>,
+    pub redirect_to: Option<String>,
 }
 
 #[utoipa::path(
@@ -36,7 +36,7 @@ pub struct LoginQuery {
 )]
 pub async fn login(
     Extension(oauth_config): Extension<OAuthConfig>,
-    Query(_query): Query<LoginQuery>,
+    Query(query): Query<LoginQuery>,
 ) -> Response {
     let state = Uuid::new_v4().to_string();
     let url = format!(
@@ -50,12 +50,23 @@ pub async fn login(
         state
     );
 
-    Response::builder()
+    let mut builder = Response::builder()
         .status(StatusCode::FOUND)
         .header(header::LOCATION, url)
-        .header(header::SET_COOKIE, oauth_state_cookie)
-        .body(axum::body::Body::empty())
-        .unwrap()
+        .header(header::SET_COOKIE, oauth_state_cookie);
+
+    // Store redirect_to in a cookie if provided and valid
+    if let Some(ref redirect_to) = query.redirect_to {
+        if validate_redirect_path(redirect_to).is_some() {
+            let redirect_cookie = format!(
+                "boardflow_redirect_to={}; Path=/; HttpOnly; SameSite=Lax; Max-Age=300",
+                redirect_to
+            );
+            builder = builder.header(header::SET_COOKIE, redirect_cookie);
+        }
+    }
+
+    builder.body(axum::body::Body::empty()).unwrap()
 }
 
 // ─── GET /api/v1/auth/callback ──────────────────────────────────────────────
@@ -173,19 +184,29 @@ pub async fn callback(
             AppError::internal_error("database error", &request_id)
         })?;
 
-    // Set session cookie, clear oauth_state cookie, and redirect to "/"
+    // Determine redirect location from boardflow_redirect_to cookie
+    let redirect_location = extract_cookie_value(&headers, "boardflow_redirect_to")
+        .as_deref()
+        .and_then(validate_redirect_path)
+        .unwrap_or("/")
+        .to_owned();
+
+    // Set session cookie, clear oauth_state cookie and redirect_to cookie
     let session_cookie = format!(
         "boardflow_session={}; Path=/; HttpOnly; SameSite=Lax; Max-Age=604800",
         session.id
     );
     let clear_oauth_state_cookie =
         "boardflow_oauth_state=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0";
+    let clear_redirect_cookie =
+        "boardflow_redirect_to=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0";
 
     let response = Response::builder()
         .status(StatusCode::FOUND)
-        .header(header::LOCATION, "/")
+        .header(header::LOCATION, &redirect_location)
         .header(header::SET_COOKIE, session_cookie)
         .header(header::SET_COOKIE, clear_oauth_state_cookie)
+        .header(header::SET_COOKIE, clear_redirect_cookie)
         .body(axum::body::Body::empty())
         .unwrap();
 
@@ -267,4 +288,99 @@ fn extract_cookie_value(headers: &HeaderMap, name: &str) -> Option<String> {
                 None
             }
         })
+}
+
+/// Validate that a redirect path is a safe relative path.
+/// Returns the path if valid, None if it should be rejected (fallback to "/").
+fn validate_redirect_path(path: &str) -> Option<&str> {
+    if path.is_empty() {
+        return None;
+    }
+    if !path.starts_with('/') {
+        return None;
+    }
+    if path.starts_with("//") {
+        return None;
+    }
+    if path.contains("://") {
+        return None;
+    }
+    if path.contains('\\') {
+        return None;
+    }
+    if path.contains('\0') {
+        return None;
+    }
+    if let Ok(decoded) = urlencoding::decode(path) {
+        if decoded.starts_with("//") || decoded.contains("://") || decoded.contains('\\') {
+            return None;
+        }
+    }
+    if path.len() > 2048 {
+        return None;
+    }
+    Some(path)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_validate_redirect_path_valid() {
+        assert_eq!(validate_redirect_path("/"), Some("/"));
+        assert_eq!(validate_redirect_path("/repositories"), Some("/repositories"));
+        assert_eq!(
+            validate_redirect_path("/repositories/123?tab=files"),
+            Some("/repositories/123?tab=files")
+        );
+        assert_eq!(validate_redirect_path("/a/b/c"), Some("/a/b/c"));
+    }
+
+    #[test]
+    fn test_validate_redirect_path_empty() {
+        assert_eq!(validate_redirect_path(""), None);
+    }
+
+    #[test]
+    fn test_validate_redirect_path_no_leading_slash() {
+        assert_eq!(validate_redirect_path("repositories"), None);
+        assert_eq!(validate_redirect_path("https://evil.com"), None);
+    }
+
+    #[test]
+    fn test_validate_redirect_path_protocol_relative() {
+        assert_eq!(validate_redirect_path("//evil.com"), None);
+        assert_eq!(validate_redirect_path("//evil.com/path"), None);
+    }
+
+    #[test]
+    fn test_validate_redirect_path_contains_scheme() {
+        assert_eq!(validate_redirect_path("/foo://bar"), None);
+    }
+
+    #[test]
+    fn test_validate_redirect_path_backslash() {
+        assert_eq!(validate_redirect_path("/\\evil.com"), None);
+        assert_eq!(validate_redirect_path("/foo\\bar"), None);
+    }
+
+    #[test]
+    fn test_validate_redirect_path_null_byte() {
+        assert_eq!(validate_redirect_path("/foo\0bar"), None);
+    }
+
+    #[test]
+    fn test_validate_redirect_path_encoded_bypass() {
+        // %2F%2F = //
+        assert_eq!(validate_redirect_path("/%2F%2Fevil.com"), None);
+        // %5C = backslash
+        assert_eq!(validate_redirect_path("/%5Cevil.com"), None);
+    }
+
+    #[test]
+    fn test_validate_redirect_path_too_long() {
+        let long_path = format!("/{}", "a".repeat(2048));
+        assert_eq!(validate_redirect_path(&long_path), None);
+    }
 }
