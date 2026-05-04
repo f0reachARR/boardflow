@@ -200,8 +200,7 @@ pub async fn callback(
     );
     let clear_oauth_state_cookie =
         "boardflow_oauth_state=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0";
-    let clear_redirect_cookie =
-        "boardflow_redirect_to=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0";
+    let clear_redirect_cookie = "boardflow_redirect_to=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0";
 
     let response = Response::builder()
         .status(StatusCode::FOUND)
@@ -315,7 +314,10 @@ fn validate_redirect_path(path: &str) -> Option<&str> {
     }
     // Reject characters that are invalid in cookie values (RFC 6265)
     // This prevents cookie injection / header manipulation
-    if path.bytes().any(|b| matches!(b, b';' | b',' | b'"' | b'\r' | b'\n' | b' ')) {
+    if path
+        .bytes()
+        .any(|b| matches!(b, b';' | b',' | b'"' | b'\r' | b'\n' | b' '))
+    {
         return None;
     }
     if let Ok(decoded) = urlencoding::decode(path) {
@@ -336,7 +338,10 @@ mod tests {
     #[test]
     fn test_validate_redirect_path_valid() {
         assert_eq!(validate_redirect_path("/"), Some("/"));
-        assert_eq!(validate_redirect_path("/repositories"), Some("/repositories"));
+        assert_eq!(
+            validate_redirect_path("/repositories"),
+            Some("/repositories")
+        );
         assert_eq!(
             validate_redirect_path("/repositories/123?tab=files"),
             Some("/repositories/123?tab=files")

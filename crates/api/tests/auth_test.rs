@@ -153,8 +153,8 @@ fn request_id_clone() {
 
 // ─── Login handler redirect_to tests ────────────────────────────────────────
 
-use boardflow_api::routes::auth::{OAuthConfig, login};
 use axum::Extension;
+use boardflow_api::routes::auth::{OAuthConfig, login};
 
 fn login_app() -> Router {
     Router::new()
@@ -190,8 +190,16 @@ async fn login_without_redirect_to_has_no_redirect_cookie() {
         .filter_map(|v| v.to_str().ok())
         .collect();
 
-    assert!(cookies.iter().any(|c| c.starts_with("boardflow_oauth_state=")));
-    assert!(!cookies.iter().any(|c| c.starts_with("boardflow_redirect_to=")));
+    assert!(
+        cookies
+            .iter()
+            .any(|c| c.starts_with("boardflow_oauth_state="))
+    );
+    assert!(
+        !cookies
+            .iter()
+            .any(|c| c.starts_with("boardflow_redirect_to="))
+    );
 }
 
 #[tokio::test]
@@ -253,5 +261,9 @@ async fn login_with_invalid_redirect_to_does_not_set_cookie() {
         .filter_map(|v| v.to_str().ok())
         .collect();
 
-    assert!(!cookies.iter().any(|c| c.starts_with("boardflow_redirect_to=")));
+    assert!(
+        !cookies
+            .iter()
+            .any(|c| c.starts_with("boardflow_redirect_to="))
+    );
 }
