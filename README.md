@@ -32,6 +32,8 @@
 | `GITHUB_PRIVATE_KEY_PEM` | No | GitHub App RSA秘密鍵(PEM)。未設定時はGitHub APIジョブをスキップ |
 | `BOARDFLOW_APP_DOMAIN` | No | フロントエンドのベースURL (default: `http://localhost:3000`)。OAuth callback と CORS で使用。後方互換として `APP_BASE_URL` も使用可 |
 
+> **Note**: `GITHUB_APP_ID` は API サーバーでも使用されます。設定すると、Webhook 不着時にユーザーの Installation Repositories API を使ってリポジトリ一覧を DB に best-effort 同期するフォールバックが有効になります。未設定の場合、フォールバック同期は無効ですが他の機能には影響しません。
+
 ## GitHub OAuth App 設定
 
 OAuth 認証は Next.js rewrites 経由でフロントエンドドメインを callback 先に使用します。GitHub OAuth App の **Authorization callback URL** は `BOARDFLOW_APP_DOMAIN` と一致させてください。

@@ -573,3 +573,214 @@ async fn test_cached_checker_rate_limited_no_stale_returns_error() {
     // Should return RateLimited since no stale cache exists
     assert_eq!(result, Err(AccessError::RateLimited));
 }
+
+// ─── Fallback sync tests ─────────────────────────────────────────────────────
+
+/// Test: find_existing_github_ids returns only IDs that exist in DB
+#[tokio::test]
+#[serial]
+async fn test_find_existing_github_ids() {
+    let Some(pool) = setup_pool().await else {
+        return;
+    };
+
+    let repo_id_1 = rand_i64();
+    let repo_id_2 = rand_i64();
+    let repo_id_3 = rand_i64();
+
+    // Insert two repos, skip the third
+    let uuid1 = Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO repositories (id, github_repository_id, owner, name, installation_id, created_at, updated_at) \
+         VALUES ($1, $2, 'owner1', 'repo1', 1001, NOW(), NOW()) \
+         ON CONFLICT (github_repository_id) DO NOTHING",
+    )
+    .bind(uuid1)
+    .bind(repo_id_1)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let uuid2 = Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO repositories (id, github_repository_id, owner, name, installation_id, created_at, updated_at) \
+         VALUES ($1, $2, 'owner2', 'repo2', 1001, NOW(), NOW()) \
+         ON CONFLICT (github_repository_id) DO NOTHING",
+    )
+    .bind(uuid2)
+    .bind(repo_id_2)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let existing = boardflow_db::queries::repository::find_existing_github_ids(
+        &pool,
+        &[repo_id_1, repo_id_2, repo_id_3],
+    )
+    .await
+    .unwrap();
+
+    assert!(existing.contains(&repo_id_1));
+    assert!(existing.contains(&repo_id_2));
+    assert!(!existing.contains(&repo_id_3));
+    assert_eq!(existing.len(), 2);
+}
+
+/// Test: find_existing_github_ids with empty input returns empty
+#[tokio::test]
+#[serial]
+async fn test_find_existing_github_ids_empty_input() {
+    let Some(pool) = setup_pool().await else {
+        return;
+    };
+
+    let existing =
+        boardflow_db::queries::repository::find_existing_github_ids(&pool, &[]).await.unwrap();
+    assert!(existing.is_empty());
+}
+
+/// Test: Fallback sync skipped when github_app_id is None
+#[tokio::test]
+#[serial]
+async fn test_fallback_sync_skipped_when_app_id_none() {
+    let Some(pool) = setup_pool().await else {
+        return;
+    };
+    let token = "gho_fallback_no_appid_test";
+    let user_id = create_test_user_with_token(&pool, token).await;
+
+    // Seed cache with repo IDs that don't exist in repositories table
+    let nonexistent_id = rand_i64();
+    let value = serde_json::json!([nonexistent_id]);
+    boardflow_db::queries::github_api_cache::upsert_cache(
+        &pool,
+        user_id,
+        "accessible_repo_ids",
+        &value,
+        600,
+    )
+    .await
+    .unwrap();
+
+    // Create checker with github_app_id = None
+    let inner: Arc<dyn GithubAccessChecker> = Arc::new(AllowAllGithubAccessChecker);
+    let checker = CachedGithubAccessChecker::with_inner(inner, pool.clone(), None);
+
+    let result = checker.list_accessible_repo_ids(token).await.unwrap();
+    assert_eq!(result, Some(vec![nonexistent_id]));
+
+    // Verify no sync throttle cache was written (sync was skipped)
+    let sync_cache = boardflow_db::queries::github_api_cache::get_valid_cache(
+        &pool,
+        user_id,
+        "installation_repos_sync",
+    )
+    .await
+    .unwrap();
+    assert_eq!(sync_cache, None);
+}
+
+/// Test: Fallback sync skipped when all repos already exist in DB
+#[tokio::test]
+#[serial]
+async fn test_fallback_sync_skipped_when_all_repos_exist() {
+    let Some(pool) = setup_pool().await else {
+        return;
+    };
+    let token = "gho_fallback_all_exist_test";
+    let user_id = create_test_user_with_token(&pool, token).await;
+
+    // Create a repo in DB
+    let repo_id = rand_i64();
+    let uuid = Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO repositories (id, github_repository_id, owner, name, installation_id, created_at, updated_at) \
+         VALUES ($1, $2, 'testowner', 'testrepo', 1001, NOW(), NOW()) \
+         ON CONFLICT (github_repository_id) DO NOTHING",
+    )
+    .bind(uuid)
+    .bind(repo_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    // Seed cache with the existing repo ID
+    let value = serde_json::json!([repo_id]);
+    boardflow_db::queries::github_api_cache::upsert_cache(
+        &pool,
+        user_id,
+        "accessible_repo_ids",
+        &value,
+        600,
+    )
+    .await
+    .unwrap();
+
+    // Create checker with a real app_id (sync should still be skipped since no missing repos)
+    let inner: Arc<dyn GithubAccessChecker> = Arc::new(AllowAllGithubAccessChecker);
+    let checker = CachedGithubAccessChecker::with_inner(inner, pool.clone(), Some(12345));
+
+    let result = checker.list_accessible_repo_ids(token).await.unwrap();
+    assert_eq!(result, Some(vec![repo_id]));
+
+    // Verify no sync throttle cache was written (sync was skipped - no missing repos)
+    let sync_cache = boardflow_db::queries::github_api_cache::get_valid_cache(
+        &pool,
+        user_id,
+        "installation_repos_sync",
+    )
+    .await
+    .unwrap();
+    assert_eq!(sync_cache, None);
+}
+
+/// Test: Fallback sync skipped when throttle is active
+#[tokio::test]
+#[serial]
+async fn test_fallback_sync_skipped_when_throttled() {
+    let Some(pool) = setup_pool().await else {
+        return;
+    };
+    let token = "gho_fallback_throttled_test";
+    let user_id = create_test_user_with_token(&pool, token).await;
+
+    // Seed cache with a repo ID that doesn't exist in DB
+    let nonexistent_id = rand_i64();
+    let value = serde_json::json!([nonexistent_id]);
+    boardflow_db::queries::github_api_cache::upsert_cache(
+        &pool,
+        user_id,
+        "accessible_repo_ids",
+        &value,
+        600,
+    )
+    .await
+    .unwrap();
+
+    // Seed the sync throttle cache (indicates sync was done recently)
+    boardflow_db::queries::github_api_cache::upsert_cache(
+        &pool,
+        user_id,
+        "installation_repos_sync",
+        &serde_json::json!({"synced": true}),
+        600,
+    )
+    .await
+    .unwrap();
+
+    // Create checker with a real app_id
+    let inner: Arc<dyn GithubAccessChecker> = Arc::new(AllowAllGithubAccessChecker);
+    let checker = CachedGithubAccessChecker::with_inner(inner, pool.clone(), Some(12345));
+
+    let result = checker.list_accessible_repo_ids(token).await.unwrap();
+    assert_eq!(result, Some(vec![nonexistent_id]));
+
+    // The repo should NOT have been created (sync was throttled)
+    let existing = boardflow_db::queries::repository::find_existing_github_ids(
+        &pool,
+        &[nonexistent_id],
+    )
+    .await
+    .unwrap();
+    assert!(existing.is_empty());
+}

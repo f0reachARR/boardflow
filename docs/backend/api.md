@@ -28,6 +28,17 @@ revoke 済み token は認証エラー (`unauthorized`) として扱い、`last_
 Web UI 向け read API は GitHub OAuth session を前提にする。
 最終的な閲覧可否は backend が GitHub App installation と repository 権限に基づいて判定する。
 
+### 1.2.1 Installation Repos Fallback Sync
+
+Webhook (`installation` / `installation_repositories` イベント) が不着の場合、リポジトリ一覧 API (`GET /api/v1/repositories`) のリクエスト中に best-effort でフォールバック同期を行う。
+
+- **発火条件**: `list_accessible_repo_ids` が返した repo ID のうち、DB `repositories` テーブルに存在しない ID がある場合
+- **スロットル**: ユーザーごとに 10 分間隔（`github_api_cache` テーブルの `installation_repos_sync` エントリで制御）
+- **フロー**: `GET /user/installations` → `GITHUB_APP_ID` でフィルタ → `GET /user/installations/{id}/repositories` → `repository::upsert`
+- **エラー耐性**: GitHub API 障害時はフォールバックをスキップし、通常のレスポンスを返す（ユーザーへのエラーは伝搬しない）
+- **前提**: `GITHUB_APP_ID` 環境変数が設定されていること（未設定時はフォールバック無効）
+- **除外**: `suspended_at` が non-null のインストールは同期対象外
+
 ### 1.3 ID
 
 repository API / URL では `github_repository_id` を併用する。

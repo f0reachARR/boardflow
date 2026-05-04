@@ -258,3 +258,44 @@ pub struct GithubAppId(pub Option<u64>);
 
 ## 更新した作業ログパス
 `docs/logs/77/worklog.md`
+
+---
+
+## レビュー結果（2026-05-04 review）
+
+### 総評
+- 実装は GitHub App user access token を使った Installed Repositories API フォールバックの大枠を満たしており、`app_id` フィルタ、`suspended_at` 除外、best-effort エラーハンドリング、10分 TTL のスロットルという設計意図には沿っている。
+- ただし、`accessible_repo_ids` の有効キャッシュがある場合にフォールバック判定へ到達しないため、「インストール直後」や「直前に一覧を開いていたユーザー」のケースでは、Webhook 不着時に新規 repo が最大 10 分表示されない。Issue の主目的に対して未充足の経路が残っている。
+- あわせて、計画で明示したフォールバック固有テストとドキュメント更新が未完了で、worklog 上の計画・実装結果との整合も崩れている。
+
+### 指摘事項
+1. 重大: `CachedGithubAccessChecker::list_accessible_repo_ids` は valid cache hit 時に即 return しており、その後段の `maybe_sync_installation_repos` に到達しない。このため、`/user/repos` キャッシュが warm な 10 分間は DB 未登録 repo の検出自体が行われず、Webhook 不着時の repo 一覧復旧が遅延する。Issue 本文の「GitHub Appインストール直後やWebhook不着時にもリポジトリ一覧を表示したい」に対して不十分。該当箇所: `crates/api/src/github_access.rs` の cache early return と fallback 呼び出し位置。
+2. 中: 計画ではフォールバック発火、スロットル、`app_id` フィルタ、`suspended_at` 除外、`github_app_id=None` をカバーするテスト追加を約束しているが、実際の `crates/api/tests/github_cache_test.rs` は既存キャッシュ挙動の確認が中心で、追加されたのはコンストラクタ引数変更の追従のみ。フォールバック固有ロジックの回帰を検知できない。
+3. 中: 計画では `docs/backend/api.md` への動作仕様追記と `README.md` への API サーバーでも `GITHUB_APP_ID` を使う旨の追記を宣言しているが未反映。README は依然として Worker 環境変数の文脈でのみ `GITHUB_APP_ID` を説明しており、運用者が API 側設定漏れを起こしやすい。
+
+### 必須修正
+- cache hit 時でも DB 未登録 repo の検出とフォールバック同期判定ができるようにする。少なくとも `accessible_repo_ids` のキャッシュ値を使って `find_existing_github_ids` とスロットル判定を実行できる構造に改めること。
+- フォールバック固有のテストを追加する。最低限、warm cache 時の欠損 repo 検出、スロットル有効時の非同期スキップ、`app_id` 不一致除外、`suspended_at` 除外、`github_app_id=None` をカバーすること。
+- `README.md` と `docs/backend/api.md` を更新し、API サーバーでも `GITHUB_APP_ID` が必要であることと、一覧 API における best-effort fallback sync の動作を明記すること。
+
+### 任意改善
+- `missing` 判定で `existing.contains(id)` を繰り返しており、大規模 org では O(n^2) になる。`HashSet` 化して判定コストを落とすとよい。
+- `reqwest::Client::new()` を毎回生成せず、checker がクライアントを保持する形に寄せると接続再利用とテスト差し替えがしやすい。
+- フォールバック実行ログに `app_id` や relevant installation 件数も出すと運用時に原因追跡しやすい。
+
+### テスト結果
+- `mise exec -- cargo test -p boardflow-api --test github_cache_test`: 17 passed
+- 近傍テストは成功したが、フォールバック固有ケースの検証は含まれていない。
+
+### ドキュメント確認
+- `README.md`: `GITHUB_APP_ID` は Worker 環境変数としてのみ記載されている。
+- `docs/backend/api.md`: fallback sync の仕様記載なし。
+- `docs/external/github-user-installations-api.md`: 調査内容は今回の実装方針と整合している。
+
+### PR/完了結果
+- `pr_ready: false`
+- 理由: Issue #77 の主目的に対する warm cache 経路の機能欠落、フォールバック固有テスト不足、計画済み docs 更新未完了があるため。
+
+### 残リスク
+- warm cache 問題を修正しても、ホットパス同期のため大規模 org ではレイテンシ増加余地が残る。
+- webhook と fallback sync の最終整合性は eventual consistency であり、完全即時反映は保証できない。

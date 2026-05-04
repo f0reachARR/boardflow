@@ -392,6 +392,9 @@ impl GithubAccessChecker for CachedGithubAccessChecker {
         .await
         {
             if let Ok(ids) = serde_json::from_value::<Vec<i64>>(cached) {
+                // Even on cache hit, trigger fallback sync if repos are missing from DB
+                self.maybe_sync_installation_repos(github_access_token, user_id, &ids)
+                    .await;
                 return Ok(Some(ids));
             }
         }
@@ -515,9 +518,10 @@ impl CachedGithubAccessChecker {
             }
         };
 
+        let existing_set: std::collections::HashSet<i64> = existing.into_iter().collect();
         let missing: Vec<i64> = accessible_ids
             .iter()
-            .filter(|id| !existing.contains(id))
+            .filter(|id| !existing_set.contains(id))
             .copied()
             .collect();
 
