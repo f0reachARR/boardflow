@@ -12,7 +12,7 @@ fn parse_valid_boardflow_yml() {
         r#"
 version: 1
 outputs:
-  preset: full
+  preset: default
 exclude_paths:
   - "docs/**"
   - "test/**"
@@ -22,7 +22,10 @@ exclude_paths:
 
     let config = parse_boardflow_yml(&yml_path).unwrap();
     assert_eq!(config.version, 1);
-    assert_eq!(config.outputs.as_ref().unwrap().preset.as_deref(), Some("full"));
+    assert_eq!(
+        config.outputs.as_ref().unwrap().preset.as_deref(),
+        Some("default")
+    );
     assert_eq!(config.exclude_paths.len(), 2);
     assert_eq!(config.exclude_paths[0], "docs/**");
     assert_eq!(config.exclude_paths[1], "test/**");
@@ -41,7 +44,7 @@ fn parse_minimal_boardflow_yml() {
 }
 
 #[test]
-fn parse_boardflow_yml_with_unknown_fields() {
+fn parse_boardflow_yml_rejects_unknown_fields() {
     let tmp = TempDir::new().unwrap();
     let yml_path = tmp.path().join(".boardflow.yml");
     fs::write(
@@ -50,15 +53,35 @@ fn parse_boardflow_yml_with_unknown_fields() {
 version: 1
 unknown_field: hello
 outputs:
-  preset: basic
+  preset: default
 "#,
     )
     .unwrap();
 
-    // serde_yaml by default ignores unknown fields with #[serde(deny_unknown_fields)]
-    // absent, so this should succeed
-    let config = parse_boardflow_yml(&yml_path).unwrap();
-    assert_eq!(config.version, 1);
+    let result = parse_boardflow_yml(&yml_path);
+    assert!(result.is_err(), "unknown fields should be rejected");
+}
+
+#[test]
+fn parse_boardflow_yml_rejects_unknown_outputs_field() {
+    let tmp = TempDir::new().unwrap();
+    let yml_path = tmp.path().join(".boardflow.yml");
+    fs::write(
+        &yml_path,
+        r#"
+version: 1
+outputs:
+  preset: default
+  extra: true
+"#,
+    )
+    .unwrap();
+
+    let result = parse_boardflow_yml(&yml_path);
+    assert!(
+        result.is_err(),
+        "unknown fields in outputs should be rejected"
+    );
 }
 
 #[test]
@@ -72,6 +95,17 @@ fn validate_schema_v1_accepts_version_1() {
 }
 
 #[test]
+fn validate_schema_v1_rejects_version_0() {
+    let tmp = TempDir::new().unwrap();
+    let yml_path = tmp.path().join(".boardflow.yml");
+    fs::write(&yml_path, "version: 0\n").unwrap();
+
+    let config = parse_boardflow_yml(&yml_path).unwrap();
+    let result = validate_schema_v1(&config);
+    assert!(result.is_err());
+}
+
+#[test]
 fn validate_schema_v1_rejects_version_2() {
     let tmp = TempDir::new().unwrap();
     let yml_path = tmp.path().join(".boardflow.yml");
@@ -80,6 +114,60 @@ fn validate_schema_v1_rejects_version_2() {
     let config = parse_boardflow_yml(&yml_path).unwrap();
     let result = validate_schema_v1(&config);
     assert!(result.is_err());
+}
+
+#[test]
+fn validate_schema_v1_accepts_preset_default() {
+    let tmp = TempDir::new().unwrap();
+    let yml_path = tmp.path().join(".boardflow.yml");
+    fs::write(
+        &yml_path,
+        "version: 1\noutputs:\n  preset: default\n",
+    )
+    .unwrap();
+
+    let config = parse_boardflow_yml(&yml_path).unwrap();
+    assert!(validate_schema_v1(&config).is_ok());
+}
+
+#[test]
+fn validate_schema_v1_accepts_no_preset() {
+    let tmp = TempDir::new().unwrap();
+    let yml_path = tmp.path().join(".boardflow.yml");
+    fs::write(&yml_path, "version: 1\noutputs:\n  preset:\n").unwrap();
+
+    let config = parse_boardflow_yml(&yml_path).unwrap();
+    assert!(validate_schema_v1(&config).is_ok());
+}
+
+#[test]
+fn validate_schema_v1_rejects_preset_custom() {
+    let tmp = TempDir::new().unwrap();
+    let yml_path = tmp.path().join(".boardflow.yml");
+    fs::write(
+        &yml_path,
+        "version: 1\noutputs:\n  preset: custom\n",
+    )
+    .unwrap();
+
+    let config = parse_boardflow_yml(&yml_path).unwrap();
+    let result = validate_schema_v1(&config);
+    assert!(result.is_err(), "preset 'custom' should be rejected");
+}
+
+#[test]
+fn validate_schema_v1_rejects_preset_full() {
+    let tmp = TempDir::new().unwrap();
+    let yml_path = tmp.path().join(".boardflow.yml");
+    fs::write(
+        &yml_path,
+        "version: 1\noutputs:\n  preset: full\n",
+    )
+    .unwrap();
+
+    let config = parse_boardflow_yml(&yml_path).unwrap();
+    let result = validate_schema_v1(&config);
+    assert!(result.is_err(), "preset 'full' should be rejected");
 }
 
 #[test]

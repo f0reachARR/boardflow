@@ -94,10 +94,26 @@ fn resolve_pcb_file_exact_stem() {
 fn resolve_pcb_file_fallback_different_name() {
     let tmp = TempDir::new().unwrap();
     let dir = tmp.path();
+    // Only one .kicad_pcb with different name → fallback succeeds
     fs::write(dir.join("Other.kicad_pcb"), "").unwrap();
 
     let pcb = resolve_pcb_file(dir, "Board").unwrap();
     assert_eq!(pcb.file_name().unwrap(), "Other.kicad_pcb");
+}
+
+#[test]
+fn resolve_pcb_file_multiple_candidates_returns_error() {
+    let tmp = TempDir::new().unwrap();
+    let dir = tmp.path();
+    // Two .kicad_pcb files, stem matches neither → error
+    fs::write(dir.join("A.kicad_pcb"), "").unwrap();
+    fs::write(dir.join("B.kicad_pcb"), "").unwrap();
+
+    let result = resolve_pcb_file(dir, "Board");
+    assert!(
+        result.is_err(),
+        "multiple .kicad_pcb without stem match should error"
+    );
 }
 
 #[test]
@@ -121,10 +137,26 @@ fn resolve_root_schematic_exact_stem() {
 fn resolve_root_schematic_fallback() {
     let tmp = TempDir::new().unwrap();
     let dir = tmp.path();
+    // Only one .kicad_sch with different name → fallback succeeds
     fs::write(dir.join("Other.kicad_sch"), "").unwrap();
 
     let sch = resolve_root_schematic(dir, "Board").unwrap();
     assert_eq!(sch.file_name().unwrap(), "Other.kicad_sch");
+}
+
+#[test]
+fn resolve_root_schematic_multiple_candidates_returns_error() {
+    let tmp = TempDir::new().unwrap();
+    let dir = tmp.path();
+    // Two .kicad_sch files, stem matches neither → error
+    fs::write(dir.join("A.kicad_sch"), "").unwrap();
+    fs::write(dir.join("B.kicad_sch"), "").unwrap();
+
+    let result = resolve_root_schematic(dir, "Board");
+    assert!(
+        result.is_err(),
+        "multiple .kicad_sch without stem match should error"
+    );
 }
 
 #[test]

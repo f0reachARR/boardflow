@@ -65,7 +65,8 @@ pub fn resolve_pcb_file(dir: &Path, stem: &str) -> Result<PathBuf> {
     if expected.is_file() {
         return Ok(expected);
     }
-    // Fallback: look for any .kicad_pcb in the directory
+    // Fallback: only allow if exactly one .kicad_pcb exists in the directory
+    let mut found = Vec::new();
     let entries = std::fs::read_dir(dir)?;
     for entry in entries {
         let entry = entry?;
@@ -73,15 +74,22 @@ pub fn resolve_pcb_file(dir: &Path, stem: &str) -> Result<PathBuf> {
         if path.is_file() {
             if let Some(ext) = path.extension() {
                 if ext == "kicad_pcb" {
-                    return Ok(path);
+                    found.push(path);
                 }
             }
         }
     }
-    Err(KicadError::NoKicadPcb {
-        dir: dir.to_path_buf(),
-        stem: stem.to_string(),
-    })
+    match found.len() {
+        0 => Err(KicadError::NoKicadPcb {
+            dir: dir.to_path_buf(),
+            stem: stem.to_string(),
+        }),
+        1 => Ok(found.into_iter().next().unwrap()),
+        _ => Err(KicadError::MultipleKicadPcb {
+            dir: dir.to_path_buf(),
+            stem: stem.to_string(),
+        }),
+    }
 }
 
 /// Resolve the root `.kicad_sch` file with the given stem in `dir`.
@@ -90,7 +98,8 @@ pub fn resolve_root_schematic(dir: &Path, stem: &str) -> Result<PathBuf> {
     if expected.is_file() {
         return Ok(expected);
     }
-    // Fallback: look for any .kicad_sch in the directory
+    // Fallback: only allow if exactly one .kicad_sch exists in the directory
+    let mut found = Vec::new();
     let entries = std::fs::read_dir(dir)?;
     for entry in entries {
         let entry = entry?;
@@ -98,15 +107,22 @@ pub fn resolve_root_schematic(dir: &Path, stem: &str) -> Result<PathBuf> {
         if path.is_file() {
             if let Some(ext) = path.extension() {
                 if ext == "kicad_sch" {
-                    return Ok(path);
+                    found.push(path);
                 }
             }
         }
     }
-    Err(KicadError::NoKicadSch {
-        dir: dir.to_path_buf(),
-        stem: stem.to_string(),
-    })
+    match found.len() {
+        0 => Err(KicadError::NoKicadSch {
+            dir: dir.to_path_buf(),
+            stem: stem.to_string(),
+        }),
+        1 => Ok(found.into_iter().next().unwrap()),
+        _ => Err(KicadError::MultipleKicadSch {
+            dir: dir.to_path_buf(),
+            stem: stem.to_string(),
+        }),
+    }
 }
 
 /// Resolve all project files (.kicad_pro, .kicad_pcb, .kicad_sch) from a directory.

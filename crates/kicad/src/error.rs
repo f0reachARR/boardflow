@@ -31,8 +31,14 @@ pub enum KicadError {
     #[error("No .kicad_pcb found for {stem} in {dir}")]
     NoKicadPcb { dir: PathBuf, stem: String },
 
+    #[error("Multiple .kicad_pcb found in {dir} (no unique match for stem {stem})")]
+    MultipleKicadPcb { dir: PathBuf, stem: String },
+
     #[error("No .kicad_sch found for {stem} in {dir}")]
     NoKicadSch { dir: PathBuf, stem: String },
+
+    #[error("Multiple .kicad_sch found in {dir} (no unique match for stem {stem})")]
+    MultipleKicadSch { dir: PathBuf, stem: String },
 
     #[error("Config validation error: {0}")]
     ConfigValidation(String),

@@ -31,43 +31,38 @@ impl KicadCli {
     }
 
     pub async fn run_erc(&self, sch_file: &Path, output_json: &Path) -> Result<CommandOutput> {
-        let sch = sch_file.to_str().unwrap_or_default();
-        let out = output_json.to_str().unwrap_or_default();
-        self.exec_erc_drc(&["sch", "erc", "--format", "json", "--output", out, sch])
-            .await
+        let args = Self::build_erc_args(sch_file, output_json);
+        let args_ref: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
+        self.exec_erc_drc(&args_ref).await
     }
 
     pub async fn run_drc(&self, pcb_file: &Path, output_json: &Path) -> Result<CommandOutput> {
-        let pcb = pcb_file.to_str().unwrap_or_default();
-        let out = output_json.to_str().unwrap_or_default();
-        self.exec_erc_drc(&["pcb", "drc", "--format", "json", "--output", out, pcb])
-            .await
+        let args = Self::build_drc_args(pcb_file, output_json);
+        let args_ref: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
+        self.exec_erc_drc(&args_ref).await
     }
 
     pub async fn export_pcb_pdf(&self, pcb_file: &Path, output_pdf: &Path) -> Result<CommandOutput> {
-        let pcb = pcb_file.to_str().unwrap_or_default();
-        let out = output_pdf.to_str().unwrap_or_default();
-        self.exec(&["pcb", "export", "pdf", "--output", out, pcb])
-            .await
+        let args = Self::build_pcb_pdf_args(pcb_file, output_pdf);
+        let args_ref: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
+        self.exec(&args_ref).await
     }
 
     pub async fn export_sch_pdf(&self, sch_file: &Path, output_pdf: &Path) -> Result<CommandOutput> {
-        let sch = sch_file.to_str().unwrap_or_default();
-        let out = output_pdf.to_str().unwrap_or_default();
-        self.exec(&["sch", "export", "pdf", "--output", out, sch])
-            .await
+        let args = Self::build_sch_pdf_args(sch_file, output_pdf);
+        let args_ref: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
+        self.exec(&args_ref).await
     }
 
     pub async fn export_pcb_svg(
         &self,
         pcb_file: &Path,
         output_svg: &Path,
-        layers: &str,
+        side: &str,
     ) -> Result<CommandOutput> {
-        let pcb = pcb_file.to_str().unwrap_or_default();
-        let out = output_svg.to_str().unwrap_or_default();
-        self.exec(&["pcb", "export", "svg", "--layers", layers, "--output", out, pcb])
-            .await
+        let args = Self::build_pcb_svg_args(pcb_file, output_svg, side);
+        let args_ref: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
+        self.exec(&args_ref).await
     }
 
     pub async fn export_gerbers(
@@ -75,10 +70,9 @@ impl KicadCli {
         pcb_file: &Path,
         output_dir: &Path,
     ) -> Result<CommandOutput> {
-        let pcb = pcb_file.to_str().unwrap_or_default();
-        let out = output_dir.to_str().unwrap_or_default();
-        self.exec(&["pcb", "export", "gerbers", "--output", out, pcb])
-            .await
+        let args = Self::build_gerbers_args(pcb_file, output_dir);
+        let args_ref: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
+        self.exec(&args_ref).await
     }
 
     pub async fn export_drill(
@@ -86,17 +80,15 @@ impl KicadCli {
         pcb_file: &Path,
         output_dir: &Path,
     ) -> Result<CommandOutput> {
-        let pcb = pcb_file.to_str().unwrap_or_default();
-        let out = output_dir.to_str().unwrap_or_default();
-        self.exec(&["pcb", "export", "drill", "--output", out, pcb])
-            .await
+        let args = Self::build_drill_args(pcb_file, output_dir);
+        let args_ref: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
+        self.exec(&args_ref).await
     }
 
     pub async fn export_bom(&self, sch_file: &Path, output_csv: &Path) -> Result<CommandOutput> {
-        let sch = sch_file.to_str().unwrap_or_default();
-        let out = output_csv.to_str().unwrap_or_default();
-        self.exec(&["sch", "export", "bom", "--output", out, sch])
-            .await
+        let args = Self::build_bom_args(sch_file, output_csv);
+        let args_ref: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
+        self.exec(&args_ref).await
     }
 
     pub async fn export_position(
@@ -104,10 +96,9 @@ impl KicadCli {
         pcb_file: &Path,
         output_csv: &Path,
     ) -> Result<CommandOutput> {
-        let pcb = pcb_file.to_str().unwrap_or_default();
-        let out = output_csv.to_str().unwrap_or_default();
-        self.exec(&["pcb", "export", "pos", "--output", out, pcb])
-            .await
+        let args = Self::build_position_args(pcb_file, output_csv);
+        let args_ref: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
+        self.exec(&args_ref).await
     }
 
     pub async fn render_3d(
@@ -116,15 +107,158 @@ impl KicadCli {
         output_png: &Path,
         side: &str,
     ) -> Result<CommandOutput> {
-        let pcb = pcb_file.to_str().unwrap_or_default();
-        let out = output_png.to_str().unwrap_or_default();
-        self.exec(&["pcb", "render", "--side", side, "--output", out, pcb])
-            .await
+        let args = Self::build_render_3d_args(pcb_file, output_png, side);
+        let args_ref: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
+        self.exec(&args_ref).await
+    }
+
+    // --- Argument builders (pub for testing) ---
+
+    pub fn build_erc_args(sch_file: &Path, output_json: &Path) -> Vec<String> {
+        vec![
+            "sch".into(),
+            "erc".into(),
+            "--format".into(),
+            "json".into(),
+            "--severity-all".into(),
+            "--exit-code-violations".into(),
+            "--output".into(),
+            output_json.to_str().unwrap_or_default().into(),
+            sch_file.to_str().unwrap_or_default().into(),
+        ]
+    }
+
+    pub fn build_drc_args(pcb_file: &Path, output_json: &Path) -> Vec<String> {
+        vec![
+            "pcb".into(),
+            "drc".into(),
+            "--format".into(),
+            "json".into(),
+            "--severity-all".into(),
+            "--exit-code-violations".into(),
+            "--output".into(),
+            output_json.to_str().unwrap_or_default().into(),
+            pcb_file.to_str().unwrap_or_default().into(),
+        ]
+    }
+
+    pub fn build_pcb_pdf_args(pcb_file: &Path, output_pdf: &Path) -> Vec<String> {
+        vec![
+            "pcb".into(),
+            "export".into(),
+            "pdf".into(),
+            "--layers".into(),
+            "F.Cu,B.Cu,F.Silkscreen,B.Silkscreen,Edge.Cuts".into(),
+            "--output".into(),
+            output_pdf.to_str().unwrap_or_default().into(),
+            pcb_file.to_str().unwrap_or_default().into(),
+        ]
+    }
+
+    pub fn build_sch_pdf_args(sch_file: &Path, output_pdf: &Path) -> Vec<String> {
+        vec![
+            "sch".into(),
+            "export".into(),
+            "pdf".into(),
+            "--output".into(),
+            output_pdf.to_str().unwrap_or_default().into(),
+            sch_file.to_str().unwrap_or_default().into(),
+        ]
+    }
+
+    pub fn build_pcb_svg_args(pcb_file: &Path, output_svg: &Path, side: &str) -> Vec<String> {
+        let layers = match side {
+            "bottom" => "B.Cu,B.Silkscreen,B.Mask,Edge.Cuts",
+            _ => "F.Cu,F.Silkscreen,F.Mask,Edge.Cuts", // top (default)
+        };
+        vec![
+            "pcb".into(),
+            "export".into(),
+            "svg".into(),
+            "--mode-multi".into(),
+            "--layers".into(),
+            layers.into(),
+            "--output".into(),
+            output_svg.to_str().unwrap_or_default().into(),
+            pcb_file.to_str().unwrap_or_default().into(),
+        ]
+    }
+
+    pub fn build_gerbers_args(pcb_file: &Path, output_dir: &Path) -> Vec<String> {
+        let mut out = output_dir.to_str().unwrap_or_default().to_string();
+        if !out.ends_with('/') {
+            out.push('/');
+        }
+        vec![
+            "pcb".into(),
+            "export".into(),
+            "gerbers".into(),
+            "--output".into(),
+            out,
+            pcb_file.to_str().unwrap_or_default().into(),
+        ]
+    }
+
+    pub fn build_drill_args(pcb_file: &Path, output_dir: &Path) -> Vec<String> {
+        let mut out = output_dir.to_str().unwrap_or_default().to_string();
+        if !out.ends_with('/') {
+            out.push('/');
+        }
+        vec![
+            "pcb".into(),
+            "export".into(),
+            "drill".into(),
+            "--format".into(),
+            "excellon".into(),
+            "--excellon-separate-th".into(),
+            "--output".into(),
+            out,
+            pcb_file.to_str().unwrap_or_default().into(),
+        ]
+    }
+
+    pub fn build_bom_args(sch_file: &Path, output_csv: &Path) -> Vec<String> {
+        vec![
+            "sch".into(),
+            "export".into(),
+            "bom".into(),
+            "--output".into(),
+            output_csv.to_str().unwrap_or_default().into(),
+            sch_file.to_str().unwrap_or_default().into(),
+        ]
+    }
+
+    pub fn build_position_args(pcb_file: &Path, output_csv: &Path) -> Vec<String> {
+        vec![
+            "pcb".into(),
+            "export".into(),
+            "pos".into(),
+            "--format".into(),
+            "csv".into(),
+            "--output".into(),
+            output_csv.to_str().unwrap_or_default().into(),
+            pcb_file.to_str().unwrap_or_default().into(),
+        ]
+    }
+
+    pub fn build_render_3d_args(pcb_file: &Path, output_png: &Path, side: &str) -> Vec<String> {
+        vec![
+            "pcb".into(),
+            "render".into(),
+            "--side".into(),
+            side.into(),
+            "--quality".into(),
+            "basic".into(),
+            "--output".into(),
+            output_png.to_str().unwrap_or_default().into(),
+            pcb_file.to_str().unwrap_or_default().into(),
+        ]
     }
 
     async fn exec(&self, args: &[&str]) -> Result<CommandOutput> {
         let child = Command::new(&self.bin_path)
             .args(args)
+            .kill_on_drop(true)
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
             .spawn()?;
@@ -148,19 +282,17 @@ impl KicadCli {
                 })
             }
             Ok(Err(e)) => Err(KicadError::Io(e)),
-            Err(_) => {
-                // On timeout, the child future is dropped which kills the process
-                Err(KicadError::Timeout {
-                    command: command_str,
-                    timeout_secs: self.timeout.as_secs(),
-                })
-            }
+            Err(_) => Err(KicadError::Timeout {
+                command: command_str,
+                timeout_secs: self.timeout.as_secs(),
+            }),
         }
     }
 
     async fn exec_erc_drc(&self, args: &[&str]) -> Result<CommandOutput> {
         let child = Command::new(&self.bin_path)
             .args(args)
+            .kill_on_drop(true)
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
             .spawn()?;
@@ -185,13 +317,10 @@ impl KicadCli {
                 })
             }
             Ok(Err(e)) => Err(KicadError::Io(e)),
-            Err(_) => {
-                // On timeout, the child future is dropped which kills the process
-                Err(KicadError::Timeout {
-                    command: command_str,
-                    timeout_secs: self.timeout.as_secs(),
-                })
-            }
+            Err(_) => Err(KicadError::Timeout {
+                command: command_str,
+                timeout_secs: self.timeout.as_secs(),
+            }),
         }
     }
 }

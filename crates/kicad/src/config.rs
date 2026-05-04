@@ -4,6 +4,7 @@ use std::path::Path;
 use crate::{KicadError, Result};
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct BoardflowConfig {
     pub version: u32,
     #[serde(default)]
@@ -13,6 +14,7 @@ pub struct BoardflowConfig {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct OutputsConfig {
     pub preset: Option<String>,
 }
@@ -31,6 +33,15 @@ pub fn validate_schema_v1(config: &BoardflowConfig) -> Result<()> {
             "unsupported version: {}, expected 1",
             config.version
         )));
+    }
+    if let Some(ref outputs) = config.outputs {
+        if let Some(ref preset) = outputs.preset {
+            if preset != "default" {
+                return Err(KicadError::ConfigValidation(format!(
+                    "unsupported outputs.preset: \"{preset}\", only \"default\" is allowed"
+                )));
+            }
+        }
     }
     Ok(())
 }
