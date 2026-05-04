@@ -422,6 +422,193 @@ CACHE_CLEANUP_INTERVAL_SECS=3600
 
 ---
 
+## ドキュメント再確認（2026-05-05 コメント修正確認）
+
+### Issueまでの経緯
+
+- 前回のドキュメントレビューでは、`crates/worker/src/dispatcher.rs` の cleanup コメントが削除条件の 1 時間猶予を十分に表現していない点を blocking 指摘としていた。
+- 今回、修正済みコメントの正確性のみを再確認した。
+
+### ユーザー要望
+
+- `crates/worker/src/dispatcher.rs` のコメントが正確になったか確認する。
+
+### 調査結果
+
+- 対象コメントは以下の内容に更新されている。
+    - `Delete stale entries from the GitHub API cache table.`
+    - `Removes rows whose expires_at is more than 1 hour in the past, preserving a grace period for rate-limit protection.`
+- 実装本体 [crates/db/src/queries/github_api_cache.rs](crates/db/src/queries/github_api_cache.rs#L82) は `DELETE FROM github_api_cache WHERE expires_at < NOW() - INTERVAL '1 hour'` を実行しており、コメントの「期限切れから 1 時間超経過した行を削除する」という説明と一致する。
+- 関連テスト [crates/api/tests/github_cache_test.rs](crates/api/tests/github_cache_test.rs#L273) でも `NOW() - INTERVAL '2 hours'` の行が削除対象であることを確認しており、コメントと実装の整合が取れている。
+
+### ドキュメント確認
+
+- コード内コメント: 修正済みで正確
+- 今回の再確認対象に関する追加のドキュメント修正は不要
+
+### レビュー結果
+
+- `docs_ready: true`
+- 前回 blocking だったコメント不整合は解消済み
+
+### 残リスク
+
+- 将来 `cleanup_expired_cache` の削除条件を変更する場合は、`dispatcher.rs` のコメントも同時更新が必要
+
+### 更新した作業ログパス
+
+- `docs/logs/69/worklog.md`
+
+---
+
+## ドキュメントレビュー（2026-05-05）
+
+### 対象Issue
+
+- Issue ID: 69
+- タイトル: 期限切れキャッシュの定期クリーンアップジョブ実装
+
+### Issueまでの経緯
+
+- `github_api_cache` の定期クリーンアップ導線追加後、README、`.env.example`、関連仕様書、コード内コメントの整合確認を実施した。
+
+### ユーザー要望
+
+- `README.md` の Worker 環境変数セクション確認
+- `.env.example` の確認
+- `docs/backend/summary.md` の Worker 定期ジョブ関連記述確認
+- `docs/spec.md` の関連記述確認
+- コード内コメントの正確性確認
+
+### 調査結果
+
+- `README.md` の Worker 環境変数表には `CACHE_CLEANUP_INTERVAL_SECS` が追加済みで、実装上のデフォルト値 `3600` と一致している。
+- `.env.example` にも `CACHE_CLEANUP_INTERVAL_SECS=3600` が追加済みで、Worker セクションの配置も妥当。
+- `docs/backend/summary.md` は `github_api_cache` を read API の権限判定用キャッシュとして説明しており、今回追加された cleanup 導線と矛盾しない。Worker の内部 housekeeping まで列挙する粒度ではないため、更新必須とは判断しない。
+- `docs/spec.md` も `github_api_cache` の用途、TTL 10分、rate limit 時のみ期限切れ後 1 時間以内の stale cache を使う方針を記載しており、今回の cleanup 実装と整合している。cleanup トリガー自体は内部運用実装であり、現状の仕様記述で不足はない。
+- 外部調査メモ `docs/external/tokio-periodic-task-interval.md` の推奨方針（専用 interval を `select!` に追加）は、`crates/worker/src/main.rs` と一致している。
+- ただし `crates/worker/src/dispatcher.rs` の doc comment `Delete expired entries from the GitHub API cache table.` は、実際の削除条件 `expires_at < NOW() - INTERVAL '1 hour'` より広く読める。実装は「失効済みのうち、さらに 1 時間経過した行の掃除」であり、コメントはその猶予を明示した方が正確。
+
+### 実装内容
+
+- 公開ドキュメントの更新は README と `.env.example` に限定されており、今回の変更スコープとして妥当。
+- backend summary / spec は既存記述のままで整合している。
+
+### テスト結果
+
+- ドキュメントレビューのため追加テスト実行は未実施。
+- 差分確認: `origin/main...feature/69-cache-cleanup-job` で、関連ファイルの差分範囲は実装概要と一致。
+
+### レビュー結果
+
+- `docs_ready: false`
+- 公開ドキュメントの更新漏れはない。
+- Blocking 指摘はコード内コメント 1 件のみ。
+
+### ドキュメント確認
+
+- `README.md`: 問題なし
+- `.env.example`: 問題なし
+- `docs/backend/summary.md`: 更新不要
+- `docs/spec.md`: 更新不要
+- コード内コメント: `crates/worker/src/dispatcher.rs` の cleanup コメントは要修正
+
+### 必須修正
+
+- `crates/worker/src/dispatcher.rs` の doc comment を、実際の削除条件に合わせて「1時間以上前に期限切れになった GitHub API cache エントリを掃除する」等の表現へ修正すること。
+
+### 任意改善
+
+- なし
+
+### 残リスク
+
+- コメントが現状のままだと、将来の保守時に stale cache の 1 時間猶予を見落として query 条件を誤読する可能性がある。
+
+### PR/完了結果
+
+- `docs_ready: false`
+
+### 更新した作業ログパス
+
+- `docs/logs/69/worklog.md`
+
+---
+
+## 最終レビュー（2026-05-04 再レビュー）
+
+### Issueまでの経緯
+
+- 対象 Issue ID: 69
+- 前回の重大指摘は `CACHE_CLEANUP_INTERVAL_SECS=0` を worker 起動前に弾けていない点で、今回その修正確認を実施した。
+
+### ユーザー要望
+
+- `crates/config/src/worker.rs` の 0 値バリデーション確認
+- 異常系テストの動作確認
+- `cargo build` / `cargo test` / `cargo clippy` の再確認
+- 変更ファイル全体の最終レビュー
+
+### 調査結果
+
+- `crates/config/src/worker.rs` で `CACHE_CLEANUP_INTERVAL_SECS` を事前にパースし、0 の場合は `ConfigError::InvalidValue` を返す実装を確認
+- `crates/config/tests/dotenv_integration_test.rs` に `worker_config_rejects_zero_cache_cleanup_interval` が追加され、個別実行で成功することを確認
+- `crates/worker/src/main.rs` の cleanup interval は独立分岐で実行され、`dispatcher::sweep_expired_cache()` 呼び出し経路も維持されている
+- `README.md` と `.env.example` への `CACHE_CLEANUP_INTERVAL_SECS` 追記を確認
+- 差分に含まれる `create_issue` 系テストファイル変更は、`WorkerConfig` 新フィールド追加に伴う初期化追従のみで、Issue 69 スコープ外のロジック変更はなし
+- 外部確認では Tokio の `interval(Duration::ZERO)` は panic するため、今回のバリデーション追加は妥当
+
+### テスト結果
+
+- `mise exec -- cargo build --workspace` : 成功
+- `mise exec -- cargo clippy --workspace` : 成功
+- `mise exec -- cargo test -p boardflow-config -p boardflow-worker` : 失敗
+    - 失敗箇所: `crates/config/src/s3.rs` の `s3::tests::from_env_reads_custom_values`
+    - 期待値 `my-final` に対して実測値 `boardflow-final`
+- 切り分け:
+    - `mise exec -- cargo test -p boardflow-config --test dotenv_integration_test worker_config_rejects_zero_cache_cleanup_interval` : 成功
+    - `mise exec -- cargo test -p boardflow-config s3::tests::from_env_reads_custom_values` : 成功
+    - `mise exec -- cargo test -p boardflow-config --lib -- --test-threads=1` : 成功
+- 以上から、Issue 69 の追加修正自体は動作している一方、`boardflow-config` の既存 env 依存 unit test が並列実行で不安定な可能性が高い
+
+### レビュー結果
+
+- Issue 69 の前回指摘事項である 0 値バリデーション不足は解消済み
+- 変更ファイル範囲は実装計画と整合しており、想定外の機能追加は見当たらない
+- ただし、要求された総合テストコマンドが現時点で green ではないため、PR ready 判定は保留
+
+### ドキュメント確認
+
+- `README.md` に Worker 環境変数追記あり
+- `.env.example` に設定例追記あり
+- `docs/external/tokio-periodic-task-interval.md` の調査内容と実装方針は整合
+
+### PR/完了結果
+
+- `pr_ready: false`
+
+### レビュー指摘
+
+1. `mise exec -- cargo test -p boardflow-config -p boardflow-worker` が現ブランチで失敗する。Issue 69 本体の修正ではないが、少なくとも `crates/config/src/s3.rs` の env 依存テストが並列実行に耐えておらず、レビュー依頼時の必須検証が赤のまま。
+
+### 必須修正
+
+- `crates/config/src/s3.rs` の unit test を並列実行でも安定する形に修正すること。少なくとも process-wide 環境変数を書き換えるテストは `serial_test` 等で直列化するか、競合しない構造へ置き換えること。
+
+### 任意改善
+
+- `POLL_INTERVAL_SECS` / `TIMEOUT_SWEEP_INTERVAL_SECS` にも 1 以上の下限バリデーションを揃えると、worker 設定の防御として一貫する。
+
+### 残リスク
+
+- 現状は Issue 69 実装そのものより、`boardflow-config` の既存 env テスト競合が CI / ローカル検証を不安定にするリスクが残る。
+
+### 更新した作業ログパス
+
+- `docs/logs/69/worklog.md`
+
+---
+
 ## 再レビュー結果（2026-05-04 最終確認フェーズ）
 
 ### 対象Issue
@@ -567,6 +754,107 @@ CACHE_CLEANUP_INTERVAL_SECS=3600
 ### 残リスク
 
 - なし（レビュー指摘への局所修正のみ）
+
+### 更新した作業ログパス
+
+- `docs/logs/69/worklog.md`
+
+---
+
+## フレーキーテスト修正（2026-05-05）
+
+### 問題
+
+`crates/config/src/s3.rs` の unit test が process-wide 環境変数を書き換えるため、`cargo test -p boardflow-config -p boardflow-worker` の並列実行時に競合し、テストが不安定になっていた。
+
+### 原因
+
+`from_env_uses_defaults_when_unset` と `from_env_reads_custom_values` が `MINIO_*` 環境変数を `env::set_var` / `env::remove_var` で操作しているが、`#[serial]` アトリビュートがなく他テストと並列実行されていた。
+
+### 修正内容
+
+| ファイル | 変更 |
+|---|---|
+| `crates/config/src/s3.rs` | `use serial_test::serial;` を追加し、両テストに `#[serial]` を付与 |
+
+既存パターン（`crates/config/src/helpers.rs`）と完全に同一の対処。
+
+### テスト結果
+
+- `mise exec -- cargo test -p boardflow-config -p boardflow-worker` : 3回連続全パス、FAILED なし
+- 安定性確認済み
+
+### コミット
+
+- `2eb1da3` fix(config): serialize s3 tests to prevent env var race condition
+
+### 残リスク
+
+- なし
+
+---
+
+## 最終レビュー結果（2026-05-05）
+
+### 対象Issue
+
+- Issue ID: 69
+- タイトル: 期限切れキャッシュの定期クリーンアップジョブ実装
+
+### 実施内容
+
+- 指定コマンドで `cargo build --workspace`、`cargo test -p boardflow-config -p boardflow-worker`、`cargo clippy --workspace` を再実行
+- `origin/main...feature/69-cache-cleanup-job` の全変更ファイル差分を最終確認
+- 既存の research / plan / ドキュメント更新との整合を再確認
+
+### 最終確認結果
+
+- `crates/config/src/worker.rs` の `CACHE_CLEANUP_INTERVAL_SECS` 読み取りと 0 値バリデーションを確認
+- `crates/worker/src/main.rs` の独立 interval 追加と `dispatcher::sweep_expired_cache()` 呼び出し経路を確認
+- `crates/worker/src/dispatcher.rs` のログ方針は件数あり `info`、0件 `debug`、失敗 `error` で既存 sweep と整合
+- `crates/config/tests/dotenv_integration_test.rs` に dotenv 経由の設定値検証と 0 値異常系テストが存在
+- `crates/config/src/s3.rs` の env 依存テストは `#[serial]` で直列化されており、前回の並列競合指摘は解消済み
+- `README.md` と `.env.example` の公開設定面は同期済み
+
+### テスト結果
+
+- `mise exec -- cargo build --workspace` : 成功
+- `mise exec -- cargo test -p boardflow-config -p boardflow-worker` : 成功
+- `mise exec -- cargo clippy --workspace` : 成功
+
+### レビュー結果
+
+- Blocking な指摘事項はなし
+- 実装は Issue 69 の計画と整合しており、差分範囲も妥当
+- `pr_ready: true`
+
+### 必須修正
+
+- なし
+
+### 任意改善
+
+- なし
+
+### テスト不足
+
+- なし（今回の変更スコープに対して必要な確認は揃っている）
+
+### ドキュメント更新漏れ
+
+- なし
+
+### plan / research / docs との不整合
+
+- なし
+
+### 残リスク
+
+- `cleanup_expired_cache` の 1 時間グレース期間は既存設計前提のため、本 Issue の最終レビューでは追加懸念なし
+
+### 更新した作業ログパス
+
+- `docs/logs/69/worklog.md`
 
 ### 更新した作業ログパス
 

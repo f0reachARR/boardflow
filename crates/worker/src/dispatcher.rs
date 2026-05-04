@@ -227,7 +227,9 @@ pub async fn sweep_expired_staging_bundles(
     );
 }
 
-/// Delete expired entries from the GitHub API cache table.
+/// Delete stale entries from the GitHub API cache table.
+/// Removes rows whose `expires_at` is more than 1 hour in the past,
+/// preserving a grace period for rate-limit protection.
 pub async fn sweep_expired_cache(pool: &PgPool) {
     match boardflow_db::queries::github_api_cache::cleanup_expired_cache(pool).await {
         Ok(count) => {
