@@ -623,10 +623,10 @@ async fn test_find_existing_github_ids() {
     .await
     .unwrap();
 
+    assert_eq!(existing.len(), 2);
     assert!(existing.contains(&repo_id_1));
     assert!(existing.contains(&repo_id_2));
     assert!(!existing.contains(&repo_id_3));
-    assert_eq!(existing.len(), 2);
 }
 
 /// Test: find_existing_github_ids with empty input returns empty
