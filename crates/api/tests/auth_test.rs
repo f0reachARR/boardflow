@@ -332,7 +332,8 @@ async fn test_login_redirect_uri_uses_app_domain() {
 
     // redirect_uri should be URL-encoded version of https://app.boardflow.dev/api/v1/auth/callback
     assert!(
-        location.contains("redirect_uri=https%3A%2F%2Fapp.boardflow.dev%2Fapi%2Fv1%2Fauth%2Fcallback"),
+        location
+            .contains("redirect_uri=https%3A%2F%2Fapp.boardflow.dev%2Fapi%2Fv1%2Fauth%2Fcallback"),
         "redirect_uri should use the configured app domain, got: {}",
         location
     );
@@ -364,7 +365,8 @@ async fn test_login_redirect_uri_trims_trailing_slash() {
 
     // Should NOT have double slash - trailing slash should be trimmed
     assert!(
-        location.contains("redirect_uri=http%3A%2F%2Flocalhost%3A3000%2Fapi%2Fv1%2Fauth%2Fcallback"),
+        location
+            .contains("redirect_uri=http%3A%2F%2Flocalhost%3A3000%2Fapi%2Fv1%2Fauth%2Fcallback"),
         "redirect_uri should trim trailing slash, got: {}",
         location
     );
