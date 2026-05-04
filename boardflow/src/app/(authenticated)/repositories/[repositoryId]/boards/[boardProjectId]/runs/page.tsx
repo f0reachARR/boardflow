@@ -1,5 +1,6 @@
 import { Box } from '@chakra-ui/react';
 import { dehydrate, HydrationBoundary } from '@tanstack/react-query';
+import { notFound } from 'next/navigation';
 import { Suspense } from 'react';
 import { RunsListContent } from '@/components/runs/runs-list-content';
 import { $api } from '@/lib/api/react-query';
@@ -27,17 +28,28 @@ export default async function RunsPage({ params }: Props) {
     },
   );
 
-  queryClient.prefetchQuery({
-    ...projectOptions,
-    queryFn: async () => {
-      const { data, error } = await serverClient.GET('/api/v1/board-projects/{board_project_id}', {
-        params: { path: { board_project_id: boardProjectId } },
-      });
-      if (error) throw new Error('Failed to fetch board project');
-      return data;
-    },
-  });
+  // Primary resource: await + notFound check
+  const projectResult = await queryClient
+    .fetchQuery({
+      ...projectOptions,
+      queryFn: async () => {
+        const { data, error } = await serverClient.GET(
+          '/api/v1/board-projects/{board_project_id}',
+          {
+            params: { path: { board_project_id: boardProjectId } },
+          },
+        );
+        if (error) throw error;
+        return data;
+      },
+    })
+    .catch(() => null);
 
+  if (!projectResult) {
+    notFound();
+  }
+
+  // Secondary resource: no await (Streaming SSR)
   queryClient.prefetchQuery({
     ...runsOptions,
     queryFn: async () => {

@@ -377,20 +377,52 @@ Phase 4: 複雑なページ3件の移行
 
 ## テスト結果
 
-(impl agent完了後に記載)
+- 2026-05-05 review agent 再確認:
+- `pnpm build` 成功
+- `pnpm lint` 成功
+- 差分内に frontend の自動テスト追加はなし
+- ブラウザ手動確認の記録なし
 
 ## レビュー結果
 
-(review agent完了後に記載)
+### 2026-05-05 review agent
+
+- 対象Issue: #78
+- 総評: TanStack Query への移行パターン自体は全対象ページに展開されており、`client.GET` / `apiClient.POST` / `router.refresh()` の移行漏れも見当たらない。一方で、移行前に個別ページで担保していた 404 / APIエラー時の表示が generic Error Boundary に吸収され、`UI変更なし` と `既存挙動維持` の受け入れ条件を満たしていない。
+- pr_ready: false
+
+#### 指摘事項 (重大度順)
+
+1. **必須**: 404 と明示的なAPIエラーメッセージの扱いが複数ページで後退している。
+  - `checks/[checkKind]/page.tsx` は移行前に API の `not_found` を `notFound()` に変換し、それ以外は `Failed to load findings: ...` を画面表示していたが、現実装では [boardflow/src/app/(authenticated)/repositories/[repositoryId]/boards/[boardProjectId]/runs/[boardRunId]/checks/[checkKind]/page.tsx](boardflow/src/app/(authenticated)/repositories/[repositoryId]/boards/[boardProjectId]/runs/[boardRunId]/checks/[checkKind]/page.tsx#L75) - [boardflow/src/app/(authenticated)/repositories/[repositoryId]/boards/[boardProjectId]/runs/[boardRunId]/checks/[checkKind]/page.tsx](boardflow/src/app/(authenticated)/repositories/[repositoryId]/boards/[boardProjectId]/runs/[boardRunId]/checks/[checkKind]/page.tsx#L90) で generic Error を投げるだけになっている。
+  - `diff/page.tsx` も同様で、移行前に `not_found` を 404 にし、それ以外はページ内でエラー内容を表示していたが、現実装では [boardflow/src/app/(authenticated)/repositories/[repositoryId]/boards/[boardProjectId]/runs/[boardRunId]/diff/page.tsx](boardflow/src/app/(authenticated)/repositories/[repositoryId]/boards/[boardProjectId]/runs/[boardRunId]/diff/page.tsx#L26) - [boardflow/src/app/(authenticated)/repositories/[repositoryId]/boards/[boardProjectId]/runs/[boardRunId]/diff/page.tsx](boardflow/src/app/(authenticated)/repositories/[repositoryId]/boards/[boardProjectId]/runs/[boardRunId]/diff/page.tsx#L35) で generic Error に丸めている。
+  - `board project detail` と `runs list` でも、移行前に `notFound()` やページ内エラー表示で分岐していたものが [boardflow/src/app/(authenticated)/repositories/[repositoryId]/boards/[boardProjectId]/page.tsx](boardflow/src/app/(authenticated)/repositories/[repositoryId]/boards/[boardProjectId]/page.tsx#L31) - [boardflow/src/app/(authenticated)/repositories/[repositoryId]/boards/[boardProjectId]/page.tsx](boardflow/src/app/(authenticated)/repositories/[repositoryId]/boards/[boardProjectId]/page.tsx#L50)、[boardflow/src/app/(authenticated)/repositories/[repositoryId]/boards/[boardProjectId]/runs/page.tsx](boardflow/src/app/(authenticated)/repositories/[repositoryId]/boards/[boardProjectId]/runs/page.tsx#L39) - [boardflow/src/app/(authenticated)/repositories/[repositoryId]/boards/[boardProjectId]/runs/page.tsx](boardflow/src/app/(authenticated)/repositories/[repositoryId]/boards/[boardProjectId]/runs/page.tsx#L58) の generic Error 投げに置き換わっている。
+  - 修正方針: 404 を UX 要件として維持すべきページは Server Component 側でステータス判定して `notFound()` を残すか、Suspense を外した `useQuery` / 明示エラーUI に戻す。少なくとも `not_found` とその他エラーを同一扱いにしないこと。
+
+2. **必須**: Run detail の diff は「404を正常ケースとして Client 側で扱う」設計なのに、Server 側でも prefetch して失敗を投げており、設計と実装が矛盾している。
+  - 作業ログでも diff 404 は Client Component 側で handling 必要と整理されている一方、現実装では [boardflow/src/app/(authenticated)/repositories/[repositoryId]/boards/[boardProjectId]/runs/[boardRunId]/page.tsx](boardflow/src/app/(authenticated)/repositories/[repositoryId]/boards/[boardProjectId]/runs/[boardRunId]/page.tsx#L92) - [boardflow/src/app/(authenticated)/repositories/[repositoryId]/boards/[boardProjectId]/runs/[boardRunId]/page.tsx](boardflow/src/app/(authenticated)/repositories/[repositoryId]/boards/[boardProjectId]/runs/[boardRunId]/page.tsx#L101) で diff を prefetch し、[boardflow/src/components/run-detail/run-detail-content.tsx](boardflow/src/components/run-detail/run-detail-content.tsx#L129) - [boardflow/src/components/run-detail/run-detail-content.tsx](boardflow/src/components/run-detail/run-detail-content.tsx#L144) では `useQuery` で再度扱っている。
+  - diff が 404 の場合、サーバー側で不要な失敗リクエストを毎回発生させたうえで、Client 側でも再取得する構造になる。正常に欠損を許容したいデータは prefetch 対象から外すか、server queryFn 側でも 404 を null として吸収する必要がある。
+
+3. **中**: Suspense fallback がほぼ全ページで単純な `Loading...` に退化しており、計画の「既存fallback活用」と整合していない。
+  - 該当: [boardflow/src/app/(authenticated)/repositories/[repositoryId]/page.tsx](boardflow/src/app/(authenticated)/repositories/[repositoryId]/page.tsx#L60), [boardflow/src/app/(authenticated)/repositories/[repositoryId]/boards/[boardProjectId]/page.tsx](boardflow/src/app/(authenticated)/repositories/[repositoryId]/boards/[boardProjectId]/page.tsx#L57), [boardflow/src/app/(authenticated)/repositories/[repositoryId]/boards/[boardProjectId]/runs/page.tsx](boardflow/src/app/(authenticated)/repositories/[repositoryId]/boards/[boardProjectId]/runs/page.tsx#L57), [boardflow/src/app/(authenticated)/repositories/[repositoryId]/boards/[boardProjectId]/runs/[boardRunId]/page.tsx](boardflow/src/app/(authenticated)/repositories/[repositoryId]/boards/[boardProjectId]/runs/[boardRunId]/page.tsx#L105), [boardflow/src/app/(authenticated)/repositories/[repositoryId]/boards/[boardProjectId]/runs/[boardRunId]/checks/[checkKind]/page.tsx](boardflow/src/app/(authenticated)/repositories/[repositoryId]/boards/[boardProjectId]/runs/[boardRunId]/checks/[checkKind]/page.tsx#L105), [boardflow/src/app/(authenticated)/repositories/[repositoryId]/boards/[boardProjectId]/runs/[boardRunId]/diff/page.tsx](boardflow/src/app/(authenticated)/repositories/[repositoryId]/boards/[boardProjectId]/runs/[boardRunId]/diff/page.tsx#L50), [boardflow/src/app/(authenticated)/repositories/[repositoryId]/settings/tokens/page.tsx](boardflow/src/app/(authenticated)/repositories/[repositoryId]/settings/tokens/page.tsx#L66)
+  - 受け入れ条件の `UI変更なし` を重視するなら、既存 loading.tsx / skeleton component と整合する fallback を使うべき。
 
 ## ドキュメント確認
 
-(docs agent完了後に記載)
+- `docs/frontend/summary.md` は差分未更新。計画上の更新対象だったが、Issue 78 の反映は入っていない。
+- 特に [docs/frontend/summary.md](docs/frontend/summary.md#L121) - [docs/frontend/summary.md](docs/frontend/summary.md#L127) の API 連携方針は一般論のままで、今回の「全対象ページが移行完了した」事実や、例外的に `run detail` の diff を `useQuery` のまま残した判断が記録されていない。
 
 ## PR/完了結果
 
-(pr agent完了後に記載)
+- pr_ready: false
+- 必須修正:
+  - 404 / APIエラーの扱いをページごとに復元し、generic Error Boundary への一律集約をやめる
+  - Run detail の diff prefetch を削除または 404 許容に変更し、Client 側の `useQuery` と整合させる
+- 任意改善:
+  - `Loading...` fallback を既存 skeleton / loading.tsx と揃える
+  - トークン invalidate の粒度を repositoryId 単位まで絞ることを検討する
 
 ## 残リスク
 
-(完了後に記載)
+- 自動テストが追加されていないため、404 / 401 / backend error 時の挙動回帰が今後も再発しやすい
+- トークン作成/失効後の invalidate は prefix マッチ前提で機能するが、repository 単位の検証記録がなく、将来の query key 変更に弱い

@@ -1,5 +1,6 @@
 import { Box } from '@chakra-ui/react';
 import { dehydrate, HydrationBoundary } from '@tanstack/react-query';
+import { notFound } from 'next/navigation';
 import { Suspense } from 'react';
 import { RepositoryDetailContent } from '@/components/repository-detail/repository-detail-content';
 import { $api } from '@/lib/api/react-query';
@@ -27,20 +28,28 @@ export default async function RepositoryDetailPage({ params }: Props) {
     },
   );
 
-  queryClient.prefetchQuery({
-    ...repoOptions,
-    queryFn: async () => {
-      const { data, error } = await serverClient.GET(
-        '/api/v1/repositories/{github_repository_id}',
-        {
-          params: { path: { github_repository_id: Number(repositoryId) } },
-        },
-      );
-      if (error) throw new Error('Failed to fetch repository');
-      return data;
-    },
-  });
+  // Primary resource: await + notFound check
+  const repoResult = await queryClient
+    .fetchQuery({
+      ...repoOptions,
+      queryFn: async () => {
+        const { data, error } = await serverClient.GET(
+          '/api/v1/repositories/{github_repository_id}',
+          {
+            params: { path: { github_repository_id: Number(repositoryId) } },
+          },
+        );
+        if (error) throw error;
+        return data;
+      },
+    })
+    .catch(() => null);
 
+  if (!repoResult) {
+    notFound();
+  }
+
+  // Secondary resource: no await (Streaming SSR)
   queryClient.prefetchQuery({
     ...projectsOptions,
     queryFn: async () => {

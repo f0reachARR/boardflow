@@ -1,5 +1,6 @@
 import { Box } from '@chakra-ui/react';
 import { dehydrate, HydrationBoundary } from '@tanstack/react-query';
+import { notFound } from 'next/navigation';
 import { Suspense } from 'react';
 import { RunDetailContent } from '@/components/run-detail/run-detail-content';
 import { $api } from '@/lib/api/react-query';
@@ -35,21 +36,25 @@ export default async function RunDetailPage({ params }: Props) {
     params: { path: { board_project_id: boardProjectId } },
   });
 
-  const diffOptions = $api.queryOptions('get', '/api/v1/board-runs/{board_run_id}/diff', {
-    params: { path: { board_run_id: boardRunId } },
-  });
+  // Primary resource: await + notFound check
+  const runResult = await queryClient
+    .fetchQuery({
+      ...runOptions,
+      queryFn: async () => {
+        const { data, error } = await serverClient.GET('/api/v1/board-runs/{board_run_id}', {
+          params: { path: { board_run_id: boardRunId } },
+        });
+        if (error) throw error;
+        return data;
+      },
+    })
+    .catch(() => null);
 
-  queryClient.prefetchQuery({
-    ...runOptions,
-    queryFn: async () => {
-      const { data, error } = await serverClient.GET('/api/v1/board-runs/{board_run_id}', {
-        params: { path: { board_run_id: boardRunId } },
-      });
-      if (error) throw new Error('Failed to fetch run');
-      return data;
-    },
-  });
+  if (!runResult) {
+    notFound();
+  }
 
+  // Secondary resources: no await (Streaming SSR)
   queryClient.prefetchQuery({
     ...artifactsOptions,
     queryFn: async () => {
@@ -84,21 +89,13 @@ export default async function RunDetailPage({ params }: Props) {
       const { data, error } = await serverClient.GET('/api/v1/board-projects/{board_project_id}', {
         params: { path: { board_project_id: boardProjectId } },
       });
-      if (error) throw new Error('Failed to fetch project');
+      if (error) throw new Error('Failed to fetch board project');
       return data;
     },
   });
 
-  queryClient.prefetchQuery({
-    ...diffOptions,
-    queryFn: async () => {
-      const { data, error } = await serverClient.GET('/api/v1/board-runs/{board_run_id}/diff', {
-        params: { path: { board_run_id: boardRunId } },
-      });
-      if (error) throw new Error('Failed to fetch diff');
-      return data;
-    },
-  });
+  // Note: diff is NOT prefetched here. The client component fetches it
+  // via useQuery (non-Suspense) and handles 404 as a normal case.
 
   return (
     <HydrationBoundary state={dehydrate(queryClient)}>
