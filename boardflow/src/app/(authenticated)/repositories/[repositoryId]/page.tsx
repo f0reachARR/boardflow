@@ -1,26 +1,10 @@
-import { Badge, Box, Heading, HStack, Table, Text, VStack } from '@chakra-ui/react';
-import { Key } from 'lucide-react';
-import Link from 'next/link';
-import { notFound } from 'next/navigation';
-import { Breadcrumb } from '@/components/ui/breadcrumb';
+import { Box } from '@chakra-ui/react';
+import { dehydrate, HydrationBoundary } from '@tanstack/react-query';
+import { Suspense } from 'react';
+import { RepositoryDetailContent } from '@/components/repository-detail/repository-detail-content';
+import { $api } from '@/lib/api/react-query';
 import { createServerClient } from '@/lib/api/server';
-
-function stateColor(state: string): string {
-  switch (state) {
-    case 'completed':
-      return 'green';
-    case 'failed':
-      return 'red';
-    case 'timed_out':
-      return 'orange';
-    case 'processing':
-      return 'blue';
-    case 'detected':
-      return 'gray';
-    default:
-      return 'gray';
-  }
-}
+import { getQueryClient } from '@/lib/query-client';
 
 interface Props {
   params: Promise<{ repositoryId: string }>;
@@ -28,129 +12,54 @@ interface Props {
 
 export default async function RepositoryDetailPage({ params }: Props) {
   const { repositoryId } = await params;
-  const client = await createServerClient();
+  const queryClient = getQueryClient();
+  const serverClient = await createServerClient();
 
-  const [repoRes, projectsRes] = await Promise.all([
-    client.GET('/api/v1/repositories/{github_repository_id}', {
-      params: { path: { github_repository_id: Number(repositoryId) } },
-    }),
-    client.GET('/api/v1/repositories/{github_repository_id}/board-projects', {
+  const repoOptions = $api.queryOptions('get', '/api/v1/repositories/{github_repository_id}', {
+    params: { path: { github_repository_id: Number(repositoryId) } },
+  });
+
+  const projectsOptions = $api.queryOptions(
+    'get',
+    '/api/v1/repositories/{github_repository_id}/board-projects',
+    {
       params: { path: { github_repository_id: Number(repositoryId) }, query: { limit: 50 } },
-    }),
-  ]);
+    },
+  );
 
-  if (repoRes.error) {
-    notFound();
-  }
+  queryClient.prefetchQuery({
+    ...repoOptions,
+    queryFn: async () => {
+      const { data, error } = await serverClient.GET(
+        '/api/v1/repositories/{github_repository_id}',
+        {
+          params: { path: { github_repository_id: Number(repositoryId) } },
+        },
+      );
+      if (error) throw new Error('Failed to fetch repository');
+      return data;
+    },
+  });
 
-  const repo = repoRes.data;
-  const projects = projectsRes.data?.items ?? [];
+  queryClient.prefetchQuery({
+    ...projectsOptions,
+    queryFn: async () => {
+      const { data, error } = await serverClient.GET(
+        '/api/v1/repositories/{github_repository_id}/board-projects',
+        {
+          params: { path: { github_repository_id: Number(repositoryId) }, query: { limit: 50 } },
+        },
+      );
+      if (error) throw new Error('Failed to fetch board projects');
+      return data;
+    },
+  });
 
   return (
-    <Box>
-      <Breadcrumb
-        items={[
-          { label: 'Repositories', href: '/repositories' },
-          { label: `${repo.owner}/${repo.name}` },
-        ]}
-      />
-      <VStack align='stretch' gap={6}>
-        <Box>
-          <HStack gap={2} mb={1}>
-            <Heading size='lg'>
-              {repo.owner}/{repo.name}
-            </Heading>
-          </HStack>
-          <HStack gap={4} fontSize='sm' color='gray.600'>
-            <Text>{repo.board_project_count} projects</Text>
-            <Text>Created {new Date(repo.created_at).toLocaleDateString()}</Text>
-            {repo.html_url && (
-              <a href={repo.html_url} target='_blank' rel='noopener noreferrer'>
-                <Text color='blue.500' _hover={{ textDecoration: 'underline' }}>
-                  View on GitHub
-                </Text>
-              </a>
-            )}
-          </HStack>
-        </Box>
-
-        <Box>
-          <Heading size='md' mb={4}>
-            Settings
-          </Heading>
-          <Link href={`/repositories/${repositoryId}/settings/tokens`}>
-            <HStack gap={2} color='blue.600' _hover={{ textDecoration: 'underline' }}>
-              <Key size={16} />
-              <Text fontWeight='medium'>API Tokens</Text>
-            </HStack>
-          </Link>
-        </Box>
-
-        <Box>
-          <Heading size='md' mb={4}>
-            Board Projects
-          </Heading>
-
-          {projects.length === 0 ? (
-            <Text color='gray.500'>No board projects found.</Text>
-          ) : (
-            <Table.Root size='sm' variant='outline'>
-              <Table.Header>
-                <Table.Row>
-                  <Table.ColumnHeader>Project</Table.ColumnHeader>
-                  <Table.ColumnHeader>State</Table.ColumnHeader>
-                  <Table.ColumnHeader>Path</Table.ColumnHeader>
-                  <Table.ColumnHeader>Updated</Table.ColumnHeader>
-                </Table.Row>
-              </Table.Header>
-              <Table.Body>
-                {projects.map((project) => (
-                  <Table.Row key={project.board_project_id}>
-                    <Table.Cell>
-                      <Link
-                        href={`/repositories/${repositoryId}/boards/${project.board_project_id}`}
-                      >
-                        <Text
-                          color='blue.600'
-                          fontWeight='medium'
-                          _hover={{ textDecoration: 'underline' }}
-                        >
-                          {project.display_name}
-                        </Text>
-                      </Link>
-                    </Table.Cell>
-                    <Table.Cell>
-                      <HStack gap={2}>
-                        <Badge colorPalette={stateColor(project.state)}>{project.state}</Badge>
-                        {project.state === 'timed_out' && (
-                          <Text fontSize='xs' color='orange.600'>
-                            (中断または未完了の可能性)
-                          </Text>
-                        )}
-                        {project.state === 'detected' && (
-                          <Text fontSize='xs' color='gray.500'>
-                            (初回Run未完了)
-                          </Text>
-                        )}
-                      </HStack>
-                    </Table.Cell>
-                    <Table.Cell>
-                      <Text fontSize='sm' color='gray.600' fontFamily='mono'>
-                        {project.project_path}
-                      </Text>
-                    </Table.Cell>
-                    <Table.Cell>
-                      <Text fontSize='sm' color='gray.600'>
-                        {new Date(project.updated_at).toLocaleDateString()}
-                      </Text>
-                    </Table.Cell>
-                  </Table.Row>
-                ))}
-              </Table.Body>
-            </Table.Root>
-          )}
-        </Box>
-      </VStack>
-    </Box>
+    <HydrationBoundary state={dehydrate(queryClient)}>
+      <Suspense fallback={<Box p={8}>Loading...</Box>}>
+        <RepositoryDetailContent repositoryId={repositoryId} />
+      </Suspense>
+    </HydrationBoundary>
   );
 }

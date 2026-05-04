@@ -13,13 +13,7 @@ interface Props {
   onOpenChange: (open: boolean) => void;
 }
 
-export function RevokeTokenDialog({
-  repositoryId,
-  tokenId,
-  tokenName,
-  open,
-  onOpenChange,
-}: Props) {
+export function RevokeTokenDialog({ repositoryId, tokenId, tokenName, open, onOpenChange }: Props) {
   const [error, setError] = useState('');
   const queryClient = useQueryClient();
 
