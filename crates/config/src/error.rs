@@ -6,6 +6,8 @@ pub enum ConfigError {
     MissingEnvVar(String),
     #[error("invalid value for {var}: {reason}")]
     InvalidValue { var: String, reason: String },
+    #[error("failed to load .env: {0}")]
+    Dotenv(String),
 }
 
 impl From<ParseIntError> for ConfigError {
