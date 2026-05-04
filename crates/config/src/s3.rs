@@ -24,9 +24,11 @@ impl S3Config {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serial_test::serial;
     use std::env;
 
     #[test]
+    #[serial]
     fn from_env_uses_defaults_when_unset() {
         unsafe {
             env::remove_var("MINIO_ENDPOINT");
@@ -45,6 +47,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn from_env_reads_custom_values() {
         unsafe {
             env::set_var("MINIO_ENDPOINT", "http://custom:9000");

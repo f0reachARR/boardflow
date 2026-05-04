@@ -36,6 +36,7 @@ fn clear_env() {
         "GITHUB_WEBHOOK_SECRET",
         "POLL_INTERVAL_SECS",
         "TIMEOUT_SWEEP_INTERVAL_SECS",
+        "CACHE_CLEANUP_INTERVAL_SECS",
         "GITHUB_APP_ID",
         "GITHUB_PRIVATE_KEY_PEM",
         "APP_BASE_URL",
@@ -87,7 +88,7 @@ fn worker_config_reads_values_from_dotenv() {
     fs::create_dir_all(&nested_dir).unwrap();
     fs::write(
         root_dir.join(".env"),
-        "DATABASE_URL=postgres://dotenv:dotenv@localhost/worker\nBOARDFLOW_APP_DOMAIN=https://boardflow.test\nPOLL_INTERVAL_SECS=9\nTIMEOUT_SWEEP_INTERVAL_SECS=45\nGITHUB_APP_ID=123\nGITHUB_PRIVATE_KEY_PEM=test-pem\n",
+        "DATABASE_URL=postgres://dotenv:dotenv@localhost/worker\nBOARDFLOW_APP_DOMAIN=https://boardflow.test\nPOLL_INTERVAL_SECS=9\nTIMEOUT_SWEEP_INTERVAL_SECS=45\nCACHE_CLEANUP_INTERVAL_SECS=1800\nGITHUB_APP_ID=123\nGITHUB_PRIVATE_KEY_PEM=test-pem\n",
     )
     .unwrap();
     env::set_current_dir(&nested_dir).unwrap();
@@ -105,6 +106,7 @@ fn worker_config_reads_values_from_dotenv() {
     assert_eq!(config.app_domain, "https://boardflow.test");
     assert_eq!(config.poll_interval_secs, 9);
     assert_eq!(config.timeout_sweep_interval_secs, 45);
+    assert_eq!(config.cache_cleanup_interval_secs, 1800);
     assert_eq!(config.github_app_id, Some(123));
     assert_eq!(config.github_private_key_pem.as_deref(), Some("test-pem"));
 }
@@ -127,4 +129,31 @@ fn malformed_dotenv_fails_fast_during_config_load() {
     clear_env();
 
     assert!(matches!(result, Err(ConfigError::Dotenv(_))));
+}
+
+#[test]
+#[serial]
+fn worker_config_rejects_zero_cache_cleanup_interval() {
+    clear_env();
+    let original_dir = env::current_dir().unwrap();
+    let root_dir = test_dir("zero-cache-interval");
+    let nested_dir = root_dir.join("crates/worker");
+    fs::create_dir_all(&nested_dir).unwrap();
+    fs::write(
+        root_dir.join(".env"),
+        "DATABASE_URL=postgres://test:test@localhost/db\nCACHE_CLEANUP_INTERVAL_SECS=0\n",
+    )
+    .unwrap();
+    env::set_current_dir(&nested_dir).unwrap();
+
+    let result = WorkerConfig::from_env();
+
+    env::set_current_dir(original_dir).unwrap();
+    fs::remove_dir_all(root_dir).unwrap();
+    clear_env();
+
+    assert!(matches!(
+        result,
+        Err(ConfigError::InvalidValue { ref var, .. }) if var == "CACHE_CLEANUP_INTERVAL_SECS"
+    ));
 }

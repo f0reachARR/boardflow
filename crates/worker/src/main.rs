@@ -72,6 +72,11 @@ async fn main() {
     ));
     sweep_interval.tick().await; // 初回tickを消化
 
+    let mut cache_cleanup_interval = tokio::time::interval(std::time::Duration::from_secs(
+        config.cache_cleanup_interval_secs,
+    ));
+    cache_cleanup_interval.tick().await; // 初回tickを消化
+
     let shutdown = tokio::signal::ctrl_c();
     tokio::pin!(shutdown);
 
@@ -90,6 +95,9 @@ async fn main() {
             _ = sweep_interval.tick() => {
                 dispatcher::sweep_timed_out_runs(&pool).await;
                 dispatcher::sweep_expired_staging_bundles(&pool, &s3_client, &config).await;
+            }
+            _ = cache_cleanup_interval.tick() => {
+                dispatcher::sweep_expired_cache(&pool).await;
             }
         }
     }
