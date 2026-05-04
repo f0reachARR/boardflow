@@ -866,3 +866,22 @@ Client側の `RunDetailContent` が `$api.useQuery` (非Suspense) で取得し�
 
 - 404 と一般 API エラーの分離を UI レベルで自動検証していないため、同種の回帰が再発しやすい
 - Error Boundary に寄せるかページ内エラー表示を維持するかの方針がページごとに揺れると、次回の移行でも同じ判断ずれが起きやすい
+## PR作成 (2026-05-05)
+
+### PRリンク
+
+- https://github.com/f0reachARR/boardflow/pull/85
+
+### 最終判定
+
+- review: pr_ready: true (最終レビュー 5回目)
+- docs: docs_ready: true (docs agent)
+- `pnpm build`: 成功
+- `pnpm lint`: 成功
+- 未コミット変更: なし
+
+### 残リスク
+
+- 404 と一般 API エラーの分離を自動テストで固定していないため、今後のリファクタリングで同種の回帰が再発しやすい
+- `artifact-viewer-section.tsx` の fetch 混在は別 Issue 対応予定
+- `fetchQuery(...).catch(() => null)` を使うページは 5xx と 404 を同列に `notFound()` へ落とす（移行前と同じ挙動）
