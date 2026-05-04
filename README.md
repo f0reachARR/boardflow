@@ -28,6 +28,7 @@
 | `MINIO_SECRET_KEY` | No | S3シークレットキー |
 | `POLL_INTERVAL_SECS` | No | ポーリング間隔秒 (default: `2`) |
 | `TIMEOUT_SWEEP_INTERVAL_SECS` | No | タイムアウトスイープ間隔秒 (default: `60`) |
+| `CACHE_CLEANUP_INTERVAL_SECS` | No | キャッシュクリーンアップ間隔秒 (default: `3600`) |
 | `GITHUB_APP_ID` | No | GitHub App ID。未設定時はGitHub APIジョブをスキップ |
 | `GITHUB_PRIVATE_KEY_PEM` | No | GitHub App RSA秘密鍵(PEM)。未設定時はGitHub APIジョブをスキップ |
 | `BOARDFLOW_APP_DOMAIN` | No | フロントエンドのベースURL (default: `http://localhost:3000`)。OAuth callback と CORS で使用。後方互換として `APP_BASE_URL` も使用可 |

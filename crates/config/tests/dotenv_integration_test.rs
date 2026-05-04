@@ -88,7 +88,7 @@ fn worker_config_reads_values_from_dotenv() {
     fs::create_dir_all(&nested_dir).unwrap();
     fs::write(
         root_dir.join(".env"),
-        "DATABASE_URL=postgres://dotenv:dotenv@localhost/worker\nBOARDFLOW_APP_DOMAIN=https://boardflow.test\nPOLL_INTERVAL_SECS=9\nTIMEOUT_SWEEP_INTERVAL_SECS=45\nGITHUB_APP_ID=123\nGITHUB_PRIVATE_KEY_PEM=test-pem\n",
+        "DATABASE_URL=postgres://dotenv:dotenv@localhost/worker\nBOARDFLOW_APP_DOMAIN=https://boardflow.test\nPOLL_INTERVAL_SECS=9\nTIMEOUT_SWEEP_INTERVAL_SECS=45\nCACHE_CLEANUP_INTERVAL_SECS=1800\nGITHUB_APP_ID=123\nGITHUB_PRIVATE_KEY_PEM=test-pem\n",
     )
     .unwrap();
     env::set_current_dir(&nested_dir).unwrap();
@@ -106,6 +106,7 @@ fn worker_config_reads_values_from_dotenv() {
     assert_eq!(config.app_domain, "https://boardflow.test");
     assert_eq!(config.poll_interval_secs, 9);
     assert_eq!(config.timeout_sweep_interval_secs, 45);
+    assert_eq!(config.cache_cleanup_interval_secs, 1800);
     assert_eq!(config.github_app_id, Some(123));
     assert_eq!(config.github_private_key_pem.as_deref(), Some("test-pem"));
 }
