@@ -856,6 +856,33 @@ CACHE_CLEANUP_INTERVAL_SECS=3600
 
 - `docs/logs/69/worklog.md`
 
+---
+
+## PR作成（2026-05-05）
+
+### PR/完了結果
+
+- PR作成: **成功**
+- PR URL: https://github.com/f0reachARR/boardflow/pull/84
+- タイトル: `feat(worker): add periodic cache cleanup job`
+- ベースブランチ: `main` ← `feature/69-cache-cleanup-job`
+- コミット内容: dispatcher doc comment の1時間猶予記述追加、作業ログ更新を含む最終コミット
+
+### コミット履歴
+
+- `feat(worker): add periodic cache cleanup job` (Closes #69)
+  - CACHE_CLEANUP_INTERVAL_SECS 設定追加（デフォルト3600s）
+  - sweep_expired_cache() 追加
+  - 専用 interval + select! 分岐追加
+  - 0値バリデーション追加
+  - flaky s3 テスト修正（#[serial] 追加）
+  - dispatcher doc comment に1時間猶予を明示
+
+### 残リスク
+
+- `cleanup_expired_cache` の削除条件（1時間猶予）を将来変更する場合は、`crates/worker/src/dispatcher.rs` の doc comment も同時更新が必要
+- `POLL_INTERVAL_SECS` / `TIMEOUT_SWEEP_INTERVAL_SECS` への同様の0値バリデーション追加は今後の改善候補
+
 ### 更新した作業ログパス
 
 - `docs/logs/69/worklog.md`
