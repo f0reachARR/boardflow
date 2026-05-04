@@ -568,6 +568,32 @@ Step 1-3 はバックエンド内で依存関係あり（順序必須）。Step 
 
 ---
 
+## PR/完了結果（2026-05-04 pr エージェント）
+
+### PR作成
+
+- **PR URL**: https://github.com/f0reachARR/boardflow/pull/80
+- **ブランチ**: `fix/75-auth-redirect-loop` → `main`
+- **コミット**:
+  - `82c03ab` — fix(auth): redirect loop fix & post-login redirect to original page (#75)
+  - `2fab618` — docs: update worklog for #75 with implementation results
+  - `1f2ea33` — fix(auth): apply review fixes - authenticated user redirect, boundary check, integration tests, OpenAPI params
+
+### 最終確認
+
+- review: `pr_ready: true`（blocking指摘なし）
+- docs: `docs_ready: true`（実装・仕様書・生成契約の整合確認済み）
+- 未コミット変更なし（PR関連ファイル全てコミット済み）
+- テスト: Rust 11テスト全パス、Next.js build成功
+
+### 残リスク
+
+1. callback 分岐の HTTP レベル統合テスト未追加（非ブロッキング）
+2. 複数タブの `redirect_to` Cookie競合（実用上許容）
+3. `x-middleware-cache: no-cache` は community workaround（公式 guarantee なし）
+
+---
+
 ## ドキュメント確認結果（2026-05-04 docs エージェント）
 
 ### 対象Issue
