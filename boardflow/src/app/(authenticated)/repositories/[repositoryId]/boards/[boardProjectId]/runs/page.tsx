@@ -15,13 +15,9 @@ export default async function RunsPage({ params }: Props) {
   const queryClient = getQueryClient();
   const serverClient = await createServerClient();
 
-  const projectOptions = $api.queryOptions(
-    'get',
-    '/api/v1/board-projects/{board_project_id}',
-    {
-      params: { path: { board_project_id: boardProjectId } },
-    },
-  );
+  const projectOptions = $api.queryOptions('get', '/api/v1/board-projects/{board_project_id}', {
+    params: { path: { board_project_id: boardProjectId } },
+  });
 
   const runsOptions = $api.queryOptions(
     'get',
@@ -34,12 +30,9 @@ export default async function RunsPage({ params }: Props) {
   queryClient.prefetchQuery({
     ...projectOptions,
     queryFn: async () => {
-      const { data, error } = await serverClient.GET(
-        '/api/v1/board-projects/{board_project_id}',
-        {
-          params: { path: { board_project_id: boardProjectId } },
-        },
-      );
+      const { data, error } = await serverClient.GET('/api/v1/board-projects/{board_project_id}', {
+        params: { path: { board_project_id: boardProjectId } },
+      });
       if (error) throw new Error('Failed to fetch board project');
       return data;
     },
