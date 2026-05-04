@@ -338,3 +338,38 @@ fix(auth): add redirect_uri to OAuth flow and conditional Secure cookie flag
 
 - GitHub OAuth App 設定が環境ごとにズレると、本修正コードが入っていても state mismatch ではなく callback mismatch として障害化する
 - 現状テストだけでは callback / logout 側の将来回帰を捕捉しにくい
+
+---
+
+## レビュー指摘対応
+
+### 2026-05-04: Review feedback fix
+
+#### 対応内容
+
+| 指摘 | 対応 |
+|------|------|
+| major: README に OAuth App callback URL 設定ドキュメントがない | README.md に「GitHub OAuth App 設定」セクションを追加。開発/本番の callback URL 例、`BOARDFLOW_APP_DOMAIN` との一致要件、Next.js rewrite 前提を明記 |
+| minor: 空文字 `BOARDFLOW_APP_DOMAIN` バリデーション | `crates/api/src/lib.rs` で `domain_str` が空文字の場合に `"http://localhost:3000"` へフォールバック |
+| minor: callback/logout テスト追加 | `cookie_secure_flag()` ヘルパー関数を `auth.rs` に切り出し、ユニットテスト4件を追加。`auth_test.rs` にも統合テスト4件（secure_flag helper 3件 + 空ドメインfallback 1件）を追加 |
+
+#### 変更ファイル
+
+| ファイル | 変更内容 |
+|----------|----------|
+| `README.md` | GitHub OAuth App 設定セクション追加 |
+| `crates/api/src/lib.rs` | 空文字フォールバック追加 |
+| `crates/api/src/routes/auth.rs` | `cookie_secure_flag()` pub 関数を追加、login/callback/logout のインライン判定を関数呼び出しに置換、ユニットテスト4件追加 |
+| `crates/api/tests/auth_test.rs` | `cookie_secure_flag` import追加、統合テスト4件追加 |
+
+#### テスト結果
+
+```
+auth_test.rs: 21 passed; 0 failed
+routes::auth::tests: 14 passed; 0 failed
+```
+
+#### 残リスク
+
+- callback/logout のエンドツーエンドテスト（DB + GitHub API mock）は環境未整備のため未追加。`cookie_secure_flag` ヘルパーのユニットテストでロジックカバレッジは確保
+- GitHub OAuth App の実際の callback URL 変更は手動運用作業として残る
