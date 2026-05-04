@@ -14,6 +14,10 @@ use sqlx::PgPool;
 use tower::ServiceExt;
 use uuid::Uuid;
 
+mod common;
+
+use common::unique_i64 as rand_i64;
+
 async fn setup_pool() -> Option<PgPool> {
     unsafe { std::env::set_var("BOARDFLOW_ARTIFACT_SECRET", "test-secret-for-tests") };
     let database_url = match std::env::var("DATABASE_URL") {
@@ -41,6 +45,7 @@ fn create_test_app(pool: PgPool) -> axum::Router {
         None,
         None,
         None,
+        None,
     )
 }
 
@@ -57,13 +62,8 @@ fn create_deny_app(pool: PgPool) -> axum::Router {
         None,
         None,
         None,
+        None,
     )
-}
-
-fn rand_i64() -> i64 {
-    let uuid = Uuid::now_v7();
-    let bytes = uuid.as_bytes();
-    i64::from_be_bytes(bytes[0..8].try_into().unwrap()).abs()
 }
 
 async fn create_test_user(pool: &PgPool) -> Uuid {

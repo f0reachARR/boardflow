@@ -304,23 +304,54 @@ pub type DynGithubAccessChecker = Arc<dyn GithubAccessChecker>;
 
 // ─── Cached implementation ───────────────────────────────────────────────────
 
+const GITHUB_API_BASE_URL: &str = "https://api.github.com";
+
 /// Caching decorator that stores `list_accessible_repo_ids` results in PostgreSQL.
 /// Falls back to stale cache on rate-limit errors (stale-while-error).
 pub struct CachedGithubAccessChecker {
     inner: Arc<dyn GithubAccessChecker>,
     pool: sqlx::PgPool,
+    github_app_id: Option<u64>,
+    github_api_base_url: String,
 }
 
 impl CachedGithubAccessChecker {
-    pub fn new(pool: sqlx::PgPool) -> Self {
+    pub fn new(pool: sqlx::PgPool, github_app_id: Option<u64>) -> Self {
         Self {
             inner: Arc::new(RealGithubAccessChecker::new()),
             pool,
+            github_app_id,
+            github_api_base_url: GITHUB_API_BASE_URL.to_string(),
         }
     }
 
-    pub fn with_inner(inner: Arc<dyn GithubAccessChecker>, pool: sqlx::PgPool) -> Self {
-        Self { inner, pool }
+    pub fn with_inner(
+        inner: Arc<dyn GithubAccessChecker>,
+        pool: sqlx::PgPool,
+        github_app_id: Option<u64>,
+    ) -> Self {
+        Self {
+            inner,
+            pool,
+            github_app_id,
+            github_api_base_url: GITHUB_API_BASE_URL.to_string(),
+        }
+    }
+
+    /// Create a checker with a custom GitHub API base URL (for testing).
+    #[doc(hidden)]
+    pub fn with_base_url(
+        inner: Arc<dyn GithubAccessChecker>,
+        pool: sqlx::PgPool,
+        github_app_id: Option<u64>,
+        base_url: String,
+    ) -> Self {
+        Self {
+            inner,
+            pool,
+            github_app_id,
+            github_api_base_url: base_url,
+        }
     }
 
     /// Invalidate all cached data for a given user.
@@ -332,6 +363,8 @@ impl CachedGithubAccessChecker {
 const CACHE_TYPE_REPO_IDS: &str = "accessible_repo_ids";
 const CACHE_TTL_SECONDS: i64 = 600; // 10 minutes
 const STALE_MAX_SECONDS: i64 = 3600; // 1 hour
+const SYNC_CACHE_TYPE: &str = "installation_repos_sync";
+const SYNC_TTL_SECONDS: i64 = 600; // 10 minutes
 
 #[async_trait::async_trait]
 impl GithubAccessChecker for CachedGithubAccessChecker {
@@ -380,6 +413,9 @@ impl GithubAccessChecker for CachedGithubAccessChecker {
         .await
         {
             if let Ok(ids) = serde_json::from_value::<Vec<i64>>(cached) {
+                // Even on cache hit, trigger fallback sync if repos are missing from DB
+                self.maybe_sync_installation_repos(github_access_token, user_id, &ids)
+                    .await;
                 return Ok(Some(ids));
             }
         }
@@ -403,6 +439,11 @@ impl GithubAccessChecker for CachedGithubAccessChecker {
                         CACHE_TTL_SECONDS,
                     )
                     .await;
+                }
+                // Fallback: sync installation repos if some are missing from DB
+                if let Some(ref ids) = result {
+                    self.maybe_sync_installation_repos(github_access_token, user_id, ids)
+                        .await;
                 }
                 Ok(result)
             }
@@ -440,5 +481,249 @@ impl GithubAccessChecker for CachedGithubAccessChecker {
             .await
             .map_err(|e| AccessError::Upstream(format!("db error: {e}")))?;
         Ok(())
+    }
+}
+
+// ─── Fallback sync: Installation Repositories API ────────────────────────────
+
+#[derive(Debug, serde::Deserialize)]
+struct InstallationInfo {
+    id: u64,
+    app_id: u64,
+    suspended_at: Option<String>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct InstallationsResponse {
+    installations: Vec<InstallationInfo>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct InstallationRepo {
+    id: i64,
+    full_name: String,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct InstallationReposResponse {
+    repositories: Vec<InstallationRepo>,
+}
+
+impl CachedGithubAccessChecker {
+    async fn maybe_sync_installation_repos(
+        &self,
+        github_access_token: &str,
+        user_id: uuid::Uuid,
+        accessible_ids: &[i64],
+    ) {
+        let app_id = match self.github_app_id {
+            Some(id) => id,
+            None => return,
+        };
+
+        if accessible_ids.is_empty() {
+            return;
+        }
+
+        // Check which ids are missing from DB
+        let existing = match boardflow_db::queries::repository::find_existing_github_ids(
+            &self.pool,
+            accessible_ids,
+        )
+        .await
+        {
+            Ok(ids) => ids,
+            Err(e) => {
+                tracing::warn!(error = %e, "failed to check existing repos for sync");
+                return;
+            }
+        };
+
+        let existing_set: std::collections::HashSet<i64> = existing.into_iter().collect();
+        let missing: Vec<i64> = accessible_ids
+            .iter()
+            .filter(|id| !existing_set.contains(id))
+            .copied()
+            .collect();
+
+        if missing.is_empty() {
+            return;
+        }
+
+        // Throttle check
+        if let Ok(Some(_)) = boardflow_db::queries::github_api_cache::get_valid_cache(
+            &self.pool,
+            user_id,
+            SYNC_CACHE_TYPE,
+        )
+        .await
+        {
+            return; // Already synced recently
+        }
+
+        tracing::info!(
+            user_id = %user_id,
+            missing_count = missing.len(),
+            "triggering installation repos fallback sync"
+        );
+
+        // Fetch installations
+        let client = reqwest::Client::new();
+        let installations = match self
+            .fetch_user_installations(&client, github_access_token)
+            .await
+        {
+            Ok(installs) => installs,
+            Err(e) => {
+                tracing::warn!(error = %e, "fallback sync: failed to fetch installations");
+                return;
+            }
+        };
+
+        // Filter by app_id and not suspended
+        let relevant_installations: Vec<&InstallationInfo> = installations
+            .iter()
+            .filter(|i| i.app_id == app_id && i.suspended_at.is_none())
+            .collect();
+
+        // For each installation, fetch repos and upsert
+        for installation in relevant_installations {
+            let repos = match self
+                .fetch_installation_repos(&client, github_access_token, installation.id)
+                .await
+            {
+                Ok(repos) => repos,
+                Err(e) => {
+                    tracing::warn!(
+                        error = %e,
+                        installation_id = installation.id,
+                        "fallback sync: failed to fetch repos for installation"
+                    );
+                    continue;
+                }
+            };
+
+            for repo in &repos {
+                if let Some((owner, name)) = repo.full_name.split_once('/') {
+                    if let Err(e) = boardflow_db::queries::repository::upsert(
+                        &self.pool,
+                        repo.id,
+                        owner,
+                        name,
+                        installation.id as i64,
+                    )
+                    .await
+                    {
+                        tracing::warn!(
+                            error = %e,
+                            repo_id = repo.id,
+                            full_name = %repo.full_name,
+                            "fallback sync: failed to upsert repository"
+                        );
+                    }
+                }
+            }
+        }
+
+        // Update throttle cache
+        let _ = boardflow_db::queries::github_api_cache::upsert_cache(
+            &self.pool,
+            user_id,
+            SYNC_CACHE_TYPE,
+            &serde_json::json!({"synced": true}),
+            SYNC_TTL_SECONDS,
+        )
+        .await;
+    }
+
+    async fn fetch_user_installations(
+        &self,
+        client: &reqwest::Client,
+        github_access_token: &str,
+    ) -> Result<Vec<InstallationInfo>, String> {
+        let mut all_installations = Vec::new();
+        let mut page = 1u32;
+
+        loop {
+            let url = format!(
+                "{}/user/installations?per_page=100&page={page}",
+                self.github_api_base_url
+            );
+
+            let resp = client
+                .get(&url)
+                .header("Authorization", format!("Bearer {}", github_access_token))
+                .header("User-Agent", "BoardFlow")
+                .header("Accept", "application/vnd.github+json")
+                .header("X-GitHub-Api-Version", "2022-11-28")
+                .send()
+                .await
+                .map_err(|e| format!("request failed: {e}"))?;
+
+            if !resp.status().is_success() {
+                return Err(format!("status {}", resp.status()));
+            }
+
+            let data: InstallationsResponse = resp
+                .json()
+                .await
+                .map_err(|e| format!("parse failed: {e}"))?;
+
+            let count = data.installations.len();
+            all_installations.extend(data.installations);
+
+            if count < 100 {
+                break;
+            }
+            page += 1;
+        }
+
+        Ok(all_installations)
+    }
+
+    async fn fetch_installation_repos(
+        &self,
+        client: &reqwest::Client,
+        github_access_token: &str,
+        installation_id: u64,
+    ) -> Result<Vec<InstallationRepo>, String> {
+        let mut all_repos = Vec::new();
+        let mut page = 1u32;
+
+        loop {
+            let url = format!(
+                "{}/user/installations/{installation_id}/repositories?per_page=100&page={page}",
+                self.github_api_base_url
+            );
+
+            let resp = client
+                .get(&url)
+                .header("Authorization", format!("Bearer {}", github_access_token))
+                .header("User-Agent", "BoardFlow")
+                .header("Accept", "application/vnd.github+json")
+                .header("X-GitHub-Api-Version", "2022-11-28")
+                .send()
+                .await
+                .map_err(|e| format!("request failed: {e}"))?;
+
+            if !resp.status().is_success() {
+                return Err(format!("status {}", resp.status()));
+            }
+
+            let data: InstallationReposResponse = resp
+                .json()
+                .await
+                .map_err(|e| format!("parse failed: {e}"))?;
+
+            let count = data.repositories.len();
+            all_repos.extend(data.repositories);
+
+            if count < 100 {
+                break;
+            }
+            page += 1;
+        }
+
+        Ok(all_repos)
     }
 }

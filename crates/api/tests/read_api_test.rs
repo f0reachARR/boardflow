@@ -13,6 +13,10 @@ use sqlx::PgPool;
 use tower::ServiceExt;
 use uuid::Uuid;
 
+mod common;
+
+use common::unique_i64 as rand_i64;
+
 async fn setup_pool() -> Option<PgPool> {
     // Ensure artifact secret is set for create_app
     // SAFETY: tests run sequentially via #[tokio::test] default single-thread;
@@ -43,6 +47,7 @@ fn create_test_app(pool: PgPool) -> axum::Router {
         None,
         None,
         None,
+        None,
     )
 }
 
@@ -59,13 +64,8 @@ fn create_deny_app(pool: PgPool) -> axum::Router {
         None,
         None,
         None,
+        None,
     )
-}
-
-fn rand_i64() -> i64 {
-    let uuid = Uuid::now_v7();
-    let bytes = uuid.as_bytes();
-    i64::from_be_bytes(bytes[0..8].try_into().unwrap()).abs()
 }
 
 async fn create_test_user(pool: &PgPool) -> Uuid {
@@ -1296,6 +1296,7 @@ async fn test_get_viewer_sources_returns_absolute_url_with_custom_base() {
         None,
         Some("https://artifacts.boardflow.example.com".to_string()),
         None,
+        None,
     );
 
     let response = app
@@ -1730,6 +1731,7 @@ fn create_rate_limited_app(pool: PgPool) -> axum::Router {
         None,
         None,
         None,
+        None,
     )
 }
 
@@ -1741,6 +1743,7 @@ fn create_upstream_error_app(pool: PgPool) -> axum::Router {
         None,
         None,
         Some(checker),
+        None,
         None,
         None,
         None,

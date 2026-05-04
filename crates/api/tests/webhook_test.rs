@@ -6,6 +6,10 @@ use sha2::Sha256;
 use sqlx::PgPool;
 use tower::ServiceExt;
 
+mod common;
+
+use common::unique_i64 as rand_i64;
+
 type HmacSha256 = Hmac<Sha256>;
 
 fn compute_signature(secret: &str, body: &[u8]) -> String {
@@ -43,12 +47,8 @@ fn create_test_app(pool: PgPool) -> axum::Router {
         None,
         None,
         Some(WEBHOOK_SECRET.to_string()),
+        None,
     )
-}
-
-fn rand_i64() -> i64 {
-    use rand::Rng;
-    rand::thread_rng().gen_range(1..i64::MAX)
 }
 
 // --- Test: ping event returns 200 ---
@@ -372,7 +372,7 @@ async fn test_webhook_no_secret_configured() {
     };
     // webhook_secret を None で作成
     let app = boardflow_api::create_app_with_config(
-        pool, None, None, None, None, None, None, None, None, None,
+        pool, None, None, None, None, None, None, None, None, None, None,
     );
     let body = br#"{"zen":"test"}"#;
 
