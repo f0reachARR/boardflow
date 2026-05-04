@@ -1,11 +1,19 @@
 import { Box, Button, Heading, Text, VStack } from '@chakra-ui/react';
 import Link from 'next/link';
+import { redirect } from 'next/navigation';
+import { getCurrentUser } from '@/lib/auth';
 
 export default async function LoginPage({
   searchParams,
 }: {
   searchParams: Promise<{ redirect_to?: string }>;
 }) {
+  const user = await getCurrentUser();
+
+  if (user) {
+    redirect('/repositories');
+  }
+
   const params = await searchParams;
   const redirectTo = params.redirect_to;
   const loginHref = redirectTo

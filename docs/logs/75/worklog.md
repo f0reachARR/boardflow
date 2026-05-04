@@ -79,6 +79,54 @@
 
 ---
 
+## レビュー結果（2026-05-04 review エージェント）
+
+### 総評
+- ループの主因だった `/login` への middleware リダイレクトは解消できており、`redirect_to` の伝搬方針自体も middleware → login page → backend login → callback で一貫している。
+- 一方で、認証済みユーザーの `/login` 直接アクセスが未処理になっており、計画・research で前提にしていた「login ページ側での認証済みリダイレクト」が欠けている。
+- 加えて、`redirect_to` を未エスケープのまま `Set-Cookie` に埋め込んでおり、Cookie 値として不正な文字を含む入力でヘッダ破損や builder `unwrap()` panic を起こし得る。現状は PR 作成前に修正が必要。
+
+### PR可否
+- `pr_ready: false`
+
+### 指摘事項
+
+#### major
+- [boardflow/src/app/login/page.tsx](boardflow/src/app/login/page.tsx#L4) で認証済みユーザーのリダイレクトが未実装。`middleware.ts` から `/login && session` リダイレクトを外した一方、login page 側には `getCurrentUser()` による復帰導線がないため、正常なセッションを持つユーザーが [boardflow/src/middleware.ts](boardflow/src/middleware.ts#L19) を通ってそのままログイン画面を見られる。Issue のレビュー観点にある「Cookie有効+/login直接アクセス」を満たせておらず、research 文書でも `/login` ページ側が認証済みユーザーを処理する前提になっている。
+
+修正案:
+- login page で `getCurrentUser()` を呼び、認証済みなら `/repositories` もしくは検証済み `redirect_to` に `redirect()` する。
+- 少なくとも既存の「ログイン済みユーザーが `/login` を見ない」挙動は維持する。
+
+#### major
+- [crates/api/src/routes/auth.rs](crates/api/src/routes/auth.rs#L59) から [crates/api/src/routes/auth.rs](crates/api/src/routes/auth.rs#L64) で、`redirect_to` を生文字列のまま `Set-Cookie` に埋め込んでいる。`validate_redirect_path()` は open redirect の観点では有効だが、Cookie 値として禁止される `;`, `,`, space, DQUOTE, 制御文字 CR/LF などを拒否していないため、`/api/v1/auth/login?redirect_to=/%0d%0a...` や `/%3B Secure` のような入力でヘッダ生成失敗や意図しない cookie 属性混入を招く。`Response::builder().header(...).body(...).unwrap()` のため、無効ヘッダ値は panic に直結する。
+
+修正案:
+- `redirect_to` を Cookie に保存する前に percent-encode するか、専用の Cookie builder を使って安全に serialize する。
+- 併せて `validate_redirect_path()` で cookie-value 不許可文字と制御文字を拒否し、`login` handler の単体/統合テストに `;`, CR/LF, 空白, DQUOTE を追加する。
+
+### 任意改善
+- [boardflow/src/middleware.ts](boardflow/src/middleware.ts#L19) の `pathname.startsWith('/login')` は `/login-foo` も public 扱いする。現状ルート構成では直ちに問題化しないが、将来の保護ルート追加時に踏み抜きやすいので `pathname === '/login' || pathname.startsWith('/login/')` のように境界を切った方が安全。
+- [boardflow/src/app/login/page.tsx](boardflow/src/app/login/page.tsx#L7) の `searchParams` 型は実行時に配列値も来得るため、`string | string[] | undefined` を扱う形の方が Next.js 15 の実態に近い。
+
+### テスト不足
+- backend 側は [crates/api/src/routes/auth.rs](crates/api/src/routes/auth.rs#L330) の pure function テストしか増えておらず、`login`/`callback` の Cookie 往復、複数 `Set-Cookie`、不正 `redirect_to` 入力時の挙動を検証する HTTP レベルのテストがない。
+- frontend 側は middleware と login page の回帰を担保するテストが見当たらない。少なくとも「無効 session で protected route → `/login?redirect_to=...`」「有効 session で `/login` → `/repositories`」の導線は E2E か integration で欲しい。
+
+### ドキュメント確認
+- research 成果物の [docs/external/nextjs-middleware-cookie-redirect-loop.md](docs/external/nextjs-middleware-cookie-redirect-loop.md#L95) は今回の方針と整合している。
+- ただし API 仕様書の [docs/backend/api.md](docs/backend/api.md#L355) から [docs/backend/api.md](docs/backend/api.md#L380) は旧挙動のままで、`GET /api/v1/auth/login` の `redirect_to` クエリ、`boardflow_redirect_to` Cookie、callback の可変リダイレクト先が未反映。
+
+### plan / research / docs との不整合
+- research では `/login` ページが認証済みユーザーのリダイレクトを担当すると整理されているが、実装は未対応。
+- docs/backend/api.md は callback の戻り先を `/` 固定と記載しており、実装後の契約と不一致。
+
+### 残リスク
+- Cookie 値の直列化不備を残したままでは、不正クエリによる login handler の異常系が未管理のまま残る。
+- `/login` の認証済みリダイレクト未実装のままだと、今後 login 画面に説明や副作用を足した際に意図しない再認証導線を開き続ける。
+
+---
+
 ## 実装計画（2026-05-04 plan エージェント）
 
 ### 目的
@@ -433,3 +481,212 @@ Step 1-3 はバックエンド内で依存関係あり（順序必須）。Step 
 2. **ブラウザの 307 キャッシュ**: `x-middleware-cache: no-cache` で対処済み。古いキャッシュはユーザーのキャッシュクリアで解決
 3. **複数タブの redirect_to 競合**: Cookie ベースのため最後の値が勝つ。実用上問題なし
 4. **`config_test.rs` の既存失敗**: 本Issueとは無関係。環境変数未設定時のテスト
+
+---
+
+## レビュー結果（2026-05-04 review エージェント 再レビュー）
+
+### 総評
+- 前回の major 指摘 2 件はコード上いずれも解消されている。`/login` は middleware で常時通過になり、[boardflow/src/app/login/page.tsx](boardflow/src/app/login/page.tsx#L1) で認証済みユーザーを `/repositories` へ戻すため、無効 session のループ回避と有効 session の `/login` 滞留回避は両立できている。
+- [crates/api/src/routes/auth.rs](crates/api/src/routes/auth.rs#L295) の `validate_redirect_path()` には cookie unsafe 文字拒否が追加され、少なくとも今回前回指摘していた `Set-Cookie` 破損要因は抑えられている。
+- ただし、auth フローの契約変更に対する API ドキュメント更新と HTTP レベルの回帰テストが未整備で、この Issue の完了条件としてはまだ弱い。
+
+### PR可否
+- `pr_ready: false`
+
+### 指摘事項
+
+#### medium
+- [docs/backend/api.md](docs/backend/api.md#L350) から [docs/backend/api.md](docs/backend/api.md#L380) が実装と一致していない。現行実装では `GET /api/v1/auth/login` が `redirect_to` を受け付け、[crates/api/src/routes/auth.rs](crates/api/src/routes/auth.rs#L20) から [crates/api/src/routes/auth.rs](crates/api/src/routes/auth.rs#L58) で `boardflow_redirect_to` cookie を保存し、callback も [crates/api/src/routes/auth.rs](crates/api/src/routes/auth.rs#L161) から [crates/api/src/routes/auth.rs](crates/api/src/routes/auth.rs#L182) で `/` 固定ではなく検証済みの相対パスへ戻す。仕様書が旧契約のままだと、後続実装と運用判断を誤らせる。
+
+#### medium
+- auth 変更の検証が pure function テストに偏っている。[crates/api/src/routes/auth.rs](crates/api/src/routes/auth.rs#L321) 以降のユニットテストは `validate_redirect_path()` のみで、[crates/api/tests/auth_test.rs](crates/api/tests/auth_test.rs#L1) には `login` と `callback` の cookie 受け渡し、複数 `Set-Cookie`、不正 `redirect_to` 入力時のフォールバックを確認するテストがない。今回の修正は認証導線そのものに触れているため、HTTP レベルで 1 本でも回帰テストが欲しい。
+
+### 必須修正
+- `docs/backend/api.md` を実装後の認証フローに合わせて更新する。
+- `crates/api/tests/auth_test.rs` などで `redirect_to` を含む login/callback フローの統合テストを追加する。
+
+### 任意改善
+- [boardflow/src/app/login/page.tsx](boardflow/src/app/login/page.tsx#L6) の認証済みユーザーリダイレクトは常に `/repositories` 固定だが、`redirect_to` が安全な相対パスならそれを優先しても UX は自然になる。
+
+### テスト結果
+- `mise exec -- cargo test -p boardflow-api routes::auth -- --nocapture` : 10 テスト成功
+- `pnpm --dir /home/f0reach/workspace/boardflow/boardflow build` : 成功
+
+### ドキュメント確認
+- [docs/external/nextjs-middleware-cookie-redirect-loop.md](docs/external/nextjs-middleware-cookie-redirect-loop.md#L1) との整合は取れている。
+- [docs/backend/api.md](docs/backend/api.md#L350) から [docs/backend/api.md](docs/backend/api.md#L380) は未更新。
+
+### plan / research / docs との不整合
+- research / plan は `redirect_to` の伝搬と callback 側の可変リダイレクトを前提にしているが、API 仕様書だけが `/` 固定のまま残っている。
+
+### 残リスク
+- 文書化されないまま merge すると、今後の auth 実装修正時に旧仕様を前提に戻されるリスクがある。
+- HTTP レベルの回帰テストがないため、cookie の直列化や複数 `Set-Cookie` の将来リグレッションを検知しづらい。
+
+---
+
+## レビュー結果（2026-05-04 review エージェント 最終再レビュー）
+
+### 総評
+- Issue #75 の目的である「無効セッション時の `/login` ループ解消」と「ログイン後の元ページ復帰」は、[boardflow/src/middleware.ts](boardflow/src/middleware.ts#L1)・[boardflow/src/app/login/page.tsx](boardflow/src/app/login/page.tsx#L1)・[crates/api/src/routes/auth.rs](crates/api/src/routes/auth.rs#L1) の実装で一貫して満たせている。
+- 前回レビューで必須だった API 仕様書更新と login handler の HTTP レベル統合テスト追加も反映済みで、実装・research・plan・ドキュメントの不整合は解消された。
+- 今回確認できた範囲では、PR 作成を止める欠陥は見当たらない。
+
+### PR可否
+- `pr_ready: true`
+
+### 指摘事項
+- blocking / major / medium の指摘事項なし。
+
+### 必須修正
+- なし。
+
+### 任意改善
+- [crates/api/src/routes/auth.rs](crates/api/src/routes/auth.rs#L82) 以降の callback 分岐は今回変更範囲だが、現状は専用の HTTP レベル回帰テストがない。将来の回帰検知を強めるなら、`boardflow_redirect_to` cookie を与えた callback のフォールバックと cookie 削除を確認するテストを追加するとよい。
+
+### テスト不足
+- 非ブロッキングではあるが、auth 統合テストは login handler 側に寄っており、callback 側の `redirect_to` 利用と cookie clear の end-to-end 検証は未追加。
+
+### テスト結果
+- `mise exec -- cargo test -p boardflow-api --test auth_test` : 11 テスト成功
+- `pnpm --dir /home/f0reach/workspace/boardflow/boardflow build` : 成功
+
+### ドキュメント確認
+- [docs/backend/api.md](docs/backend/api.md#L355) から [docs/backend/api.md](docs/backend/api.md#L394) に `redirect_to` query、`boardflow_redirect_to` cookie、callback の可変リダイレクトと cookie 削除が反映されている。
+- [docs/external/nextjs-middleware-cookie-redirect-loop.md](docs/external/nextjs-middleware-cookie-redirect-loop.md#L1) の調査内容と現在の実装方針は整合している。
+
+### plan / research / docs との不整合
+- 確認した範囲では不整合なし。
+
+### PR/完了結果
+- review 判定: `pr_ready: true`
+- review フェーズ完了。Issue #75 は PR 作成へ進めてよい。
+
+### 残リスク
+- callback 分岐に専用の統合テストがないため、将来の認証フロー変更時に cookie 削除やリダイレクト先フォールバックの回帰を見逃す可能性がある。
+
+---
+
+## ドキュメント確認結果（2026-05-04 docs エージェント）
+
+### 対象Issue
+- Issue #75: フロントエンド認証リダイレクトループ修正 & ログイン後の元ページリダイレクト
+
+### 総評
+- [docs/backend/api.md](docs/backend/api.md#L355) から [docs/backend/api.md](docs/backend/api.md#L394) の Auth API 記述は、今回の実装である [crates/api/src/routes/auth.rs](crates/api/src/routes/auth.rs#L24) から [crates/api/src/routes/auth.rs](crates/api/src/routes/auth.rs#L211) と整合している。
+- [docs/spec.md](docs/spec.md#L1619) と [docs/frontend/summary.md](docs/frontend/summary.md#L77) の認証記述は高レベル方針に留まっており、今回の `redirect_to` 追加や `/login` ループ回避の詳細を反映する必然性はない。
+- 一方で、生成済み契約ファイル [boardflow/src/lib/api/schema.d.ts](boardflow/src/lib/api/schema.d.ts#L6) と [boardflow/src/lib/api/schema.d.ts](boardflow/src/lib/api/schema.d.ts#L22) では `/api/v1/auth/callback` と `/api/v1/auth/login` の query parameter が `never` のままで、実装および API 仕様書と不一致になっている。PR を出す前に OpenAPI 側の注釈または生成物更新が必要。
+
+### docs_ready
+- `docs_ready: false`
+
+### 必須修正
+- OpenAPI 契約を更新し、[boardflow/src/lib/api/schema.d.ts](boardflow/src/lib/api/schema.d.ts#L6) と [boardflow/src/lib/api/schema.d.ts](boardflow/src/lib/api/schema.d.ts#L22) に auth query parameter が反映される状態にする。
+  - 現状は `GET /api/v1/auth/login` の `redirect_to` と `GET /api/v1/auth/callback` の `code`, `state` が生成型に現れていない。
+  - ドキュメント本文は更新済みでも、参照される API 契約面が旧仕様のままだと後続実装とレビューで齟齬が残る。
+
+### 任意改善
+- [docs/external/nextjs-middleware-cookie-redirect-loop.md](docs/external/nextjs-middleware-cookie-redirect-loop.md#L147) の `x-middleware-cache: no-cache` については、現行の Next.js 公式 API ドキュメントでは明示的な保証を確認できなかった。コミュニティ workaround としては妥当だが、「推奨」や「防げる」と断定するより「報告例がある workaround」と明記した方が根拠の強さに見合う。
+
+### 不整合のあるドキュメント
+- なし。`docs/` 配下で今回確認対象にした文書のうち、実装と明確に矛盾するものは見当たらない。
+
+### 不足しているドキュメント
+- 追加の README / CONTRIBUTING 更新は不要。
+- ただし生成契約ファイル [boardflow/src/lib/api/schema.d.ts](boardflow/src/lib/api/schema.d.ts) は更新漏れの可能性が高い。
+
+### 外部調査メモに関する指摘
+- [docs/external/nextjs-middleware-cookie-redirect-loop.md](docs/external/nextjs-middleware-cookie-redirect-loop.md#L11) の「`NextResponse.redirect()` で生成した response に対して `.cookies.delete()` を呼べる」は、現行の Next.js `NextResponse` 公式 docs と整合している。
+- [docs/external/nextjs-middleware-cookie-redirect-loop.md](docs/external/nextjs-middleware-cookie-redirect-loop.md#L69) の「Server Component では `cookies().delete()` が使えず、読み取り専用」は、現行の Next.js `cookies` 公式 docs と整合している。
+- [docs/external/nextjs-middleware-cookie-redirect-loop.md](docs/external/nextjs-middleware-cookie-redirect-loop.md#L147) の `x-middleware-cache` に関する記述は、公式 docs ではなく issue / community report ベースのため、根拠レベルを一段下げて表現するのが安全。
+
+### PR/完了結果
+- docs review 判定: `docs_ready: false`
+- blocking 理由: `docs/` 本文は整合しているが、生成済み API 契約が旧仕様のままで参照面に齟齬が残るため。
+
+### 残リスク
+- OpenAPI 生成物を未更新のまま merge すると、frontend 側の将来の API 利用やレビューが旧 auth 契約を前提に進む可能性がある。
+- `x-middleware-cache` の記述を強い断定のまま残すと、Next.js 側の挙動保証と誤認される可能性がある。
+
+---
+
+## ドキュメント確認結果（2026-05-04 docs エージェント 再確認）
+
+### 対象Issue
+- Issue #75: フロントエンド認証リダイレクトループ修正 & ログイン後の元ページリダイレクト
+
+### 総評
+- 前回 blocking としていた OpenAPI 注釈不足は、[crates/api/src/routes/auth.rs](crates/api/src/routes/auth.rs#L22) と [crates/api/src/routes/auth.rs](crates/api/src/routes/auth.rs#L68) で `IntoParams` と `params(...)` が追加されており、ソース側では解消されている。
+- [docs/backend/api.md](docs/backend/api.md#L355) の Auth API 記述と、[boardflow/src/middleware.ts](boardflow/src/middleware.ts#L1)、[boardflow/src/app/login/page.tsx](boardflow/src/app/login/page.tsx#L1)、[crates/api/src/routes/auth.rs](crates/api/src/routes/auth.rs#L24) 以降の実装は整合している。
+- ただし、現時点の生成済み契約ファイル [boardflow/src/lib/api/schema.d.ts](boardflow/src/lib/api/schema.d.ts#L6) と [boardflow/src/lib/api/schema.d.ts](boardflow/src/lib/api/schema.d.ts#L22) は依然として query parameter が `never` のままで、リポジトリ上の参照契約は旧仕様のまま残っている。現ブランチをそのまま PR 化する前提では docs review はまだ通せない。
+
+### docs_ready
+- `docs_ready: false`
+
+### 必須修正
+- [boardflow/src/lib/api/schema.d.ts](boardflow/src/lib/api/schema.d.ts) を、追加済みの utoipa 注釈が反映された状態に再生成する。
+- もし CI または merge 後生成を前提にする運用なら、その前提を PR 本文に明記し、このブランチでは生成物差分が未反映であることをレビューアに共有する。
+
+### 任意改善
+- [docs/external/nextjs-middleware-cookie-redirect-loop.md](docs/external/nextjs-middleware-cookie-redirect-loop.md#L147) の `x-middleware-cache: no-cache` は公式 guarantee ではなく報告ベースの workaround と分かる表現に寄せると、根拠の強さと文章が揃う。
+
+### 不整合のあるドキュメント
+- [boardflow/src/lib/api/schema.d.ts](boardflow/src/lib/api/schema.d.ts): 実装と API 仕様書では auth query parameter が存在するが、生成契約では未反映。
+
+### 不足しているドキュメント
+- README / CONTRIBUTING の追加更新は不要。
+- ただし、生成契約の更新が未反映なため、利用者が参照する API 面の最新化が不足している。
+
+### 外部調査メモに関する指摘
+- [docs/external/nextjs-middleware-cookie-redirect-loop.md](docs/external/nextjs-middleware-cookie-redirect-loop.md#L1) の採用判断自体は現在の実装方針と矛盾していない。
+- `x-middleware-cache` の説明だけは、公式 docs よりコミュニティ報告への依存が強い点を弱めに表現した方が安全。
+
+### PR/完了結果
+- docs review 判定: `docs_ready: false`
+- blocking 理由: ソース注釈は修正済みだが、現ブランチの生成契約が旧仕様のままで参照面に齟齬が残るため。
+
+### 残リスク
+- 生成物未更新のまま merge されると、frontend の型生成や後続レビューで auth query parameter が存在しない前提が残る。
+
+---
+
+## ドキュメント確認結果（2026-05-04 docs エージェント 最終確認）
+
+### 対象Issue
+- Issue #75: フロントエンド認証リダイレクトループ修正 & ログイン後の元ページリダイレクト
+
+### 総評
+- [docs/backend/api.md](docs/backend/api.md#L355) から [docs/backend/api.md](docs/backend/api.md#L394) の Auth API 記述は、[crates/api/src/routes/auth.rs](crates/api/src/routes/auth.rs#L22) 以降の実装と整合している。
+- 前回 blocking としていた [boardflow/src/lib/api/schema.d.ts](boardflow/src/lib/api/schema.d.ts) の query parameter 未反映は、生成ファイル先頭の `paths[...].parameters.query` ではなく `operations.login.parameters.query` / `operations.callback.parameters.query` を参照すべき生成形式の読み違いだった。現行ファイルでは [boardflow/src/lib/api/schema.d.ts](boardflow/src/lib/api/schema.d.ts#L768) から [boardflow/src/lib/api/schema.d.ts](boardflow/src/lib/api/schema.d.ts#L813) に `redirect_to` / `code` / `state` が反映されており、`openapi-fetch` の利用形とも整合する。
+- 今回確認対象の docs / docs/external / 生成契約の範囲では、PR 作成を止めるドキュメント不整合は見当たらない。
+
+### docs_ready
+- `docs_ready: true`
+
+### 必須修正
+- なし。
+
+### 任意改善
+- [docs/external/nextjs-middleware-cookie-redirect-loop.md](docs/external/nextjs-middleware-cookie-redirect-loop.md#L147) の `x-middleware-cache: no-cache` は、公式 guarantee というより報告ベースの workaround と分かる表現に寄せると根拠の強さと記述が揃う。
+
+### 不整合のあるドキュメント
+- なし。
+
+### 不足しているドキュメント
+- なし。README / CONTRIBUTING への今回追記も不要。
+
+### 外部調査メモに関する指摘
+- [docs/external/nextjs-middleware-cookie-redirect-loop.md](docs/external/nextjs-middleware-cookie-redirect-loop.md#L1) の採用判断は、今回の middleware / login page / backend auth の実装方針と矛盾していない。
+- `x-middleware-cache` に関する記述だけは、根拠レベルに合わせて表現を少し弱める余地があるが、Issue #75 の blocking ではない。
+
+### テスト結果
+- ユーザー共有の結果として Rust テストは全通、Next.js build は成功。
+- 端末履歴でも `pnpm build` 成功は確認できる。
+
+### PR/完了結果
+- docs review 判定: `docs_ready: true`
+- docs フェーズ完了。Issue #75 は PR 作成へ進めてよい。
+
+### 残リスク
+- callback 側の `redirect_to` cookie 利用については、将来の回帰検知をさらに強めるなら HTTP レベル統合テストがあるとより堅い。

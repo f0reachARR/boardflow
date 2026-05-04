@@ -150,3 +150,108 @@ fn request_id_clone() {
     let cloned = id.clone();
     assert_eq!(id.0, cloned.0);
 }
+
+// ─── Login handler redirect_to tests ────────────────────────────────────────
+
+use boardflow_api::routes::auth::{OAuthConfig, login};
+use axum::Extension;
+
+fn login_app() -> Router {
+    Router::new()
+        .route("/api/v1/auth/login", get(login))
+        .layer(Extension(OAuthConfig {
+            client_id: "test_client_id".to_string(),
+            client_secret: "test_client_secret".to_string(),
+        }))
+}
+
+#[tokio::test]
+#[serial]
+async fn login_without_redirect_to_has_no_redirect_cookie() {
+    let app = login_app();
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/auth/login")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::FOUND);
+
+    // Should have oauth_state cookie but not redirect_to cookie
+    let cookies: Vec<&str> = response
+        .headers()
+        .get_all(axum::http::header::SET_COOKIE)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .collect();
+
+    assert!(cookies.iter().any(|c| c.starts_with("boardflow_oauth_state=")));
+    assert!(!cookies.iter().any(|c| c.starts_with("boardflow_redirect_to=")));
+}
+
+#[tokio::test]
+#[serial]
+async fn login_with_valid_redirect_to_sets_cookie() {
+    let app = login_app();
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/auth/login?redirect_to=/repositories/123")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::FOUND);
+
+    let cookies: Vec<&str> = response
+        .headers()
+        .get_all(axum::http::header::SET_COOKIE)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .collect();
+
+    let redirect_cookie = cookies
+        .iter()
+        .find(|c| c.starts_with("boardflow_redirect_to="))
+        .expect("redirect_to cookie should be set");
+
+    assert!(redirect_cookie.contains("/repositories/123"));
+    assert!(redirect_cookie.contains("HttpOnly"));
+    assert!(redirect_cookie.contains("SameSite=Lax"));
+    assert!(redirect_cookie.contains("Max-Age=300"));
+}
+
+#[tokio::test]
+#[serial]
+async fn login_with_invalid_redirect_to_does_not_set_cookie() {
+    let app = login_app();
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/auth/login?redirect_to=//evil.com")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::FOUND);
+
+    let cookies: Vec<&str> = response
+        .headers()
+        .get_all(axum::http::header::SET_COOKIE)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .collect();
+
+    assert!(!cookies.iter().any(|c| c.starts_with("boardflow_redirect_to=")));
+}

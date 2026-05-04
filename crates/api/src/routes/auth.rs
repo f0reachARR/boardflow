@@ -6,7 +6,7 @@ use axum::response::Response;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
-use utoipa::ToSchema;
+use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
 
 use crate::error::{AppError, RequestId};
@@ -22,7 +22,7 @@ pub struct OAuthConfig {
 
 // ─── GET /api/v1/auth/login ─────────────────────────────────────────────────
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, IntoParams)]
 pub struct LoginQuery {
     pub redirect_to: Option<String>,
 }
@@ -30,6 +30,7 @@ pub struct LoginQuery {
 #[utoipa::path(
     get,
     path = "/api/v1/auth/login",
+    params(LoginQuery),
     responses(
         (status = 302, description = "Redirect to GitHub OAuth"),
     )
@@ -71,7 +72,7 @@ pub async fn login(
 
 // ─── GET /api/v1/auth/callback ──────────────────────────────────────────────
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, IntoParams)]
 pub struct CallbackQuery {
     pub code: String,
     pub state: Option<String>,
@@ -92,6 +93,7 @@ struct GitHubUserResponse {
 #[utoipa::path(
     get,
     path = "/api/v1/auth/callback",
+    params(CallbackQuery),
     responses(
         (status = 302, description = "Redirect after successful OAuth"),
         (status = 401, description = "OAuth failed"),
@@ -311,6 +313,11 @@ fn validate_redirect_path(path: &str) -> Option<&str> {
     if path.contains('\0') {
         return None;
     }
+    // Reject characters that are invalid in cookie values (RFC 6265)
+    // This prevents cookie injection / header manipulation
+    if path.bytes().any(|b| matches!(b, b';' | b',' | b'"' | b'\r' | b'\n' | b' ')) {
+        return None;
+    }
     if let Ok(decoded) = urlencoding::decode(path) {
         if decoded.starts_with("//") || decoded.contains("://") || decoded.contains('\\') {
             return None;
@@ -382,5 +389,20 @@ mod tests {
     fn test_validate_redirect_path_too_long() {
         let long_path = format!("/{}", "a".repeat(2048));
         assert_eq!(validate_redirect_path(&long_path), None);
+    }
+
+    #[test]
+    fn test_validate_redirect_path_cookie_unsafe_chars() {
+        // Semicolon could inject cookie attributes
+        assert_eq!(validate_redirect_path("/foo;bar"), None);
+        // Comma
+        assert_eq!(validate_redirect_path("/foo,bar"), None);
+        // Double quote
+        assert_eq!(validate_redirect_path("/foo\"bar"), None);
+        // CR/LF (header injection)
+        assert_eq!(validate_redirect_path("/foo\rbar"), None);
+        assert_eq!(validate_redirect_path("/foo\nbar"), None);
+        // Space
+        assert_eq!(validate_redirect_path("/foo bar"), None);
     }
 }
