@@ -426,3 +426,63 @@ Phase 4: 複雑なページ3件の移行
 
 - 自動テストが追加されていないため、404 / 401 / backend error 時の挙動回帰が今後も再発しやすい
 - トークン作成/失効後の invalidate は prefix マッチ前提で機能するが、repository 単位の検証記録がなく、将来の query key 変更に弱い
+
+## レビュー修正 (2026-05-05)
+
+### 指摘内容
+
+1. **指摘1: 404エラー時のnotFound()が失われている**
+   - 移行前はServer Componentで `client.GET()` 結果確認 → エラー時 `notFound()` を呼んでいた
+   - 移行後は全て `prefetchQuery` (await無し) となり、404時にnotFoundページが表示されなくなった
+
+2. **指摘2: Run detail のdiff prefetchが不整合**
+   - Server側でdiff prefetchしていたが、Client側は `useQuery` (非Suspense) で404を正常ケースとして扱っている
+   - 正常系404でサーバー側に不要な失敗リクエストが発生
+
+### 修正内容
+
+#### 指摘1: fetchQuery + notFound パターンの適用
+
+主要リソース（存在確認が必要なもの）を `fetchQuery` + `await` に変更し、エラー時に `notFound()` を呼ぶ。セカンダリリソース（一覧など）は `prefetchQuery` (await無し、Streaming SSR) のまま。
+
+| ページ | Primary (fetchQuery + notFound) | Secondary (prefetchQuery) |
+|--------|-------------------------------|--------------------------|
+| repositories/[repositoryId] | `/api/v1/repositories/{github_repository_id}` | board-projects |
+| boards/[boardProjectId] | `/api/v1/board-projects/{board_project_id}` | board-runs |
+| boards/.../runs | `/api/v1/board-projects/{board_project_id}` | board-runs |
+| runs/[boardRunId] | `/api/v1/board-runs/{board_run_id}` | artifacts, viewer-sources, project |
+
+実装パターン:
+```typescript
+const result = await queryClient
+  .fetchQuery({ ...options, queryFn: async () => { ... } })
+  .catch(() => null);
+if (!result) { notFound(); }
+```
+
+#### 指摘2: diff prefetchの削除
+
+`runs/[boardRunId]/page.tsx` から diff の `prefetchQuery` ブロックを完全に削除。
+Client側の `RunDetailContent` が `$api.useQuery` (非Suspense) で取得し、404を正常ケースとして処理する。
+
+#### 変更不要のページ
+
+- `checks/[checkKind]/page.tsx` — 既に `notFound()` あり、checkKind バリデーションも実装済み
+- `diff/page.tsx` — 既に `notFound()` あり、Server Componentで直接処理
+
+### 変更ファイル一覧
+
+1. `src/app/(authenticated)/repositories/[repositoryId]/page.tsx`
+2. `src/app/(authenticated)/repositories/[repositoryId]/boards/[boardProjectId]/page.tsx`
+3. `src/app/(authenticated)/repositories/[repositoryId]/boards/[boardProjectId]/runs/page.tsx`
+4. `src/app/(authenticated)/repositories/[repositoryId]/boards/[boardProjectId]/runs/[boardRunId]/page.tsx`
+
+### テスト結果
+
+- `pnpm build`: 成功 (TypeScript, ページ生成)
+- `pnpm lint`: 成功 (biome check, 3ファイル自動修正)
+
+### 未解決リスク
+
+- 自動テスト未追加のまま（404挙動の回帰テストは別Issue検討）
+- `fetchQuery` の `.catch(() => null)` で全エラーを notFound に変換しているため、5xx等も notFound 扱いになる（移行前と同じ挙動）
