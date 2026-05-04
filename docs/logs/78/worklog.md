@@ -217,7 +217,48 @@ fetchやclient.GETなどをフロントエンドで呼んでいる部分につ�
 
 ## 実装内容
 
-(impl agent完了後に記載)
+### Phase 1-2 完了 (2026-05-05)
+
+#### Phase 1: Mutation移行
+
+**タスク 1-1: `src/components/tokens/revoke-token-dialog.tsx`**
+- `apiClient.POST` → `$api.useMutation('post', '.../revoke')` に置換
+- `useState(loading)` を廃止、`isPending` を使用
+- `onRevoked` コールバックを廃止 → `onSuccess` で `invalidateQueries` + ダイアログclose
+- エラーハンドリングは `onError` コールバックで `err.error?.message` を取得
+
+**タスク 1-2: `src/components/tokens/create-token-dialog.tsx`**
+- `apiClient.POST` → `$api.useMutation('post', '.../api-tokens')` に置換
+- `useState(loading)` を廃止、`isPending` を使用
+- `onCreated` コールバックを廃止 → `onSuccess` で `invalidateQueries`
+- エラーハンドリングは `onError` コールバックで `err.error?.message` を取得
+
+#### Phase 2: Token管理ページ移行
+
+**タスク 2-1: `src/components/tokens/token-list.tsx`**
+- props `items`, `hasMore`, `nextCursor`, `fetchError` を廃止
+- `repositoryId` のみ受け取り、`$api.useSuspenseQuery` で自前データ取得
+- `router.refresh()` を削除（mutation側の `invalidateQueries` で自動更新）
+- `useRouter` import を削除
+
+**タスク 2-2: `src/app/(authenticated)/repositories/[repositoryId]/settings/tokens/page.tsx`**
+- Server Componentを prefetch + HydrationBoundary + Suspense パターンに変換
+- `/api/v1/repositories/{github_repository_id}` と `/api/v1/repositories/{github_repository_id}/api-tokens` の2つをprefetch
+- 表示ロジックを `TokensPageContent` client componentに分離
+
+**新規ファイル: `src/components/tokens/tokens-page-content.tsx`**
+- Client Componentとして `useSuspenseQuery` でリポジトリ情報を取得
+- Breadcrumb表示 + TokenList をレンダリング
+
+#### ビルド結果
+- `pnpm build` 成功 ✓
+- TypeScript型チェック通過 ✓
+
+#### invalidateQueries のキー設計
+- トークン作成/失効時に `['get', '/api/v1/repositories/{github_repository_id}/api-tokens']` をinvalidateし、全repositoryIdのトークン一覧を再取得
+
+#### 残リスク
+- なし（Phase 1-2は完了）
 
 ## テスト結果
 
