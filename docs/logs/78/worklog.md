@@ -260,6 +260,61 @@ fetchやclient.GETなどをフロントエンドで呼んでいる部分につ�
 #### 残リスク
 - なし（Phase 1-2は完了）
 
+## Phase 3 実装 (2026-05-05)
+
+### 実施内容
+
+3つのServer Componentページを TanStack Query prefetch + useSuspenseQuery パターンに移行。
+
+#### タスク 3-1: `repositories/[repositoryId]/page.tsx`
+- **Server Component**: prefetchQuery (await なし) で2エンドポイントをprefetch
+  - `/api/v1/repositories/{github_repository_id}`
+  - `/api/v1/repositories/{github_repository_id}/board-projects` (limit: 50)
+- **新規 Client Component**: `src/components/repository-detail/repository-detail-content.tsx`
+  - `useSuspenseQuery` x2 でデータ取得
+  - `stateColor` helper関数をここに移動
+  - Breadcrumb, Settings, Board Projects テーブル描画
+
+#### タスク 3-2: `boards/[boardProjectId]/page.tsx`
+- **Server Component**: prefetchQuery で2エンドポイントをprefetch
+  - `/api/v1/board-projects/{board_project_id}`
+  - `/api/v1/board-projects/{board_project_id}/board-runs` (limit: 5)
+- **新規 Client Component**: `src/components/board-project-detail/board-project-detail-content.tsx`
+  - `useSuspenseQuery` x2 でデータ取得
+  - `statusColor`, `checkBadge` helper関数をここに移動
+  - プロジェクト詳細 + Recent Runs テーブル + View All Runs ボタン
+
+#### タスク 3-3: `boards/[boardProjectId]/runs/page.tsx`
+- **Server Component**: prefetchQuery で2エンドポイントをprefetch
+  - `/api/v1/board-projects/{board_project_id}`
+  - `/api/v1/board-projects/{board_project_id}/board-runs` (limit: 50)
+- **新規 Client Component**: `src/components/runs/runs-list-content.tsx`
+  - `useSuspenseQuery` x2 でデータ取得
+  - `statusColor`, `checkBadge` helper関数をここに移動
+  - Breadcrumb + Runs テーブル描画
+
+### 設計判断
+- `notFound()` は使用しない: prefetchQueryはawaitしないため、Server Componentでのエラーハンドリング不要。クエリエラーはError Boundaryで処理
+- Suspense fallback: `<Box p={8}>Loading...</Box>`
+- props: 各Client Componentは `repositoryId` / `boardProjectId` を文字列で受け取る
+
+### ビルド結果
+- `pnpm build` 成功 ✓
+- TypeScript型チェック通過 ✓
+- biome lint/format 通過 ✓
+
+### 変更ファイル一覧
+- M: `boardflow/src/app/(authenticated)/repositories/[repositoryId]/page.tsx`
+- M: `boardflow/src/app/(authenticated)/repositories/[repositoryId]/boards/[boardProjectId]/page.tsx`
+- M: `boardflow/src/app/(authenticated)/repositories/[repositoryId]/boards/[boardProjectId]/runs/page.tsx`
+- A: `boardflow/src/components/repository-detail/repository-detail-content.tsx`
+- A: `boardflow/src/components/board-project-detail/board-project-detail-content.tsx`
+- A: `boardflow/src/components/runs/runs-list-content.tsx`
+- M: `boardflow/src/components/tokens/revoke-token-dialog.tsx` (biome formatのみ)
+
+### 残リスク
+- なし
+
 ## テスト結果
 
 (impl agent完了後に記載)
