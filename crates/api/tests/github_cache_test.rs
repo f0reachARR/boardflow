@@ -541,7 +541,8 @@ async fn test_invalidate_repo_cache_via_trait() {
     .unwrap();
 
     // Create checker as DynGithubAccessChecker (trait object)
-    let checker: DynGithubAccessChecker = Arc::new(CachedGithubAccessChecker::new(pool.clone(), None));
+    let checker: DynGithubAccessChecker =
+        Arc::new(CachedGithubAccessChecker::new(pool.clone(), None));
 
     // Call invalidate_repo_cache via trait
     checker.invalidate_repo_cache(user_id).await.unwrap();
@@ -636,8 +637,9 @@ async fn test_find_existing_github_ids_empty_input() {
         return;
     };
 
-    let existing =
-        boardflow_db::queries::repository::find_existing_github_ids(&pool, &[]).await.unwrap();
+    let existing = boardflow_db::queries::repository::find_existing_github_ids(&pool, &[])
+        .await
+        .unwrap();
     assert!(existing.is_empty());
 }
 
@@ -778,12 +780,10 @@ async fn test_fallback_sync_skipped_when_throttled() {
     assert_eq!(result, Some(vec![nonexistent_id]));
 
     // The repo should NOT have been created (sync was throttled)
-    let existing = boardflow_db::queries::repository::find_existing_github_ids(
-        &pool,
-        &[nonexistent_id],
-    )
-    .await
-    .unwrap();
+    let existing =
+        boardflow_db::queries::repository::find_existing_github_ids(&pool, &[nonexistent_id])
+            .await
+            .unwrap();
     assert!(existing.is_empty());
 }
 
@@ -851,12 +851,10 @@ async fn test_fallback_sync_success_upserts_repos() {
     assert_eq!(result, Some(vec![repo_github_id]));
 
     // Verify the repo was upserted into DB
-    let existing = boardflow_db::queries::repository::find_existing_github_ids(
-        &pool,
-        &[repo_github_id],
-    )
-    .await
-    .unwrap();
+    let existing =
+        boardflow_db::queries::repository::find_existing_github_ids(&pool, &[repo_github_id])
+            .await
+            .unwrap();
     assert_eq!(existing, vec![repo_github_id]);
 
     // Verify throttle cache was set
@@ -922,12 +920,10 @@ async fn test_fallback_sync_filters_wrong_app_id() {
     assert_eq!(result, Some(vec![repo_github_id]));
 
     // Repo should NOT be upserted (wrong app_id filtered out)
-    let existing = boardflow_db::queries::repository::find_existing_github_ids(
-        &pool,
-        &[repo_github_id],
-    )
-    .await
-    .unwrap();
+    let existing =
+        boardflow_db::queries::repository::find_existing_github_ids(&pool, &[repo_github_id])
+            .await
+            .unwrap();
     assert!(existing.is_empty());
 
     // Throttle should still be set (sync was attempted)
@@ -985,12 +981,10 @@ async fn test_fallback_sync_filters_suspended_installations() {
     assert_eq!(result, Some(vec![repo_github_id]));
 
     // Repo should NOT be upserted (installation is suspended)
-    let existing = boardflow_db::queries::repository::find_existing_github_ids(
-        &pool,
-        &[repo_github_id],
-    )
-    .await
-    .unwrap();
+    let existing =
+        boardflow_db::queries::repository::find_existing_github_ids(&pool, &[repo_github_id])
+            .await
+            .unwrap();
     assert!(existing.is_empty());
 
     // Throttle should still be set
@@ -1039,12 +1033,10 @@ async fn test_fallback_sync_github_api_error_graceful() {
     assert_eq!(result, Some(vec![repo_github_id]));
 
     // Repo should NOT be in DB (sync failed gracefully)
-    let existing = boardflow_db::queries::repository::find_existing_github_ids(
-        &pool,
-        &[repo_github_id],
-    )
-    .await
-    .unwrap();
+    let existing =
+        boardflow_db::queries::repository::find_existing_github_ids(&pool, &[repo_github_id])
+            .await
+            .unwrap();
     assert!(existing.is_empty());
 }
 
@@ -1057,7 +1049,12 @@ struct FixedIdsGithubAccessChecker {
 
 #[async_trait::async_trait]
 impl GithubAccessChecker for FixedIdsGithubAccessChecker {
-    async fn check_access(&self, _token: &str, _owner: &str, _name: &str) -> boardflow_api::github_access::AccessResult {
+    async fn check_access(
+        &self,
+        _token: &str,
+        _owner: &str,
+        _name: &str,
+    ) -> boardflow_api::github_access::AccessResult {
         boardflow_api::github_access::AccessResult::Allowed
     }
 

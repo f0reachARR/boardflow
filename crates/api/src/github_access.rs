@@ -569,14 +569,16 @@ impl CachedGithubAccessChecker {
 
         // Fetch installations
         let client = reqwest::Client::new();
-        let installations =
-            match self.fetch_user_installations(&client, github_access_token).await {
-                Ok(installs) => installs,
-                Err(e) => {
-                    tracing::warn!(error = %e, "fallback sync: failed to fetch installations");
-                    return;
-                }
-            };
+        let installations = match self
+            .fetch_user_installations(&client, github_access_token)
+            .await
+        {
+            Ok(installs) => installs,
+            Err(e) => {
+                tracing::warn!(error = %e, "fallback sync: failed to fetch installations");
+                return;
+            }
+        };
 
         // Filter by app_id and not suspended
         let relevant_installations: Vec<&InstallationInfo> = installations

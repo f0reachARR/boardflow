@@ -42,8 +42,7 @@ impl AppConfig {
                 "http://localhost:8080",
             ),
             github_webhook_secret: optional_env("GITHUB_WEBHOOK_SECRET"),
-            github_app_id: optional_env("GITHUB_APP_ID")
-                .and_then(|s| s.parse::<u64>().ok()),
+            github_app_id: optional_env("GITHUB_APP_ID").and_then(|s| s.parse::<u64>().ok()),
         })
     }
 }
