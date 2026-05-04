@@ -748,3 +748,38 @@ routes::auth::tests: 14 passed; 0 failed
 #### 残リスク
 
 - GitHub OAuth App の実運用設定が `BOARDFLOW_APP_DOMAIN` と一致しない場合、実装と docs が正しくても OAuth は失敗する
+
+---
+
+## PR作成
+
+### 2026-05-04: PR作成
+
+#### PR情報
+
+- **PR**: [#81 fix(auth): resolve OAuth state mismatch for cross-domain API/frontend (#76)](https://github.com/f0reachARR/boardflow/pull/81)
+- **Base**: `main`
+- **Head**: `fix/76-oauth-state-mismatch`
+- **Closes**: #76
+
+#### 作成前確認
+
+| チェック項目 | 結果 |
+|------------|------|
+| review `pr_ready: true` | ✅ (re-review にて確認) |
+| docs `docs_ready: true` | ✅ (docs re-review にて確認) |
+| 未コミット変更なし | ✅ |
+| ブランチ push 済み | ✅ (`origin/fix/76-oauth-state-mismatch`) |
+| research と実装の整合 | ✅ |
+| ドキュメント更新漏れなし | ✅ |
+
+#### PR/完了結果
+
+- PR #81 を作成しました
+- テスト: auth_test 21 passed, lib 29 passed
+
+#### 残リスク
+
+- `callback` / `logout` の cookie Secure 付与を HTTP レスポンスとして直接確認する統合テストは未追加
+- GitHub token exchange に `redirect_uri` が渡ることを確認する統合テストは未整備
+- GitHub OAuth App の callback URL 設定は手動運用
