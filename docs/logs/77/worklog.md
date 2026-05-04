@@ -377,3 +377,45 @@ pub struct GithubAppId(pub Option<u64>);
 ### 残リスク
 - GitHub API の成功系をモックしていないため、実環境でのみ顕在化する integration mismatch が残る。
 - 認証前提を誤って運用すると、コードが正しくても fallback sync が恒常的に発火失敗する可能性がある。
+
+---
+
+## レビュー結果（2026-05-04 review 3）
+
+### 総評
+- Issue #77 の受け入れ条件、research、実装、テスト、ドキュメントを再照合した結果、前回までの指摘だった warm cache 経路、成功系テスト不足、README / backend docs の更新漏れは解消済み。
+- `CachedGithubAccessChecker::list_accessible_repo_ids` は cache hit / miss の両経路で `maybe_sync_installation_repos` に到達し、`app_id` フィルタ、`suspended_at` 除外、best-effort エラーハンドリング、10 分スロットルの要件とも整合している。
+- worklog、README、`docs/backend/api.md`、`docs/external/github-user-installations-api.md` の記述も今回の実装状態と矛盾していない。
+
+### 指摘事項
+- 重大な残指摘なし。
+
+### 必須修正
+- なし。
+
+### 任意改善
+- フォールバック同期の observability を上げるなら、skip 理由と relevant installation 件数を structured log に出すと運用時に追跡しやすい。
+
+### テスト不足
+- blocking ではないが、`GET /api/v1/repositories` エンドポイントを実際に叩き、fallback sync 後の一覧反映まで含めた HTTP レベルの統合確認があると回帰耐性はさらに上がる。
+
+### ドキュメント更新漏れ
+- なし。
+
+### plan / research / docs との不整合
+- なし。
+
+### テスト結果
+- `mise exec -- cargo test -p boardflow-api --test github_cache_test`: 26 passed
+- `mise exec -- cargo check --workspace`: 成功
+- 参考: 素の `cargo` では edition2024 非対応のため失敗し、リポジトリ前提どおり `mise exec -- cargo ...` が必要
+
+### PR/完了結果
+- `pr_ready: true`
+
+### 残リスク
+- 大規模 org では fallback sync がリクエスト内で動くため、ページ数に応じて一覧 API のレイテンシが伸びる余地は残る。
+- `GITHUB_APP_ID` や GitHub App user access token 前提が本番で満たされない場合、機能は degraded で動作するが fallback 自体は有効化されない。
+
+### 更新した作業ログパス
+- `docs/logs/77/worklog.md`
