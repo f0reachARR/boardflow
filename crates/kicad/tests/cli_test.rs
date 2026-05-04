@@ -4,7 +4,10 @@ use boardflow_kicad::cli::{KicadCli, PcbSide};
 
 #[test]
 fn build_erc_args_matches_bash() {
-    let args = KicadCli::build_erc_args(Path::new("/proj/board.kicad_sch"), Path::new("/out/erc.json"));
+    let args = KicadCli::build_erc_args(
+        Path::new("/proj/board.kicad_sch"),
+        Path::new("/out/erc.json"),
+    );
     assert_eq!(
         args,
         vec![
@@ -23,7 +26,10 @@ fn build_erc_args_matches_bash() {
 
 #[test]
 fn build_drc_args_matches_bash() {
-    let args = KicadCli::build_drc_args(Path::new("/proj/board.kicad_pcb"), Path::new("/out/drc.json"));
+    let args = KicadCli::build_drc_args(
+        Path::new("/proj/board.kicad_pcb"),
+        Path::new("/out/drc.json"),
+    );
     assert_eq!(
         args,
         vec![
@@ -42,7 +48,8 @@ fn build_drc_args_matches_bash() {
 
 #[test]
 fn build_pcb_pdf_args_matches_bash() {
-    let args = KicadCli::build_pcb_pdf_args(Path::new("/proj/b.kicad_pcb"), Path::new("/out/b.pdf"));
+    let args =
+        KicadCli::build_pcb_pdf_args(Path::new("/proj/b.kicad_pcb"), Path::new("/out/b.pdf"));
     assert_eq!(
         args,
         vec![
@@ -60,10 +67,18 @@ fn build_pcb_pdf_args_matches_bash() {
 
 #[test]
 fn build_sch_pdf_args_matches_bash() {
-    let args = KicadCli::build_sch_pdf_args(Path::new("/proj/b.kicad_sch"), Path::new("/out/b.pdf"));
+    let args =
+        KicadCli::build_sch_pdf_args(Path::new("/proj/b.kicad_sch"), Path::new("/out/b.pdf"));
     assert_eq!(
         args,
-        vec!["sch", "export", "pdf", "--output", "/out/b.pdf", "/proj/b.kicad_sch"]
+        vec![
+            "sch",
+            "export",
+            "pdf",
+            "--output",
+            "/out/b.pdf",
+            "/proj/b.kicad_sch"
+        ]
     );
 }
 
@@ -115,7 +130,8 @@ fn build_pcb_svg_bottom_args_matches_bash() {
 
 #[test]
 fn build_gerbers_args_matches_bash() {
-    let args = KicadCli::build_gerbers_args(Path::new("/proj/b.kicad_pcb"), Path::new("/out/gerbers"));
+    let args =
+        KicadCli::build_gerbers_args(Path::new("/proj/b.kicad_pcb"), Path::new("/out/gerbers"));
     assert_eq!(
         args,
         vec![
@@ -132,7 +148,8 @@ fn build_gerbers_args_matches_bash() {
 #[test]
 fn build_gerbers_args_trailing_slash() {
     // If output_dir already ends with /, no double slash
-    let args = KicadCli::build_gerbers_args(Path::new("/proj/b.kicad_pcb"), Path::new("/out/gerbers/"));
+    let args =
+        KicadCli::build_gerbers_args(Path::new("/proj/b.kicad_pcb"), Path::new("/out/gerbers/"));
     assert_eq!(
         args,
         vec![
@@ -170,13 +187,21 @@ fn build_bom_args_matches_bash() {
     let args = KicadCli::build_bom_args(Path::new("/proj/b.kicad_sch"), Path::new("/out/bom.csv"));
     assert_eq!(
         args,
-        vec!["sch", "export", "bom", "--output", "/out/bom.csv", "/proj/b.kicad_sch"]
+        vec![
+            "sch",
+            "export",
+            "bom",
+            "--output",
+            "/out/bom.csv",
+            "/proj/b.kicad_sch"
+        ]
     );
 }
 
 #[test]
 fn build_position_args_matches_bash() {
-    let args = KicadCli::build_position_args(Path::new("/proj/b.kicad_pcb"), Path::new("/out/pos.csv"));
+    let args =
+        KicadCli::build_position_args(Path::new("/proj/b.kicad_pcb"), Path::new("/out/pos.csv"));
     assert_eq!(
         args,
         vec![

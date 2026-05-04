@@ -38,10 +38,7 @@ pub fn list_project_files(dir: &Path, excludes: &[String]) -> Result<Vec<PathBuf
         if !entry.file_type().is_file() {
             continue;
         }
-        let rel_path = entry
-            .path()
-            .strip_prefix(dir)
-            .unwrap_or(entry.path());
+        let rel_path = entry.path().strip_prefix(dir).unwrap_or(entry.path());
         let rel_str = rel_path.to_str().unwrap_or_default();
         if !globset.is_match(rel_str) {
             files.push(entry.into_path());
@@ -106,5 +103,7 @@ fn build_globset(patterns: &[String]) -> GlobSet {
             builder.add(glob);
         }
     }
-    builder.build().unwrap_or_else(|_| GlobSetBuilder::new().build().unwrap())
+    builder
+        .build()
+        .unwrap_or_else(|_| GlobSetBuilder::new().build().unwrap())
 }

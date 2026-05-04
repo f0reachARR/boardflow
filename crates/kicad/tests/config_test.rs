@@ -22,10 +22,7 @@ exclude_paths:
 
     let config = parse_boardflow_yml(&yml_path).unwrap();
     assert_eq!(config.version, 1);
-    assert_eq!(
-        config.outputs.as_ref().unwrap().preset.as_str(),
-        "default"
-    );
+    assert_eq!(config.outputs.as_ref().unwrap().preset.as_str(), "default");
     assert_eq!(config.exclude_paths.len(), 2);
     assert_eq!(config.exclude_paths[0], "docs/**");
     assert_eq!(config.exclude_paths[1], "test/**");
@@ -120,11 +117,7 @@ fn validate_schema_v1_rejects_version_2() {
 fn validate_schema_v1_accepts_preset_default() {
     let tmp = TempDir::new().unwrap();
     let yml_path = tmp.path().join(".boardflow.yml");
-    fs::write(
-        &yml_path,
-        "version: 1\noutputs:\n  preset: default\n",
-    )
-    .unwrap();
+    fs::write(&yml_path, "version: 1\noutputs:\n  preset: default\n").unwrap();
 
     let config = parse_boardflow_yml(&yml_path).unwrap();
     assert!(validate_schema_v1(&config).is_ok());
@@ -138,18 +131,17 @@ fn validate_schema_v1_rejects_null_preset() {
 
     let config = parse_boardflow_yml(&yml_path).unwrap();
     let result = validate_schema_v1(&config);
-    assert!(result.is_err(), "null/empty preset should be rejected by validation");
+    assert!(
+        result.is_err(),
+        "null/empty preset should be rejected by validation"
+    );
 }
 
 #[test]
 fn validate_schema_v1_rejects_preset_custom() {
     let tmp = TempDir::new().unwrap();
     let yml_path = tmp.path().join(".boardflow.yml");
-    fs::write(
-        &yml_path,
-        "version: 1\noutputs:\n  preset: custom\n",
-    )
-    .unwrap();
+    fs::write(&yml_path, "version: 1\noutputs:\n  preset: custom\n").unwrap();
 
     let config = parse_boardflow_yml(&yml_path).unwrap();
     let result = validate_schema_v1(&config);
@@ -160,11 +152,7 @@ fn validate_schema_v1_rejects_preset_custom() {
 fn validate_schema_v1_rejects_preset_full() {
     let tmp = TempDir::new().unwrap();
     let yml_path = tmp.path().join(".boardflow.yml");
-    fs::write(
-        &yml_path,
-        "version: 1\noutputs:\n  preset: full\n",
-    )
-    .unwrap();
+    fs::write(&yml_path, "version: 1\noutputs:\n  preset: full\n").unwrap();
 
     let config = parse_boardflow_yml(&yml_path).unwrap();
     let result = validate_schema_v1(&config);

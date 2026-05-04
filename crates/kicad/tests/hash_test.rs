@@ -1,7 +1,7 @@
 use std::fs;
 
 use boardflow_kicad::hash::{
-    compute_file_sha256, compute_tree_hash, is_excluded, list_project_files, BUILTIN_EXCLUDES,
+    BUILTIN_EXCLUDES, compute_file_sha256, compute_tree_hash, is_excluded, list_project_files,
 };
 use tempfile::TempDir;
 

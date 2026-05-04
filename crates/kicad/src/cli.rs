@@ -65,13 +65,21 @@ impl KicadCli {
         self.exec_erc_drc(&args_ref).await
     }
 
-    pub async fn export_pcb_pdf(&self, pcb_file: &Path, output_pdf: &Path) -> Result<CommandOutput> {
+    pub async fn export_pcb_pdf(
+        &self,
+        pcb_file: &Path,
+        output_pdf: &Path,
+    ) -> Result<CommandOutput> {
         let args = Self::build_pcb_pdf_args(pcb_file, output_pdf);
         let args_ref: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
         self.exec(&args_ref).await
     }
 
-    pub async fn export_sch_pdf(&self, sch_file: &Path, output_pdf: &Path) -> Result<CommandOutput> {
+    pub async fn export_sch_pdf(
+        &self,
+        sch_file: &Path,
+        output_pdf: &Path,
+    ) -> Result<CommandOutput> {
         let args = Self::build_sch_pdf_args(sch_file, output_pdf);
         let args_ref: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
         self.exec(&args_ref).await
@@ -98,11 +106,7 @@ impl KicadCli {
         self.exec(&args_ref).await
     }
 
-    pub async fn export_drill(
-        &self,
-        pcb_file: &Path,
-        output_dir: &Path,
-    ) -> Result<CommandOutput> {
+    pub async fn export_drill(&self, pcb_file: &Path, output_dir: &Path) -> Result<CommandOutput> {
         let args = Self::build_drill_args(pcb_file, output_dir);
         let args_ref: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
         self.exec(&args_ref).await

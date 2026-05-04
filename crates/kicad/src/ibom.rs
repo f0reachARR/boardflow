@@ -26,7 +26,9 @@ pub async fn run_ibom(pcb_path: &Path, output_dir: &Path) -> Result<PathBuf> {
     if !output.status.success() {
         let exit_code = output.status.code().unwrap_or(-1);
         return Err(KicadError::CommandFailed {
-            command: format!("xvfb-run generate_interactive_bom --no-browser --dest-dir {out} {pcb}"),
+            command: format!(
+                "xvfb-run generate_interactive_bom --no-browser --dest-dir {out} {pcb}"
+            ),
             exit_code,
             stderr: String::from_utf8_lossy(&output.stderr).to_string(),
         });
