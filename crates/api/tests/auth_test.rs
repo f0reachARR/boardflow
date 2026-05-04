@@ -154,15 +154,21 @@ fn request_id_clone() {
 // ─── Login handler redirect_to tests ────────────────────────────────────────
 
 use axum::Extension;
-use boardflow_api::routes::auth::{OAuthConfig, login};
+use boardflow_api::AppDomain;
+use boardflow_api::routes::auth::{OAuthConfig, cookie_secure_flag, login};
 
 fn login_app() -> Router {
+    login_app_with_domain("http://localhost:3000")
+}
+
+fn login_app_with_domain(domain: &str) -> Router {
     Router::new()
         .route("/api/v1/auth/login", get(login))
         .layer(Extension(OAuthConfig {
             client_id: "test_client_id".to_string(),
             client_secret: "test_client_secret".to_string(),
         }))
+        .layer(Extension(AppDomain(domain.to_string())))
 }
 
 #[tokio::test]
@@ -265,5 +271,270 @@ async fn login_with_invalid_redirect_to_does_not_set_cookie() {
         !cookies
             .iter()
             .any(|c| c.starts_with("boardflow_redirect_to="))
+    );
+}
+
+// ─── Login handler redirect_uri and Secure flag tests ───────────────────────
+
+#[tokio::test]
+#[serial]
+async fn test_login_redirect_contains_redirect_uri() {
+    let app = login_app();
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/auth/login")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::FOUND);
+
+    let location = response
+        .headers()
+        .get(axum::http::header::LOCATION)
+        .unwrap()
+        .to_str()
+        .unwrap();
+
+    assert!(
+        location.contains("redirect_uri="),
+        "Location should contain redirect_uri parameter"
+    );
+}
+
+#[tokio::test]
+#[serial]
+async fn test_login_redirect_uri_uses_app_domain() {
+    let app = login_app_with_domain("https://app.boardflow.dev");
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/auth/login")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::FOUND);
+
+    let location = response
+        .headers()
+        .get(axum::http::header::LOCATION)
+        .unwrap()
+        .to_str()
+        .unwrap();
+
+    // redirect_uri should be URL-encoded version of https://app.boardflow.dev/api/v1/auth/callback
+    assert!(
+        location
+            .contains("redirect_uri=https%3A%2F%2Fapp.boardflow.dev%2Fapi%2Fv1%2Fauth%2Fcallback"),
+        "redirect_uri should use the configured app domain, got: {}",
+        location
+    );
+}
+
+#[tokio::test]
+#[serial]
+async fn test_login_redirect_uri_trims_trailing_slash() {
+    let app = login_app_with_domain("http://localhost:3000/");
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/auth/login")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::FOUND);
+
+    let location = response
+        .headers()
+        .get(axum::http::header::LOCATION)
+        .unwrap()
+        .to_str()
+        .unwrap();
+
+    // Should NOT have double slash - trailing slash should be trimmed
+    assert!(
+        location
+            .contains("redirect_uri=http%3A%2F%2Flocalhost%3A3000%2Fapi%2Fv1%2Fauth%2Fcallback"),
+        "redirect_uri should trim trailing slash, got: {}",
+        location
+    );
+}
+
+#[tokio::test]
+#[serial]
+async fn test_login_https_domain_sets_secure_cookie() {
+    let app = login_app_with_domain("https://app.boardflow.dev");
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/auth/login")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::FOUND);
+
+    let cookies: Vec<&str> = response
+        .headers()
+        .get_all(axum::http::header::SET_COOKIE)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .collect();
+
+    let oauth_cookie = cookies
+        .iter()
+        .find(|c| c.starts_with("boardflow_oauth_state="))
+        .expect("oauth_state cookie should be set");
+
+    assert!(
+        oauth_cookie.contains("; Secure"),
+        "HTTPS domain should set Secure flag on cookie, got: {}",
+        oauth_cookie
+    );
+}
+
+#[tokio::test]
+#[serial]
+async fn test_login_https_domain_redirect_to_cookie_has_secure() {
+    let app = login_app_with_domain("https://app.boardflow.dev");
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/auth/login?redirect_to=/repos")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::FOUND);
+
+    let cookies: Vec<&str> = response
+        .headers()
+        .get_all(axum::http::header::SET_COOKIE)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .collect();
+
+    let redirect_cookie = cookies
+        .iter()
+        .find(|c| c.starts_with("boardflow_redirect_to="))
+        .expect("redirect_to cookie should be set");
+
+    assert!(
+        redirect_cookie.contains("; Secure"),
+        "HTTPS domain should set Secure flag on redirect_to cookie, got: {}",
+        redirect_cookie
+    );
+}
+
+#[tokio::test]
+#[serial]
+async fn test_login_http_domain_no_secure_cookie() {
+    let app = login_app_with_domain("http://localhost:3000");
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/auth/login")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::FOUND);
+
+    let cookies: Vec<&str> = response
+        .headers()
+        .get_all(axum::http::header::SET_COOKIE)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .collect();
+
+    let oauth_cookie = cookies
+        .iter()
+        .find(|c| c.starts_with("boardflow_oauth_state="))
+        .expect("oauth_state cookie should be set");
+
+    assert!(
+        !oauth_cookie.contains("Secure"),
+        "HTTP domain should NOT set Secure flag on cookie, got: {}",
+        oauth_cookie
+    );
+}
+
+// ─── cookie_secure_flag helper tests (integration-level) ────────────────────
+
+#[test]
+fn test_cookie_secure_flag_https_returns_secure() {
+    assert_eq!(cookie_secure_flag("https://app.boardflow.dev"), "; Secure");
+}
+
+#[test]
+fn test_cookie_secure_flag_http_returns_empty() {
+    assert_eq!(cookie_secure_flag("http://localhost:3000"), "");
+}
+
+#[test]
+fn test_cookie_secure_flag_empty_domain_returns_empty() {
+    assert_eq!(cookie_secure_flag(""), "");
+}
+
+// ─── AppDomain empty string fallback test ───────────────────────────────────
+
+#[tokio::test]
+#[serial]
+async fn test_login_empty_app_domain_fallback() {
+    // When AppDomain is empty, the app_domain construction in lib.rs should have fallen back
+    // to default. But even if empty string reaches the handler, it should not crash.
+    let app = login_app_with_domain("");
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/auth/login")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // Should still redirect (302) even with empty domain
+    assert_eq!(response.status(), StatusCode::FOUND);
+
+    let cookies: Vec<&str> = response
+        .headers()
+        .get_all(axum::http::header::SET_COOKIE)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .collect();
+
+    // Empty domain is HTTP-like, so Secure flag should not be present
+    let oauth_cookie = cookies
+        .iter()
+        .find(|c| c.starts_with("boardflow_oauth_state="))
+        .expect("oauth_state cookie should be set");
+
+    assert!(
+        !oauth_cookie.contains("Secure"),
+        "Empty domain should NOT set Secure flag, got: {}",
+        oauth_cookie
     );
 }

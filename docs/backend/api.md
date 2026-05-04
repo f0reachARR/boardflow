@@ -361,6 +361,8 @@ GET /api/v1/auth/login?redirect_to=/path/to/page
 GitHub OAuth 認証画面へリダイレクトする。
 server 側で CSRF 防御用の `state` (UUID v4) を生成し、`boardflow_oauth_state` cookie に保存する。
 
+GitHub authorize URL には `redirect_uri={BOARDFLOW_APP_DOMAIN}/api/v1/auth/callback` が付与され、コールバックがフロントエンドドメイン経由で行われることを保証する。これにより、Cookie が設定されたドメインと同一のドメインでコールバックが処理され、state mismatch を防止する。
+
 Query Parameters:
 - `redirect_to` (optional): ログイン後のリダイレクト先（相対パスのみ）。指定時は `boardflow_redirect_to` cookie に保存される（HttpOnly, SameSite=Lax, Max-Age=300）。
 
@@ -373,7 +375,7 @@ GET /api/v1/auth/callback?code=...&state=...
 ```
 
 GitHub OAuth コールバック。`state` を cookie と照合し、不一致時は `403 forbidden` を返す。
-`code` を GitHub token endpoint で access token に交換し、user 情報を取得、DB upsert、session 作成を行う。
+`code` を GitHub token endpoint で access token に交換する際、`redirect_uri={BOARDFLOW_APP_DOMAIN}/api/v1/auth/callback` も送信する（OAuth 仕様の Strongly recommended）。user 情報を取得、DB upsert、session 作成を行う。
 
 リダイレクト先は `boardflow_redirect_to` cookie から取得し、`validate_redirect_path()` でバリデーションする。バリデーション失敗時またはcookie未設定時は `/` にフォールバック。
 
@@ -386,9 +388,11 @@ Open Redirect 防止バリデーション:
 Response: `302 Found` → バリデーション済みリダイレクト先（デフォルト `/`）
 
 Cookie 設定:
-- `boardflow_session`: session ID (HTTP-only, SameSite=Lax)
+- `boardflow_session`: session ID (HTTP-only, SameSite=Lax, 条件付き Secure)
 - `boardflow_oauth_state`: 削除
 - `boardflow_redirect_to`: 削除
+
+Cookie の `Secure` フラグは `BOARDFLOW_APP_DOMAIN` が `https://` で始まる場合に自動付与される。開発環境 (HTTP) では付与されない。
 
 ### 3.0.3 Logout
 
