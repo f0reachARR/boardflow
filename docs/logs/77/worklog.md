@@ -222,5 +222,39 @@ pub struct GithubAppId(pub Option<u64>);
 
 ---
 
+## 実装結果（2026-05-04）
+
+### 実装内容
+
+計画通りに全4ステップを実装完了。
+
+| ファイル | 変更内容 |
+|---|---|
+| `crates/db/src/queries/repository.rs` | `find_existing_github_ids` クエリ追加 |
+| `crates/config/src/app.rs` | `github_app_id: Option<u64>` フィールド追加、`GITHUB_APP_ID` 環境変数読み取り |
+| `crates/api/src/lib.rs` | `GithubAppId(pub Option<u64>)` newtype追加、`create_app_with_config` に引数追加、Extension layer追加 |
+| `crates/api/src/github_access.rs` | `CachedGithubAccessChecker` に `github_app_id` フィールド追加、`maybe_sync_installation_repos` メソッド追加、ヘルパーメソッド `fetch_user_installations` / `fetch_installation_repos` 追加、デシリアライズ構造体追加 |
+| `crates/api/src/main.rs` | `config.github_app_id` を `create_app_with_config` に渡す |
+| `crates/api/tests/github_cache_test.rs` | `new()` / `with_inner()` 呼び出しに `None` 引数追加 |
+| `crates/api/tests/api_token_test.rs` | `create_app_with_config` 呼び出しに `None` 引数追加 |
+| `crates/api/tests/read_api_test.rs` | `create_app_with_config` 呼び出しに `None` 引数追加 |
+| `crates/api/tests/webhook_test.rs` | `create_app_with_config` 呼び出しに `None` 引数追加 |
+| `crates/api/tests/proxy_test.rs` | `create_app_with_config` 呼び出しに `None` 引数追加 |
+
+### テスト結果
+- `cargo check --workspace`: 成功（コンパイルエラーなし）
+- 既存テストのシグネチャ変更: 全て `None` を追加引数として渡す形で修正済み
+- フォールバック同期ロジックは `github_app_id = None` の場合に即リターンするため、既存テスト動作に影響なし
+
+### ドキュメント
+- `docs/external/github-user-installations-api.md`: リサーチエージェントにより作成済み（APIリファレンス・設計方針）
+
+### 残リスク
+- フォールバック同期の統合テスト（実GitHub APIを使うため、mockサーバーの導入が望ましい）
+- `GITHUB_APP_ID` が本番環境で未設定の場合、フォールバック同期がサイレントにスキップされる
+- 大量リポジトリ org でのレイテンシ増加（best-effort だが数百msのレイテンシ追加の可能性）
+
+---
+
 ## 更新した作業ログパス
 `docs/logs/77/worklog.md`
