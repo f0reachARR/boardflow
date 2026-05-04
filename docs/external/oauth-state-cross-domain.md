@@ -15,12 +15,12 @@ APIとフロントエンドが異なるドメイン/ポートで動作する場�
 - upstream の `Set-Cookie` ヘッダーもブラウザに転送される
 - ブラウザは Cookie を**リクエスト元のドメイン**（= フロントエンドドメイン）に対して保存する
 
-**BoardFlow での挙動**:
-1. ブラウザが `localhost:3000/api/v1/auth/login` にアクセス
-2. Next.js rewrite が `localhost:8080/api/v1/auth/login` にプロキシ
+**BoardFlow での挙動**（ローカル開発: API=localhost:3000, Frontend=localhost:3001）:
+1. ブラウザが `localhost:3001/api/v1/auth/login` にアクセス
+2. Next.js rewrite が `localhost:3000/api/v1/auth/login` にプロキシ
 3. API が `302 → GitHub` + `Set-Cookie: boardflow_oauth_state=...` を返す
 4. Next.js がこのレスポンスをそのままブラウザに返す
-5. **ブラウザは Cookie を `localhost:3000` に保存** ← ここが重要
+5. **ブラウザは Cookie を `localhost:3001` に保存** ← ここが重要
 6. ブラウザが GitHub にリダイレクト
 
 ### 2. GitHub OAuth `redirect_uri` の挙動
@@ -44,9 +44,9 @@ BAD:  http://example.com/bar               ← パスが違うとNG
 
 - ループバック URL (`127.0.0.1`) の場合はポート違いも許可される
 
-**BoardFlow への適用**:
-- GitHub OAuth App の callback URL を `http://localhost:3000/api/v1/auth/callback` に設定
-- API が `redirect_uri=http://localhost:3000/api/v1/auth/callback` を authorize URL に付与
+**BoardFlow への適用**（ローカル開発: API=localhost:3000, Frontend=localhost:3001）:
+- GitHub OAuth App の callback URL を `http://localhost:3001/api/v1/auth/callback` に設定
+- API が `redirect_uri=http://localhost:3001/api/v1/auth/callback` を authorize URL に付与
 - GitHub はフロントエンドドメインにリダイレクトする
 
 ### 3. ベストプラクティス
@@ -67,20 +67,20 @@ IETF OAuth BCP (draft-ietf-oauth-browser-based-apps) では、BFF (Backend-for-F
 提案されたソリューションは**正しく、推奨される**。完全なフロー:
 
 ```
-[Browser] → GET localhost:3000/api/v1/auth/login
+[Browser] → GET localhost:3001/api/v1/auth/login
   ↓ (Next.js rewrite)
-[API localhost:8080] → 302 GitHub + Set-Cookie: boardflow_oauth_state=XXX
+[API localhost:3000] → 302 GitHub + Set-Cookie: boardflow_oauth_state=XXX
   ↓ (Next.js passthrough)
-[Browser] ← 302 + Set-Cookie (Cookie は localhost:3000 に保存)
+[Browser] ← 302 + Set-Cookie (Cookie は localhost:3001 に保存)
   ↓
-[Browser] → GET github.com/login/oauth/authorize?...&redirect_uri=http://localhost:3000/api/v1/auth/callback
+[Browser] → GET github.com/login/oauth/authorize?...&redirect_uri=http://localhost:3001/api/v1/auth/callback
   ↓ (ユーザーが認可)
-[GitHub] → 302 http://localhost:3000/api/v1/auth/callback?code=...&state=XXX
+[GitHub] → 302 http://localhost:3001/api/v1/auth/callback?code=...&state=XXX
   ↓
-[Browser] → GET localhost:3000/api/v1/auth/callback?code=...&state=XXX
+[Browser] → GET localhost:3001/api/v1/auth/callback?code=...&state=XXX
               Cookie: boardflow_oauth_state=XXX  ← Cookie 送信される！
   ↓ (Next.js rewrite)
-[API localhost:8080] ← Cookie state == query state → 認証成功
+[API localhost:3000] ← Cookie state == query state → 認証成功
 ```
 
 ### 必要な変更
@@ -89,7 +89,7 @@ IETF OAuth BCP (draft-ietf-oauth-browser-based-apps) では、BFF (Backend-for-F
    - `redirect_uri` を GitHub authorize URL に追加
    - `BOARDFLOW_APP_DOMAIN` (`AppDomain`) を注入して `{app_domain}/api/v1/auth/callback` を構築
 2. **GitHub OAuth App 設定**:
-   - callback URL をフロントエンドドメインに変更（例: `http://localhost:3000/api/v1/auth/callback`）
+   - callback URL をフロントエンドドメインに変更（例: `http://localhost:3001/api/v1/auth/callback`）
 3. **本番環境**: `BOARDFLOW_APP_DOMAIN=https://app.boardflow.example.com` を設定
 
 ## 採用/不採用判断

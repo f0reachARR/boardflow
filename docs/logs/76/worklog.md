@@ -373,3 +373,378 @@ routes::auth::tests: 14 passed; 0 failed
 
 - callback/logout のエンドツーエンドテスト（DB + GitHub API mock）は環境未整備のため未追加。`cookie_secure_flag` ヘルパーのユニットテストでロジックカバレッジは確保
 - GitHub OAuth App の実際の callback URL 変更は手動運用作業として残る
+
+---
+
+## レビュー結果
+
+### 2026-05-04: Review phase
+
+#### Issueまでの経緯
+
+- 対象は Issue #76 のみ。OAuth state mismatch を API / frontend のクロスドメイン構成で解消する変更をレビュー
+- 前回レビューの指摘は README の OAuth 設定手順、空文字 `BOARDFLOW_APP_DOMAIN` フォールバック、callback/logout の回帰検知不足
+
+#### ユーザー要望
+
+- 前回指摘が解消されているか確認
+- 新たなセキュリティ問題がないか確認
+- コード品質と PR 作成可否を判定
+
+#### 調査結果
+
+- 実装は `login` / `callback` で `redirect_uri={BOARDFLOW_APP_DOMAIN}/api/v1/auth/callback` を一貫して使用し、`SameSite=Lax` を維持したまま `Secure` フラグだけを scheme 条件で付与している
+- 外部調査および `docs/external/oauth-state-cross-domain.md` の方針は妥当。`SameSite=None` に逃げず、frontend ドメイン経由に寄せる設計は妥当
+- `cargo test -p boardflow-api --test auth_test` はレビュー中に再実行し、21 件すべて成功を確認
+- 一方で README の OAuth callback 設定例とローカル開発手順のポートが矛盾している。OAuth 設定では開発 callback を `http://localhost:3000/api/v1/auth/callback` と案内しているが、同じ README のローカル開発手順は frontend を `http://localhost:3001` で起動する前提になっている
+- README の `BOARDFLOW_APP_DOMAIN` デフォルト説明も実装と不一致。README は `https://boardflow.example.com` と記載しているが、実装は `http://localhost:3000` をデフォルトとしている
+
+#### 計画との差分
+
+- 実装計画どおり `redirect_uri` 追加、Secure 条件付与、空文字フォールバック、README 追記、テスト追加は行われている
+- ただし README 更新は「手順を追加した」点では達成している一方、内容の整合性までは満たしていない
+
+#### 実装内容レビュー
+
+- `crates/api/src/routes/auth.rs` の変更は妥当。state cookie を frontend ドメインに残す設計に対して `redirect_uri` の注入位置も正しい
+- `crates/api/src/lib.rs` の空文字フォールバックは前回指摘の最小修正として有効
+- `cookie_secure_flag()` の抽出で login/callback/logout の cookie 属性判定が一箇所に寄り、保守性は改善している
+
+#### テスト結果
+
+- `cargo test -p boardflow-api --test auth_test`: 21 passed, 0 failed
+- 申告どおり auth 系の回帰テストは通過
+
+#### ドキュメント確認
+
+- `README.md` に OAuth 設定セクション自体は追加済み
+- ただし callback URL 例、`BOARDFLOW_APP_DOMAIN` の説明、ローカル開発手順の 3 点が相互に整合していない
+
+#### レビュー結果
+
+- `pr_ready: false`
+
+##### 指摘事項
+
+1. **major**: `README.md` の OAuth callback URL 例が、同じ README のローカル開発手順と矛盾している。OAuth 設定セクションは開発環境 callback を `http://localhost:3000/api/v1/auth/callback` と案内している一方、ローカル開発手順は frontend を `http://localhost:3001` で起動する前提になっているため、README どおり設定すると Issue #76 の再現条件をそのまま踏む。対象箇所: `README.md` の `BOARDFLOW_APP_DOMAIN` 説明・OAuth 設定例・Frontend ローカル開発手順。
+
+##### 必須修正
+
+1. `README.md` の OAuth callback URL 例と `BOARDFLOW_APP_DOMAIN` の説明を、実際のローカル開発ポート構成に合わせて統一する。frontend を `3001` で起動する前提を維持するなら callback 例も `http://localhost:3001/api/v1/auth/callback` に修正し、`BOARDFLOW_APP_DOMAIN` もその値を設定すべきことを明記する。逆に `3000` を正とするなら、ローカル開発手順側を修正する。
+2. `README.md` の `BOARDFLOW_APP_DOMAIN` デフォルト値説明を、実装 (`crates/api/src/lib.rs`) と一致させる。
+
+##### 任意改善
+
+1. `BOARDFLOW_APP_DOMAIN` を URL 型として起動時に妥当性検証する helper を別 Issue で検討するとよい。今回は空文字フォールバックまでで十分だが、不正 URL 文字列は依然としてそのまま通る。
+
+##### テスト不足
+
+1. `callback` / `logout` の cookie `Secure` 付与を HTTP レスポンスとして確認する統合テストは未追加。今回の変更は helper 抽出でロジック共有されているためリスクは低いが、将来 handler ごとに cookie 属性を崩した場合の検知は弱い。
+2. GitHub token exchange に `redirect_uri` が常に送られることを確認するテストは未整備。
+
+##### plan / research / docs との不整合
+
+1. research と実装は整合しているが、README の開発向け callback URL 例が現在のローカル開発手順と不整合。
+2. README の `BOARDFLOW_APP_DOMAIN` デフォルト値記載が `crates/api/src/lib.rs` の実装と不整合。
+
+#### PR/完了結果
+
+- PR 作成は現時点では非推奨。README の整合を修正してからであればレビュー観点 1 の未解消点を解消できる
+
+#### 残リスク
+
+- README を見て設定した開発者が誤った callback URL を GitHub OAuth App に登録すると、Issue #76 と同種の state mismatch を再度踏む
+- callback/logout の E2E 検証は引き続き未整備
+
+### 2026-05-04: Re-review phase after follow-up fixes
+
+#### Issueまでの経緯
+
+- 対象は Issue #76 のみ。前回レビューで指摘した README と `.env.example` のポート不整合、`BOARDFLOW_APP_DOMAIN` 説明差分の修正後状態を再確認
+- 今回の確認対象は README の OAuth 設定手順、前回指摘の解消状況、PR 作成可否
+
+#### ユーザー要望
+
+- README の OAuth 設定手順がローカル開発構成 API:3000 / Frontend:3001 と整合しているか確認
+- 前回指摘がすべて解消されたか確認
+- PR 作成可能か判定
+
+#### 調査結果
+
+- `README.md` は `BOARDFLOW_APP_DOMAIN` の default を `http://localhost:3000` と記載しており、`crates/api/src/lib.rs` の実装と一致している
+- `README.md` の OAuth 設定表は開発環境 callback を `http://localhost:3001/api/v1/auth/callback`、`BOARDFLOW_APP_DOMAIN` を `http://localhost:3001` と案内しており、同ファイル内の Frontend ローカル開発手順と整合している
+- `.env.example` も `BOARDFLOW_APP_DOMAIN=http://localhost:3001` に更新されており、ローカル開発時の設定例として一貫している
+- `crates/api/src/routes/auth.rs` は `redirect_uri={BOARDFLOW_APP_DOMAIN}/api/v1/auth/callback` を login / callback の双方で使い、Cookie の `Secure` 付与条件も維持している
+- ブランチ `fix/76-oauth-state-mismatch` 上で `mise exec -- cargo test -p boardflow-api --test auth_test` を再実行し、21 passed を確認
+- 同じく `mise exec -- cargo check -p boardflow-api` は成功を確認
+
+#### 計画との差分
+
+- 前回レビューで必須修正として挙げた README callback URL、`BOARDFLOW_APP_DOMAIN` 説明、`.env.example` の 3 点は解消済み
+- 実装計画で想定した callback/login の `redirect_uri` 一貫性、Secure フラグ条件、テスト追加の方向性とも矛盾はない
+
+#### 実装内容レビュー
+
+- 実装の根幹であるクロスドメイン OAuth state mismatch 対策は妥当
+- README と環境変数例が現行のローカル開発構成に追従したため、前回のドキュメント起因の再発リスクは大きく下がった
+- 前回指摘した内容に関して、新たなブロッカーは見当たらない
+
+#### テスト結果
+
+- `mise exec -- cargo test -p boardflow-api --test auth_test`: 21 passed, 0 failed
+- `mise exec -- cargo check -p boardflow-api`: success
+
+#### ドキュメント確認
+
+- `README.md` の利用者向け手順は Issue #76 の目的に対して十分に整合している
+- 一方で research 成果物 `docs/external/oauth-state-cross-domain.md` には旧ローカル例 (`localhost:3000`) が残っている。ただし research メモであり、今回の PR 可否を左右するものではない
+
+#### レビュー結果
+
+- `pr_ready: true`
+
+##### 指摘事項
+
+1. blocking な指摘はなし
+
+##### 必須修正
+
+1. なし
+
+##### 任意改善
+
+1. `docs/external/oauth-state-cross-domain.md` のローカル callback 例を現行の開発構成に合わせて `3001` ベースへ更新するか、当時の検証条件である旨を注記すると research / README の読み替えコストを下げられる
+
+##### テスト不足
+
+1. callback/logout の E2E 挙動は依然として統合テストでは直接確認していないが、今回の PR 可否を下げるほどの不足ではない
+
+##### plan / research / docs との不整合
+
+1. 利用者向け docs と実装の不整合は解消済み
+2. research メモのみ旧ポート例が残存している
+
+#### PR/完了結果
+
+- 前回レビュー指摘は解消済みであり、Issue #76 は PR 作成可能と判断
+
+#### 残リスク
+
+- GitHub OAuth App の callback URL を実運用環境で `BOARDFLOW_APP_DOMAIN` と一致させない場合、実装が正しくても OAuth は失敗する
+- research 成果物の旧ポート例をそのまま参照すると、現行 README と読み比べが必要になる
+
+---
+
+## ドキュメント確認
+
+### 2026-05-04: Docs review phase
+
+#### Issueまでの経緯
+
+- 対象は Issue #76 のみ。OAuth state mismatch 修正について、実装概要・research 成果物・README 更新・既存 docs の整合性を確認
+- 今回の確認対象は `docs/external/oauth-state-cross-domain.md`、`README.md`、`.env.example`、`docs/backend/api.md`、`docs/spec.md`、`docs/technology.md`
+
+#### ユーザー要望
+
+- ドキュメントの正確性と整合性を確認
+- README の OAuth 設定手順が実装と一致しているか確認
+- 既存ドキュメントとの矛盾と更新漏れを洗い出す
+- PR 作成可否を `docs_ready` で判定
+
+#### 調査結果
+
+- 実装 (`crates/api/src/routes/auth.rs`) は `login` / `callback` の双方で `redirect_uri={BOARDFLOW_APP_DOMAIN}/api/v1/auth/callback` を利用し、cookie の `Secure` は app domain が `https://` のときだけ付与する
+- `README.md` は開発時の frontend `3001` / API `3000` 構成、GitHub OAuth callback URL 例、`.env` の `BOARDFLOW_APP_DOMAIN=http://localhost:3001` 案内が一致しており、実装とも整合している
+- `.env.example` も `BOARDFLOW_APP_DOMAIN=http://localhost:3001` に更新されており、README のローカル開発手順と整合している
+- 一方で `docs/external/oauth-state-cross-domain.md` には `http://localhost:3000/api/v1/auth/callback` を前提にしたローカル例が残っており、README / `.env.example` / 現行ローカル開発構成と不整合
+- `docs/backend/api.md` の Auth API 節は login/callback の概要はあるが、今回の修正で利用者・開発者にとって重要になった `redirect_uri` による frontend ドメイン経由、token exchange でも同じ `redirect_uri` を送ること、cookie の `Secure` が `BOARDFLOW_APP_DOMAIN` の scheme に依存することが反映されていない
+- `docs/spec.md` と `docs/technology.md` には今回の変更で直接矛盾する記述は見当たらない
+
+#### 計画との整合
+
+- 計画にあった README 追記は実施済みで、内容も現行実装と整合している
+- research 成果物は方針自体は実装と整合しているが、ローカル例のポートだけが README と食い違う
+- 既存 docs 更新の観点では `docs/backend/api.md` の追随が不足している
+
+#### 実装内容との照合
+
+- `README.md` の「GitHub OAuth App 設定」は、`redirect_uri` を frontend ドメインに寄せる現実装と一致している
+- `README.md` の `BOARDFLOW_APP_DOMAIN` 説明は `crates/api/src/lib.rs` の default と一致している
+- `docs/backend/api.md` は Auth API の canonical に近い位置付けだが、今回の動作変更が反映されておらず、実装との差分が残っている
+
+#### テスト結果
+
+- ドキュメントレビューのため追加テスト実行はなし
+- 参照した既存 worklog 上では `auth_test` と `cargo check` の成功が記録済み
+
+#### レビュー結果
+
+- `docs_ready: false`
+
+##### 必須修正
+
+1. `docs/external/oauth-state-cross-domain.md` のローカル callback URL / `redirect_uri` / フロー図の例を、現行の開発前提 (`BOARDFLOW_APP_DOMAIN=http://localhost:3001`) に合わせて更新するか、当時の検証条件である旨を明記する。Issue 76 の research 成果物として残す以上、README と逆のポート例を未注記で残すのは不整合。
+2. `docs/backend/api.md` の Auth API 節に、今回の仕様変更を反映する。少なくとも以下は明記が必要。
+   - login が GitHub authorize URL に `redirect_uri={BOARDFLOW_APP_DOMAIN}/api/v1/auth/callback` を含めること
+   - callback の token exchange にも同じ `redirect_uri` を送ること
+   - `boardflow_oauth_state` / `boardflow_redirect_to` / `boardflow_session` cookie の `Secure` は `BOARDFLOW_APP_DOMAIN` が `https://` のときだけ付与されること
+   - OAuth callback は frontend ドメイン経由を前提とすること
+
+##### 任意改善
+
+1. `docs/backend/api.md` の auth 節に `BOARDFLOW_APP_DOMAIN` を OAuth callback / cookie 属性の決定要因として短く追記すると、README と API 仕様書の役割分担が明確になる
+2. research 成果物に「README が運用手順の正、research は検証メモ」という注記があると、今後の読み替えコストを下げられる
+
+##### 不整合のあるドキュメント
+
+1. `docs/external/oauth-state-cross-domain.md`: ローカル例が `localhost:3000` ベースのままで、README / `.env.example` と不整合
+2. `docs/backend/api.md`: Auth API の動作説明が Issue #76 実装に追随していない
+
+##### 不足しているドキュメント
+
+1. Auth API 仕様書上での `redirect_uri` と条件付き `Secure` cookie の説明
+
+##### 外部調査メモに関する指摘
+
+1. `docs/external/oauth-state-cross-domain.md` の根拠 URL 自体は十分だが、BoardFlow への適用例が現行のローカル開発構成に追随していない
+2. research の結論は妥当で、採用判断と実装方針も一致している。問題は結論ではなく、例示値のメンテナンス不足
+
+#### PR/完了結果
+
+- ドキュメント観点では現時点で PR 作成は非推奨。README 単体では整っているが、Issue に紐づく research と既存 API 仕様書を含めると docs セット全体の整合が未完了
+
+#### 残リスク
+
+- 開発者が `docs/external/oauth-state-cross-domain.md` を先に参照すると、README と異なる callback URL 例を採用する可能性がある
+- `docs/backend/api.md` を参照して Auth API を理解する開発者には、frontend ドメイン経由の callback と条件付き `Secure` cookie の仕様変更が伝わらない
+
+---
+
+## ドキュメント再確認
+
+### 2026-05-04: Docs re-review after follow-up fixes
+
+#### Issueまでの経緯
+
+- 対象は Issue #76 のみ
+- 今回の再確認対象は、前回 docs 指摘だった `docs/external/oauth-state-cross-domain.md` と `docs/backend/api.md`
+- ユーザー申告では external メモのローカル例を `Frontend:3001 / API:3000` に統一し、backend API 仕様に `redirect_uri` と条件付き `Secure` cookie の説明を追記済み
+
+#### ユーザー要望
+
+- 前回指摘が解消されているかを確認
+- `docs_ready` を再判定
+
+#### 調査結果
+
+- `docs/backend/api.md` の Auth API 節には、login での `redirect_uri={BOARDFLOW_APP_DOMAIN}/api/v1/auth/callback`、callback の token exchange に同じ `redirect_uri` を送ること、cookie の `Secure` が `BOARDFLOW_APP_DOMAIN` の scheme 条件で付与されることが追記されており、前回指摘は解消されている
+- `README.md` と `.env.example` は現行のローカル開発構成である frontend `localhost:3001` / API `localhost:3000` と整合している
+- 一方で `docs/external/oauth-state-cross-domain.md` には、フロー図や冒頭のローカル挙動説明は `3001/3000` に更新されているものの、`BoardFlow への適用` 節に以下の旧例が残っている
+   - GitHub OAuth App の callback URL を `http://localhost:3000/api/v1/auth/callback` に設定
+   - API が `redirect_uri=http://localhost:3000/api/v1/auth/callback` を authorize URL に付与
+- この 2 行は README の運用手順および同ファイル内の他の説明と矛盾しており、「すべてのフロー図と例を現行開発構成に更新」という条件は未達
+
+#### ドキュメント確認
+
+- `docs/backend/api.md`: 修正済み。前回指摘は解消
+- `docs/external/oauth-state-cross-domain.md`: 一部未修正。旧 callback URL 例が残存
+
+#### レビュー結果
+
+- `docs_ready: false`
+
+##### 必須修正
+
+1. `docs/external/oauth-state-cross-domain.md` の `BoardFlow への適用` 節に残っている callback URL / `redirect_uri` の旧例を、現行構成である `http://localhost:3001/api/v1/auth/callback` に修正する
+
+##### 任意改善
+
+1. external メモ内に `BOARDFLOW_APP_DOMAIN=http://localhost:3001` を明示すると、README と読み比べなくても文脈が閉じる
+
+##### 不整合のあるドキュメント
+
+1. `docs/external/oauth-state-cross-domain.md`
+
+##### 不足しているドキュメント
+
+1. なし
+
+##### 外部調査メモに関する指摘
+
+1. 根拠 URL と採用判断自体は妥当だが、BoardFlow への適用例だけが現行の開発構成に追随していない
+
+#### PR/完了結果
+
+- ドキュメント観点では、前回指摘は一部のみ解消
+- `docs/backend/api.md` の修正は確認できたが、external メモの旧例が残っているため PR 作成可とは判定しない
+
+#### 残リスク
+
+- external メモを参照した開発者が `localhost:3000` を callback URL に設定すると、Issue #76 の再発条件をそのまま踏む
+
+---
+
+## ドキュメント再々確認
+
+### 2026-05-04: Docs re-review after external memo correction
+
+#### Issueまでの経緯
+
+- 対象は Issue #76 のみ
+- 今回の確認対象は、前回 docs blocking 指摘だった `docs/external/oauth-state-cross-domain.md` の `BoardFlow への適用` 節と、整合先となる `README.md`、`.env.example`、`docs/backend/api.md`
+- ユーザー申告では external メモ 48-49 行の callback URL / `redirect_uri` 例を `localhost:3001` ベースへ修正済み
+
+#### ユーザー要望
+
+- 前回指摘の external メモ旧ポート例が解消されているか確認
+- ドキュメント全体の整合性を再確認
+- `docs_ready` を再判定
+
+#### 調査結果
+
+- `docs/external/oauth-state-cross-domain.md` の `BoardFlow への適用` 節は、GitHub OAuth App の callback URL と authorize URL の `redirect_uri` 例がともに `http://localhost:3001/api/v1/auth/callback` に更新されている
+- 同ファイルの冒頭フロー説明、フロー図、後続の適用例も `Frontend: localhost:3001 / API: localhost:3000` に統一されており、同一ファイル内の不整合は解消されている
+- `README.md` は開発環境の callback URL を `http://localhost:3001/api/v1/auth/callback`、`BOARDFLOW_APP_DOMAIN` を `http://localhost:3001` と案内しており、external メモと整合している
+- `.env.example` も `BOARDFLOW_APP_DOMAIN=http://localhost:3001` となっており、README と整合している
+- `docs/backend/api.md` には login/callback での `redirect_uri={BOARDFLOW_APP_DOMAIN}/api/v1/auth/callback` と条件付き `Secure` cookie の説明があり、Issue #76 の実装方針と一致している
+- 現行 docs 上で `http://localhost:3000/api/v1/auth/callback` を案内している箇所は、今回の確認対象範囲では見当たらない
+
+#### ドキュメント確認
+
+- `docs/external/oauth-state-cross-domain.md`: 修正済み。前回指摘は解消
+- `README.md`: 修正済み。ローカル開発手順と OAuth 設定例が整合
+- `.env.example`: 修正済み。README と整合
+- `docs/backend/api.md`: 修正済み。Auth API 仕様は現実装と整合
+
+#### レビュー結果
+
+- `docs_ready: true`
+
+##### 必須修正
+
+1. なし
+
+##### 任意改善
+
+1. なし
+
+##### 不整合のあるドキュメント
+
+1. なし
+
+##### 不足しているドキュメント
+
+1. なし
+
+##### 外部調査メモに関する指摘
+
+1. 根拠 URL と採用判断、BoardFlow への適用例のいずれも現行の開発構成と整合している
+
+#### PR/完了結果
+
+- ドキュメント観点での blocking 指摘は解消済み
+- Issue #76 は docs 観点で PR 作成可能と判断
+
+#### 残リスク
+
+- GitHub OAuth App の実運用設定が `BOARDFLOW_APP_DOMAIN` と一致しない場合、実装と docs が正しくても OAuth は失敗する

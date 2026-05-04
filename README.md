@@ -30,20 +30,21 @@
 | `TIMEOUT_SWEEP_INTERVAL_SECS` | No | タイムアウトスイープ間隔秒 (default: `60`) |
 | `GITHUB_APP_ID` | No | GitHub App ID。未設定時はGitHub APIジョブをスキップ |
 | `GITHUB_PRIVATE_KEY_PEM` | No | GitHub App RSA秘密鍵(PEM)。未設定時はGitHub APIジョブをスキップ |
-| `BOARDFLOW_APP_DOMAIN` | No | SaaSベースURL (default: `https://boardflow.example.com`)。後方互換として `APP_BASE_URL` も使用可 |
+| `BOARDFLOW_APP_DOMAIN` | No | フロントエンドのベースURL (default: `http://localhost:3000`)。OAuth callback と CORS で使用。後方互換として `APP_BASE_URL` も使用可 |
 
 ## GitHub OAuth App 設定
 
 OAuth 認証は Next.js rewrites 経由でフロントエンドドメインを callback 先に使用します。GitHub OAuth App の **Authorization callback URL** は `BOARDFLOW_APP_DOMAIN` と一致させてください。
 
-| 環境 | Callback URL 例 |
-|------|----------------|
-| 開発環境 | `http://localhost:3000/api/v1/auth/callback` |
-| 本番環境 | `https://app.boardflow.example.com/api/v1/auth/callback` |
+| 環境 | Callback URL 例 | `BOARDFLOW_APP_DOMAIN` |
+|------|----------------|------------------------|
+| 開発環境 | `http://localhost:3001/api/v1/auth/callback` | `http://localhost:3001` |
+| 本番環境 | `https://app.boardflow.example.com/api/v1/auth/callback` | `https://app.boardflow.example.com` |
 
 - Callback URL のホスト・ポートは `BOARDFLOW_APP_DOMAIN` と完全一致が必要です
 - この仕組みは Next.js の `rewrites()` で `/api/v1/*` をバックエンド API にプロキシしていることが前提です
 - `BOARDFLOW_APP_DOMAIN` が `https://` の場合、Cookie に `Secure` フラグが自動付与されます
+- ローカル開発では API (port 3000) とフロントエンド (port 3001) が別ポートのため、`.env` に `BOARDFLOW_APP_DOMAIN=http://localhost:3001` を設定してください
 
 ## Frontend ローカル開発
 
