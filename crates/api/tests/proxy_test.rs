@@ -15,6 +15,10 @@ use sqlx::PgPool;
 use tower::ServiceExt;
 use uuid::Uuid;
 
+mod common;
+
+use common::unique_i64 as rand_i64;
+
 type HmacSha256 = Hmac<Sha256>;
 
 const TEST_SECRET: &[u8] = b"test-secret-for-proxy-tests";
@@ -59,12 +63,6 @@ fn create_proxy_test_app(pool: PgPool) -> axum::Router {
         None,
         None,
     )
-}
-
-fn rand_i64() -> i64 {
-    let uuid = Uuid::now_v7();
-    let bytes = uuid.as_bytes();
-    i64::from_be_bytes(bytes[0..8].try_into().unwrap()).abs()
 }
 
 async fn create_test_user(pool: &PgPool) -> Uuid {

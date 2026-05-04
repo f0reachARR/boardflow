@@ -8,6 +8,10 @@ use sqlx::PgPool;
 use tower::ServiceExt;
 use uuid::Uuid;
 
+mod common;
+
+use common::unique_i64 as rand_i64;
+
 async fn setup_pool() -> Option<PgPool> {
     // Ensure artifact secret is set for create_app
     // SAFETY: tests run sequentially via #[tokio::test] default single-thread;
@@ -956,11 +960,4 @@ async fn plan_existing_project_no_previous_snapshot() {
 
     assert_eq!(json["projects"][0]["decision"], "build");
     assert_eq!(json["projects"][0]["reason"], "no_previous_snapshot");
-}
-
-fn rand_i64() -> i64 {
-    // Use UUID timestamp bits for a unique i64 to avoid test collisions
-    let uuid = Uuid::now_v7();
-    let bytes = uuid.as_bytes();
-    i64::from_be_bytes(bytes[0..8].try_into().unwrap()).abs()
 }

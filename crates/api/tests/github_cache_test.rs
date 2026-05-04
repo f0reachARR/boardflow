@@ -10,6 +10,10 @@ use uuid::Uuid;
 use wiremock::matchers::{method, path_regex};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
+mod common;
+
+use common::unique_i64 as rand_i64;
+
 async fn setup_pool() -> Option<PgPool> {
     unsafe { std::env::set_var("BOARDFLOW_ARTIFACT_SECRET", "test-secret-for-tests") };
     let database_url = match std::env::var("DATABASE_URL") {
@@ -22,12 +26,6 @@ async fn setup_pool() -> Option<PgPool> {
     let pool = PgPool::connect(&database_url).await.unwrap();
     sqlx::migrate!("../db/migrations").run(&pool).await.unwrap();
     Some(pool)
-}
-
-fn rand_i64() -> i64 {
-    let uuid = Uuid::now_v7();
-    let bytes = uuid.as_bytes();
-    i64::from_be_bytes(bytes[0..8].try_into().unwrap()).abs()
 }
 
 async fn create_test_user_with_token(pool: &PgPool, token: &str) -> Uuid {

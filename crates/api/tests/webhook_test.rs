@@ -6,6 +6,10 @@ use sha2::Sha256;
 use sqlx::PgPool;
 use tower::ServiceExt;
 
+mod common;
+
+use common::unique_i64 as rand_i64;
+
 type HmacSha256 = Hmac<Sha256>;
 
 fn compute_signature(secret: &str, body: &[u8]) -> String {
@@ -45,11 +49,6 @@ fn create_test_app(pool: PgPool) -> axum::Router {
         Some(WEBHOOK_SECRET.to_string()),
         None,
     )
-}
-
-fn rand_i64() -> i64 {
-    use rand::Rng;
-    rand::thread_rng().gen_range(1..i64::MAX)
 }
 
 // --- Test: ping event returns 200 ---
