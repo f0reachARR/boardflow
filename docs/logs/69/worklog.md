@@ -291,3 +291,42 @@ CACHE_CLEANUP_INTERVAL_SECS=3600
 ### 更新した作業ログパス
 
 `docs/logs/69/worklog.md`
+
+---
+
+## 実装結果（2026-05-04 実装フェーズ）
+
+### 変更ファイル一覧
+
+| ファイル | 変更内容 |
+|---|---|
+| `crates/config/src/worker.rs` | `cache_cleanup_interval_secs: u64` フィールド追加 + `from_env()` でパース（デフォルト3600） |
+| `crates/worker/src/dispatcher.rs` | `pub async fn sweep_expired_cache(pool: &PgPool)` 関数追加 |
+| `crates/worker/src/main.rs` | 専用 `cache_cleanup_interval` + `select!` 分岐追加 |
+| `crates/worker/src/handlers/create_issue.rs` | テスト内 `WorkerConfig` に新フィールド追加 |
+| `.env.example` | `CACHE_CLEANUP_INTERVAL_SECS=3600` 追加 |
+| `crates/config/tests/dotenv_integration_test.rs` | `clear_env()` に新環境変数追加 |
+| `crates/worker/tests/create_issue_test.rs` | `make_config()` に新フィールド追加 |
+| `crates/worker/tests/dashboard_comment_test.rs` | 同上 |
+| `crates/worker/tests/run_result_comment_test.rs` | 同上 |
+
+### ビルド結果
+
+- `cargo build --workspace` — **成功**
+
+### テスト結果
+
+- `cargo test -p boardflow-config -p boardflow-worker` — **全テスト成功**
+- `cargo test --workspace` — 既存の `test_app_config_from_env`（boardflow-api）が環境変数汚染で失敗（DATABASE_URL が .env から読まれる既存問題、本変更と無関係）
+
+### 受け入れ条件の充足
+
+1. ✅ Worker 起動後、デフォルト1時間間隔で `cleanup_expired_cache` が呼ばれる
+2. ✅ 環境変数 `CACHE_CLEANUP_INTERVAL_SECS` で変更可能
+3. ✅ 削除件数>0 は info、0件は debug、エラーは error ログ
+4. ✅ 既存の sweep / poll 動作に影響なし（独立した interval）
+5. ✅ コンパイル成功、関連テスト全パス
+
+### 残リスク
+
+- なし（`cleanup_expired_cache` は1時間超失効行のみ削除するため、頻繁実行でもデータ損失リスクなし）
