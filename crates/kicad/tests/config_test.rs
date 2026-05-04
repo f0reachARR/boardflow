@@ -23,8 +23,8 @@ exclude_paths:
     let config = parse_boardflow_yml(&yml_path).unwrap();
     assert_eq!(config.version, 1);
     assert_eq!(
-        config.outputs.as_ref().unwrap().preset.as_deref(),
-        Some("default")
+        config.outputs.as_ref().unwrap().preset.as_str(),
+        "default"
     );
     assert_eq!(config.exclude_paths.len(), 2);
     assert_eq!(config.exclude_paths[0], "docs/**");
@@ -131,13 +131,14 @@ fn validate_schema_v1_accepts_preset_default() {
 }
 
 #[test]
-fn validate_schema_v1_accepts_no_preset() {
+fn validate_schema_v1_rejects_null_preset() {
     let tmp = TempDir::new().unwrap();
     let yml_path = tmp.path().join(".boardflow.yml");
     fs::write(&yml_path, "version: 1\noutputs:\n  preset:\n").unwrap();
 
     let config = parse_boardflow_yml(&yml_path).unwrap();
-    assert!(validate_schema_v1(&config).is_ok());
+    let result = validate_schema_v1(&config);
+    assert!(result.is_err(), "null/empty preset should be rejected by validation");
 }
 
 #[test]

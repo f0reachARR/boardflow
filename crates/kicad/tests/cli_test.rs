@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use boardflow_kicad::cli::KicadCli;
+use boardflow_kicad::cli::{KicadCli, PcbSide};
 
 #[test]
 fn build_erc_args_matches_bash() {
@@ -72,7 +72,7 @@ fn build_pcb_svg_top_args_matches_bash() {
     let args = KicadCli::build_pcb_svg_args(
         Path::new("/proj/b.kicad_pcb"),
         Path::new("/out/top.svg"),
-        "top",
+        PcbSide::Top,
     );
     assert_eq!(
         args,
@@ -95,7 +95,7 @@ fn build_pcb_svg_bottom_args_matches_bash() {
     let args = KicadCli::build_pcb_svg_args(
         Path::new("/proj/b.kicad_pcb"),
         Path::new("/out/bottom.svg"),
-        "bottom",
+        PcbSide::Bottom,
     );
     assert_eq!(
         args,
@@ -197,7 +197,7 @@ fn build_render_3d_top_args_matches_bash() {
     let args = KicadCli::build_render_3d_args(
         Path::new("/proj/b.kicad_pcb"),
         Path::new("/out/3d_top.png"),
-        "top",
+        PcbSide::Top,
     );
     assert_eq!(
         args,
@@ -220,7 +220,7 @@ fn build_render_3d_bottom_args_matches_bash() {
     let args = KicadCli::build_render_3d_args(
         Path::new("/proj/b.kicad_pcb"),
         Path::new("/out/3d_bottom.png"),
-        "bottom",
+        PcbSide::Bottom,
     );
     assert_eq!(
         args,

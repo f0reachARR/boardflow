@@ -2,6 +2,7 @@
 name = "boardflow-kicad"
 version = "0.0.1"
 edition = "2024"
+description = "KiCad CLI wrapper — command execution, output parsing, and project detection"
 
 [dependencies]
 serde = { workspace = true }

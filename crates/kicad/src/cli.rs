@@ -4,6 +4,29 @@ use tokio::process::Command;
 
 use crate::{KicadError, Result};
 
+/// PCB side for SVG export and 3D render.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PcbSide {
+    Top,
+    Bottom,
+}
+
+impl PcbSide {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            PcbSide::Top => "top",
+            PcbSide::Bottom => "bottom",
+        }
+    }
+
+    fn svg_layers(&self) -> &'static str {
+        match self {
+            PcbSide::Top => "F.Cu,F.Silkscreen,F.Mask,Edge.Cuts",
+            PcbSide::Bottom => "B.Cu,B.Silkscreen,B.Mask,Edge.Cuts",
+        }
+    }
+}
+
 pub struct CommandOutput {
     pub exit_code: i32,
     pub stdout: String,
@@ -58,7 +81,7 @@ impl KicadCli {
         &self,
         pcb_file: &Path,
         output_svg: &Path,
-        side: &str,
+        side: PcbSide,
     ) -> Result<CommandOutput> {
         let args = Self::build_pcb_svg_args(pcb_file, output_svg, side);
         let args_ref: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
@@ -105,7 +128,7 @@ impl KicadCli {
         &self,
         pcb_file: &Path,
         output_png: &Path,
-        side: &str,
+        side: PcbSide,
     ) -> Result<CommandOutput> {
         let args = Self::build_render_3d_args(pcb_file, output_png, side);
         let args_ref: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
@@ -166,18 +189,14 @@ impl KicadCli {
         ]
     }
 
-    pub fn build_pcb_svg_args(pcb_file: &Path, output_svg: &Path, side: &str) -> Vec<String> {
-        let layers = match side {
-            "bottom" => "B.Cu,B.Silkscreen,B.Mask,Edge.Cuts",
-            _ => "F.Cu,F.Silkscreen,F.Mask,Edge.Cuts", // top (default)
-        };
+    pub fn build_pcb_svg_args(pcb_file: &Path, output_svg: &Path, side: PcbSide) -> Vec<String> {
         vec![
             "pcb".into(),
             "export".into(),
             "svg".into(),
             "--mode-multi".into(),
             "--layers".into(),
-            layers.into(),
+            side.svg_layers().into(),
             "--output".into(),
             output_svg.to_str().unwrap_or_default().into(),
             pcb_file.to_str().unwrap_or_default().into(),
@@ -241,12 +260,12 @@ impl KicadCli {
         ]
     }
 
-    pub fn build_render_3d_args(pcb_file: &Path, output_png: &Path, side: &str) -> Vec<String> {
+    pub fn build_render_3d_args(pcb_file: &Path, output_png: &Path, side: PcbSide) -> Vec<String> {
         vec![
             "pcb".into(),
             "render".into(),
             "--side".into(),
-            side.into(),
+            side.as_str().into(),
             "--quality".into(),
             "basic".into(),
             "--output".into(),

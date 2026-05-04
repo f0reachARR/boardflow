@@ -16,7 +16,7 @@ pub struct BoardflowConfig {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct OutputsConfig {
-    pub preset: Option<String>,
+    pub preset: String,
 }
 
 /// Parse a `.boardflow.yml` file into a `BoardflowConfig`.
@@ -35,12 +35,11 @@ pub fn validate_schema_v1(config: &BoardflowConfig) -> Result<()> {
         )));
     }
     if let Some(ref outputs) = config.outputs {
-        if let Some(ref preset) = outputs.preset {
-            if preset != "default" {
-                return Err(KicadError::ConfigValidation(format!(
-                    "unsupported outputs.preset: \"{preset}\", only \"default\" is allowed"
-                )));
-            }
+        if outputs.preset != "default" {
+            return Err(KicadError::ConfigValidation(format!(
+                "unsupported outputs.preset: \"{}\", only \"default\" is allowed",
+                outputs.preset
+            )));
         }
     }
     Ok(())
