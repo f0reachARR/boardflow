@@ -1,4 +1,6 @@
-use crate::{ConfigError, DatabaseConfig, S3Config, optional_env, optional_env_or, parse_env_or};
+use crate::{
+    ConfigError, DatabaseConfig, S3Config, load_dotenv, optional_env, optional_env_or, parse_env_or,
+};
 
 pub struct WorkerConfig {
     pub db: DatabaseConfig,
@@ -12,6 +14,8 @@ pub struct WorkerConfig {
 
 impl WorkerConfig {
     pub fn from_env() -> Result<Self, ConfigError> {
+        load_dotenv()?;
+
         let github_app_id = match optional_env("GITHUB_APP_ID") {
             Some(val) => Some(val.parse::<u64>().map_err(|e| ConfigError::InvalidValue {
                 var: "GITHUB_APP_ID".to_string(),

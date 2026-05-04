@@ -1,6 +1,6 @@
 use crate::{
-    ConfigError, DatabaseConfig, S3Config, optional_env, optional_env_or, parse_env_or,
-    required_env,
+    ConfigError, DatabaseConfig, S3Config, load_dotenv, optional_env, optional_env_or,
+    parse_env_or, required_env,
 };
 
 #[derive(Debug)]
@@ -22,6 +22,8 @@ pub struct AppConfig {
 
 impl AppConfig {
     pub fn from_env() -> Result<Self, ConfigError> {
+        load_dotenv()?;
+
         Ok(Self {
             db: DatabaseConfig::from_env()?,
             s3: S3Config::from_env(),

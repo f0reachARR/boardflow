@@ -4,7 +4,11 @@ version = "0.0.1"
 edition = "2024"
 
 [dependencies]
+dotenvy = { workspace = true }
 thiserror = { workspace = true }
+
+[dev-dependencies]
+serial_test = { workspace = true }
 
 [lints]
 workspace = true

@@ -52,6 +52,7 @@ serial_test = "3"
 jsonwebtoken = { version = "10", default-features = false, features = [
     "use_pem",
 ] }
+dotenvy = "0.15"
 
 [workspace.lints.clippy]
 collapsible_if = "allow"
