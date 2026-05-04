@@ -22,7 +22,7 @@ use boardflow_config::{optional_env, optional_env_or};
 
 pub fn create_app(pool: PgPool, s3_client: Option<aws_sdk_s3::Client>) -> Router {
     create_app_with_config(
-        pool, s3_client, None, None, None, None, None, None, None, None,
+        pool, s3_client, None, None, None, None, None, None, None, None, None,
     )
 }
 
@@ -38,6 +38,7 @@ pub fn create_app_with_config(
     app_domain: Option<String>,
     artifact_base_url: Option<String>,
     webhook_secret: Option<String>,
+    github_app_id: Option<u64>,
 ) -> Router {
     let (router, api) = OpenApiRouter::with_openapi(ApiDoc::openapi())
         .routes(routes!(routes::health::healthz))
@@ -75,8 +76,8 @@ pub fn create_app_with_config(
             .into_bytes()
     });
 
-    let checker: DynGithubAccessChecker =
-        access_checker.unwrap_or_else(|| Arc::new(CachedGithubAccessChecker::new(pool.clone())));
+    let checker: DynGithubAccessChecker = access_checker
+        .unwrap_or_else(|| Arc::new(CachedGithubAccessChecker::new(pool.clone(), github_app_id)));
 
     let bucket = FinalBucket(
         final_bucket.unwrap_or_else(|| optional_env_or("MINIO_BUCKET_FINAL", "boardflow-final")),
@@ -126,6 +127,7 @@ pub fn create_app_with_config(
         .layer(Extension(domain))
         .layer(Extension(base_url))
         .layer(Extension(checker))
+        .layer(Extension(GithubAppId(github_app_id)))
         .layer(axum::middleware::from_fn(
             middleware::request_id::request_id_middleware,
         ))
@@ -149,6 +151,9 @@ pub struct AppDomain(pub String);
 
 #[derive(Clone)]
 pub struct ArtifactBaseUrl(pub String);
+
+#[derive(Clone)]
+pub struct GithubAppId(pub Option<u64>);
 
 #[derive(OpenApi)]
 #[openapi(

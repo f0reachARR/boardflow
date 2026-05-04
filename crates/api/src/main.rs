@@ -49,6 +49,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Some(config.app_domain),
         Some(config.artifact_base_url),
         config.github_webhook_secret,
+        config.github_app_id,
     );
 
     let addr = format!("{}:{}", config.api_host, config.api_port);

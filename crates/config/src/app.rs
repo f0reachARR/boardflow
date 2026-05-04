@@ -18,6 +18,7 @@ pub struct AppConfig {
     pub app_domain: String,
     pub artifact_base_url: String,
     pub github_webhook_secret: Option<String>,
+    pub github_app_id: Option<u64>,
 }
 
 impl AppConfig {
@@ -41,6 +42,8 @@ impl AppConfig {
                 "http://localhost:8080",
             ),
             github_webhook_secret: optional_env("GITHUB_WEBHOOK_SECRET"),
+            github_app_id: optional_env("GITHUB_APP_ID")
+                .and_then(|s| s.parse::<u64>().ok()),
         })
     }
 }

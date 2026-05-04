@@ -170,3 +170,15 @@ pub async fn clear_installation_for_repo(
     .fetch_optional(executor)
     .await
 }
+
+pub async fn find_existing_github_ids(
+    executor: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
+    github_ids: &[i64],
+) -> Result<Vec<i64>, sqlx::Error> {
+    sqlx::query_scalar::<_, i64>(
+        "SELECT github_repository_id FROM repositories WHERE github_repository_id = ANY($1)",
+    )
+    .bind(github_ids)
+    .fetch_all(executor)
+    .await
+}

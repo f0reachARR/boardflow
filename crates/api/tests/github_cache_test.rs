@@ -320,7 +320,7 @@ async fn test_cached_checker_invalidate_cache() {
     .await
     .unwrap();
 
-    let checker = CachedGithubAccessChecker::new(pool.clone());
+    let checker = CachedGithubAccessChecker::new(pool.clone(), None);
     checker.invalidate_cache(user_id).await.unwrap();
 
     let cached = boardflow_db::queries::github_api_cache::get_valid_cache(
@@ -355,9 +355,8 @@ async fn test_cached_checker_returns_cached_repo_ids() {
     .await
     .unwrap();
 
-    // Use AllowAll as inner – if cache hits, inner is never called
     let inner: Arc<dyn GithubAccessChecker> = Arc::new(AllowAllGithubAccessChecker);
-    let checker = CachedGithubAccessChecker::with_inner(inner, pool.clone());
+    let checker = CachedGithubAccessChecker::with_inner(inner, pool.clone(), None);
     let result = checker.list_accessible_repo_ids(token).await.unwrap();
     assert_eq!(result, Some(vec![1001, 1002, 1003]));
 }
@@ -372,7 +371,7 @@ async fn test_cached_checker_unknown_token_passes_through() {
     };
     // This token doesn't exist in users table
     // The inner (RealGithubAccessChecker) will get a 401 from GitHub
-    let checker = CachedGithubAccessChecker::new(pool.clone());
+    let checker = CachedGithubAccessChecker::new(pool.clone(), None);
     let result = checker
         .list_accessible_repo_ids("gho_definitely_not_in_db")
         .await;
@@ -444,7 +443,7 @@ async fn test_cached_checker_stale_fallback_with_mock_inner_rate_limited() {
 
     // Use RateLimitedGithubAccessChecker as inner → always returns RateLimited
     let inner: Arc<dyn GithubAccessChecker> = Arc::new(RateLimitedGithubAccessChecker);
-    let checker = CachedGithubAccessChecker::with_inner(inner, pool.clone());
+    let checker = CachedGithubAccessChecker::with_inner(inner, pool.clone(), None);
 
     let result = checker.list_accessible_repo_ids(token).await;
     // Should return stale cache instead of error
@@ -476,7 +475,7 @@ async fn test_cached_checker_token_expired_no_stale_fallback() {
 
     // Use TokenExpiredGithubAccessChecker as inner → always returns TokenExpired
     let inner: Arc<dyn GithubAccessChecker> = Arc::new(TokenExpiredGithubAccessChecker);
-    let checker = CachedGithubAccessChecker::with_inner(inner, pool.clone());
+    let checker = CachedGithubAccessChecker::with_inner(inner, pool.clone(), None);
 
     let result = checker.list_accessible_repo_ids(token).await;
     // Should propagate TokenExpired error, NOT return stale cache
@@ -508,7 +507,7 @@ async fn test_cached_checker_upstream_error_no_stale_fallback() {
 
     // Use UpstreamErrorGithubAccessChecker as inner
     let inner: Arc<dyn GithubAccessChecker> = Arc::new(UpstreamErrorGithubAccessChecker);
-    let checker = CachedGithubAccessChecker::with_inner(inner, pool.clone());
+    let checker = CachedGithubAccessChecker::with_inner(inner, pool.clone(), None);
 
     let result = checker.list_accessible_repo_ids(token).await;
     // Should propagate Upstream error, NOT return stale cache
@@ -540,7 +539,7 @@ async fn test_invalidate_repo_cache_via_trait() {
     .unwrap();
 
     // Create checker as DynGithubAccessChecker (trait object)
-    let checker: DynGithubAccessChecker = Arc::new(CachedGithubAccessChecker::new(pool.clone()));
+    let checker: DynGithubAccessChecker = Arc::new(CachedGithubAccessChecker::new(pool.clone(), None));
 
     // Call invalidate_repo_cache via trait
     checker.invalidate_repo_cache(user_id).await.unwrap();
@@ -568,7 +567,7 @@ async fn test_cached_checker_rate_limited_no_stale_returns_error() {
 
     // No cache entry seeded → stale fallback has nothing to return
     let inner: Arc<dyn GithubAccessChecker> = Arc::new(RateLimitedGithubAccessChecker);
-    let checker = CachedGithubAccessChecker::with_inner(inner, pool.clone());
+    let checker = CachedGithubAccessChecker::with_inner(inner, pool.clone(), None);
 
     let result = checker.list_accessible_repo_ids(token).await;
     // Should return RateLimited since no stale cache exists

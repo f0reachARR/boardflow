@@ -43,6 +43,7 @@ fn create_test_app(pool: PgPool) -> axum::Router {
         None,
         None,
         Some(WEBHOOK_SECRET.to_string()),
+        None,
     )
 }
 
@@ -372,7 +373,7 @@ async fn test_webhook_no_secret_configured() {
     };
     // webhook_secret を None で作成
     let app = boardflow_api::create_app_with_config(
-        pool, None, None, None, None, None, None, None, None, None,
+        pool, None, None, None, None, None, None, None, None, None, None,
     );
     let body = br#"{"zen":"test"}"#;
 

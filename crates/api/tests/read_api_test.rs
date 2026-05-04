@@ -43,6 +43,7 @@ fn create_test_app(pool: PgPool) -> axum::Router {
         None,
         None,
         None,
+        None,
     )
 }
 
@@ -54,6 +55,7 @@ fn create_deny_app(pool: PgPool) -> axum::Router {
         None,
         None,
         Some(checker),
+        None,
         None,
         None,
         None,
@@ -1296,6 +1298,7 @@ async fn test_get_viewer_sources_returns_absolute_url_with_custom_base() {
         None,
         Some("https://artifacts.boardflow.example.com".to_string()),
         None,
+        None,
     );
 
     let response = app
@@ -1730,6 +1733,7 @@ fn create_rate_limited_app(pool: PgPool) -> axum::Router {
         None,
         None,
         None,
+        None,
     )
 }
 
@@ -1741,6 +1745,7 @@ fn create_upstream_error_app(pool: PgPool) -> axum::Router {
         None,
         None,
         Some(checker),
+        None,
         None,
         None,
         None,
