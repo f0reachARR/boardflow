@@ -335,7 +335,7 @@ CACHE_CLEANUP_INTERVAL_SECS=3600
 
 ## レビュー結果（2026-05-04 レビューフェーズ）
 
-### 対象Issue
+### 再レビュー対象Issue
 
 - Issue ID: 69
 - タイトル: 期限切れキャッシュの定期クリーンアップジョブ実装
@@ -385,7 +385,7 @@ CACHE_CLEANUP_INTERVAL_SECS=3600
 - `crates/worker/src/main.rs` の interval はデフォルト `MissedTickBehavior::Burst` のため、長時間ブロック後に連続 tick する可能性がある。既存 sweep と同様なので必須ではないが、cleanup を「追いつき実行」したくないなら `Delay` か `Skip` を明示してもよい。
 - `sweep_expired_cache` 自体の単体テストは薄いラッパーなので必須ではないが、将来ログや呼び出し条件が増えるなら dispatcher 層のテストを足す余地はある。
 
-### テスト結果
+### 再レビュー時テスト結果
 
 - `mise exec -- cargo build --workspace` : 成功
 - `mise exec -- cargo test -p boardflow-config -p boardflow-worker` : 成功
@@ -417,6 +417,123 @@ CACHE_CLEANUP_INTERVAL_SECS=3600
 - `pr_ready: false`
 
 ### 更新した作業ログパス
+
+- `docs/logs/69/worklog.md`
+
+---
+
+## 再レビュー結果（2026-05-04 最終確認フェーズ）
+
+### 対象Issue
+
+- Issue ID: 69
+- タイトル: 期限切れキャッシュの定期クリーンアップジョブ実装
+
+### 前回指摘の確認結果
+
+- `crates/config/tests/dotenv_integration_test.rs` に `CACHE_CLEANUP_INTERVAL_SECS=1800` と `assert_eq!(config.cache_cleanup_interval_secs, 1800)` が追加されていることを確認
+- `README.md` の Worker 環境変数表に `CACHE_CLEANUP_INTERVAL_SECS` が追加されていることを確認
+- `cleanup_expired_cache` の削除条件は Issue スコープ外かつ意図的なグレース期間として扱う、という前提で再レビューを実施
+
+### 実装確認
+
+- `crates/config/src/worker.rs` に `cache_cleanup_interval_secs: u64` が追加され、`CACHE_CLEANUP_INTERVAL_SECS` を `from_env()` で読んでいる
+- `crates/worker/src/main.rs` で専用 interval を追加し、`tokio::select!` の独立分岐から cleanup を起動している
+- `crates/worker/src/dispatcher.rs` の `sweep_expired_cache()` は、削除件数あり `info`、0件 `debug`、失敗 `error` のログ方針で一貫している
+- `.env.example` と `README.md` の公開設定面も同期されている
+
+### テスト結果
+
+- `mise exec -- cargo build --workspace` : 成功
+- `mise exec -- cargo test -p boardflow-config -p boardflow-worker` : 成功
+- `mise exec -- cargo clippy --workspace` : 成功
+
+### レビュー結果
+
+- 総評: 前回レビューで指摘した dotenv integration test と README 更新は正しく反映されていた。定期 cleanup の実装方針自体も既存 worker パターンと整合している。
+- ただし、新しく追加した `CACHE_CLEANUP_INTERVAL_SECS` は 0 を拒否しておらず、無効値で worker が panic しうるため、最終的な PR 判定は保留。
+
+### 再レビュー指摘事項（重大度順）
+
+1. **設定値 0 を許容しており worker が panic しうる**
+    - `crates/config/src/worker.rs` では `CACHE_CLEANUP_INTERVAL_SECS` を単純に `u64` としてパースしている
+    - `crates/config/src/helpers.rs` の `parse_env_or()` は数値変換のみで、0 や負荷上不適切な値の検証をしない
+    - `crates/worker/src/main.rs` はその値を `tokio::time::interval(Duration::from_secs(...))` にそのまま渡している
+    - `tokio::time::interval` は 0 秒で panic するため、設定ミスだけで worker 起動が落ちる
+
+### 再レビュー必須修正
+
+- `CACHE_CLEANUP_INTERVAL_SECS` に対して 1 以上を保証するバリデーションを追加すること
+- 併せて `WorkerConfig::from_env()` または設定テストで、0 を与えたときに panic ではなく設定エラーになることを検証すること
+
+### 再レビュー任意改善
+
+- `POLL_INTERVAL_SECS` と `TIMEOUT_SWEEP_INTERVAL_SECS` も同様に 0 を拒否する共通バリデーションへ寄せると、worker 系設定の防御として一貫する
+- `tokio::time::Interval` の `MissedTickBehavior` を明示することで、将来の長時間処理時の挙動意図がより読み取りやすくなる
+
+### 再レビューで見えたテスト不足
+
+- `CACHE_CLEANUP_INTERVAL_SECS=0` の異常系テストがない
+- interval 系設定値の下限検証を固定する回帰テストがない
+
+### 再レビュー時ドキュメント確認
+
+- `.env.example` 更新あり
+- `README.md` 更新あり
+- 追加で必要なドキュメント更新は現時点では見当たらない
+
+### plan / research / docs との整合
+
+- 前回指摘対象だった dotenv / README のズレは解消済み
+- 実装は research の `tokio::time::interval + tokio::select!` パターンに沿っている
+- 一方で、外部ドキュメント上 `interval` は 0 秒で panic するため、設定バリデーション未実装は research 上の pitfall を取り込めていない
+
+### 再レビューPR判定
+
+- `pr_ready: false`
+
+### 再レビュー残リスク
+
+- 現状のままでは `CACHE_CLEANUP_INTERVAL_SECS=0` の設定ミスで worker が起動時 panic する
+
+### 再レビューで更新した作業ログパス
+
+- `docs/logs/69/worklog.md`
+
+---
+
+## レビュー指摘修正（2026-05-04 CACHE_CLEANUP_INTERVAL_SECS=0 バリデーション追加）
+
+### 対象指摘
+
+`CACHE_CLEANUP_INTERVAL_SECS=0` を設定すると `tokio::time::interval` が panic するため、`WorkerConfig::from_env()` でバリデーションが必要。
+
+### 変更ファイル
+
+| ファイル | 変更内容 |
+|---|---|
+| `crates/config/src/worker.rs` | `cache_cleanup_interval_secs` を事前パースし、値が 0 の場合に `ConfigError::InvalidValue` を返すバリデーション追加 |
+| `crates/config/tests/dotenv_integration_test.rs` | `worker_config_rejects_zero_cache_cleanup_interval` テスト追加 |
+
+### テスト観点
+
+| テスト | 種類 | 確認内容 |
+|---|---|---|
+| `worker_config_rejects_zero_cache_cleanup_interval` | 異常系 | `CACHE_CLEANUP_INTERVAL_SECS=0` が `ConfigError::InvalidValue` を返すこと |
+
+### ビルド/テスト/clippy 結果
+
+- `cargo build --workspace` : **成功**
+- `cargo test -p boardflow-config --test dotenv_integration_test` : **4テスト全パス**
+- `cargo clippy --workspace` : **警告なし**
+
+### 残リスク
+
+- `POLL_INTERVAL_SECS` / `TIMEOUT_SWEEP_INTERVAL_SECS` も 0 で同じ問題を持つが、今回のスコープ外。
+
+### 更新した作業ログパス
+
+- `docs/logs/69/worklog.md`
 
 - `docs/logs/69/worklog.md`
 
