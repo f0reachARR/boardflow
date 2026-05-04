@@ -299,3 +299,45 @@ pub struct GithubAppId(pub Option<u64>);
 ### 残リスク
 - warm cache 問題を修正しても、ホットパス同期のため大規模 org ではレイテンシ増加余地が残る。
 - webhook と fallback sync の最終整合性は eventual consistency であり、完全即時反映は保証できない。
+
+---
+
+## レビュー結果（2026-05-04 review 2）
+
+### 総評
+- 前回の重大指摘だった warm cache 経路は修正され、`CachedGithubAccessChecker::list_accessible_repo_ids` の valid cache hit でも `maybe_sync_installation_repos` を通るようになったため、Issue #77 の主目的に対する制御フロー上の欠落は解消されている。
+- その一方で、今回の追加テストはフォールバックのスキップ条件に偏っており、GitHub API 取得 → app_id / suspended フィルタ → `repository::upsert` までの成功系が未検証のまま残っている。
+- あわせて、恒久ドキュメントと認証前提の表現にズレが残っており、運用者が必要な GitHub App 前提を誤解する余地がある。
+
+### 指摘事項
+1. 中: フォールバック成功系の中核ロジックが依然として自動テストで担保されていない。今回追加されたテストは `github_app_id=None`、全 repo 既存、スロットル有効の skip ケースに集中しており、`fetch_user_installations` / `fetch_installation_repos` / `repository::upsert` を通る成功パス、および計画で明示した `app_id` 不一致除外・`suspended_at` 除外を検証していない。この状態だと、レスポンス shape 変更、ページング、`full_name` パース、upsert 経路の退行を検知できない。
+2. 中: 実装・research・恒久 docs の認証前提がまだ揃っていない。Issue #77 の調査成果物は `GET /user/installations*` を GitHub App user access token 前提で整理している一方、現行の公開 docs と login 実装は GitHub OAuth / OAuth App の表現を維持している。`GITHUB_APP_ID` を API でも使う旨の注記は追加されたが、どの GitHub App 設定と権限が必要なのか、既存の login token がこの API 群を叩ける前提を README / backend docs から読み取れない。
+
+### 必須修正
+- 成功系フォールバックを検証する focused test を追加する。少なくとも 1 件は HTTP 層を差し替えられる形にして、`/user/installations` と `/user/installations/{id}/repositories` の応答から repository upsert まで確認したい。
+- `app_id` 不一致除外と `suspended_at` 除外を plan 通りにテストへ落とし込む。
+- README / `docs/backend/api.md` / research の記述を揃え、Issue #77 のフォールバックが依存する GitHub App 側の前提条件を明記する。
+
+### 任意改善
+- `reqwest::Client` を checker に保持して差し替え可能にすると、成功系テストが容易になる。
+- フォールバック実行ログに relevant installation 件数や skip 理由を出すと運用観測性が上がる。
+
+### テスト結果
+- `mise exec -- cargo test -p boardflow-api --test github_cache_test`: 22 passed
+- `git diff --check main..HEAD`: 問題なし
+
+### ドキュメント確認
+- `README.md` は `GITHUB_APP_ID` の API 側利用を追記しており、前回指摘の docs 更新漏れ自体は解消した。
+- ただし、`GET /user/installations*` を成立させる認証モデルの説明はなお曖昧で、Issue #77 の research と恒久 docs の橋渡しが不足している。
+
+### plan / research / docs との不整合
+- plan では `app_id` フィルタ、`suspended_at` 除外、エラー耐性をテスト観点に含めていたが、現状の追加テストは skip 系 3 件と DB existence query に留まる。
+- research は GitHub App user access token 前提を明記しているが、README / backend docs / login 実装の表現は OAuth App 寄りで、前提の読み取りが一貫していない。
+
+### PR/完了結果
+- `pr_ready: false`
+- 理由: 前回の blocking bug は解消済みだが、Issue #77 の価値そのものである成功系フォールバックが未実証であり、認証前提の docs 整合も不足しているため。
+
+### 残リスク
+- GitHub API の成功系をモックしていないため、実環境でのみ顕在化する integration mismatch が残る。
+- 認証前提を誤って運用すると、コードが正しくても fallback sync が恒常的に発火失敗する可能性がある。

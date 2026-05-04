@@ -7,6 +7,8 @@ use boardflow_api::github_access::{
 use sqlx::PgPool;
 use std::sync::Arc;
 use uuid::Uuid;
+use wiremock::matchers::{method, path_regex};
+use wiremock::{Mock, MockServer, ResponseTemplate};
 
 async fn setup_pool() -> Option<PgPool> {
     unsafe { std::env::set_var("BOARDFLOW_ARTIFACT_SECRET", "test-secret-for-tests") };
@@ -783,4 +785,286 @@ async fn test_fallback_sync_skipped_when_throttled() {
     .await
     .unwrap();
     assert!(existing.is_empty());
+}
+
+// ─── Success-path fallback sync tests (with wiremock) ────────────────────────
+
+/// Test: Successful fallback sync fetches installations, filters by app_id,
+/// fetches repos, and upserts them into DB
+#[tokio::test]
+#[serial]
+async fn test_fallback_sync_success_upserts_repos() {
+    let Some(pool) = setup_pool().await else {
+        return;
+    };
+    let token = "gho_fallback_success_test";
+    let user_id = create_test_user_with_token(&pool, token).await;
+
+    let mock_server = MockServer::start().await;
+    let app_id: u64 = 99999;
+    let repo_github_id: i64 = rand_i64();
+
+    // Mock GET /user/installations
+    Mock::given(method("GET"))
+        .and(path_regex(r"^/user/installations$"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "total_count": 1,
+            "installations": [
+                {
+                    "id": 5001,
+                    "app_id": app_id,
+                    "suspended_at": null
+                }
+            ]
+        })))
+        .mount(&mock_server)
+        .await;
+
+    // Mock GET /user/installations/5001/repositories
+    Mock::given(method("GET"))
+        .and(path_regex(r"^/user/installations/5001/repositories"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "total_count": 1,
+            "repositories": [
+                {
+                    "id": repo_github_id,
+                    "full_name": "testorg/testrepo-synced"
+                }
+            ]
+        })))
+        .mount(&mock_server)
+        .await;
+
+    // Use AllowAll inner that returns the repo_github_id as accessible
+    // (simulating GitHub /user/repos returning this ID)
+    let inner: Arc<dyn GithubAccessChecker> = Arc::new(FixedIdsGithubAccessChecker {
+        ids: vec![repo_github_id],
+    });
+    let checker = CachedGithubAccessChecker::with_base_url(
+        inner,
+        pool.clone(),
+        Some(app_id),
+        mock_server.uri(),
+    );
+
+    let result = checker.list_accessible_repo_ids(token).await.unwrap();
+    assert_eq!(result, Some(vec![repo_github_id]));
+
+    // Verify the repo was upserted into DB
+    let existing = boardflow_db::queries::repository::find_existing_github_ids(
+        &pool,
+        &[repo_github_id],
+    )
+    .await
+    .unwrap();
+    assert_eq!(existing, vec![repo_github_id]);
+
+    // Verify throttle cache was set
+    let sync_cache = boardflow_db::queries::github_api_cache::get_valid_cache(
+        &pool,
+        user_id,
+        "installation_repos_sync",
+    )
+    .await
+    .unwrap();
+    assert!(sync_cache.is_some());
+
+    // Cleanup
+    sqlx::query("DELETE FROM repositories WHERE github_repository_id = $1")
+        .bind(repo_github_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+}
+
+/// Test: Fallback sync filters out installations with wrong app_id
+#[tokio::test]
+#[serial]
+async fn test_fallback_sync_filters_wrong_app_id() {
+    let Some(pool) = setup_pool().await else {
+        return;
+    };
+    let token = "gho_fallback_appid_filter_test";
+    let user_id = create_test_user_with_token(&pool, token).await;
+
+    let mock_server = MockServer::start().await;
+    let our_app_id: u64 = 88888;
+    let other_app_id: u64 = 77777;
+    let repo_github_id: i64 = rand_i64();
+
+    // Mock installations: only "other" app_id present
+    Mock::given(method("GET"))
+        .and(path_regex(r"^/user/installations$"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "total_count": 1,
+            "installations": [
+                {
+                    "id": 6001,
+                    "app_id": other_app_id,
+                    "suspended_at": null
+                }
+            ]
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let inner: Arc<dyn GithubAccessChecker> = Arc::new(FixedIdsGithubAccessChecker {
+        ids: vec![repo_github_id],
+    });
+    let checker = CachedGithubAccessChecker::with_base_url(
+        inner,
+        pool.clone(),
+        Some(our_app_id),
+        mock_server.uri(),
+    );
+
+    let result = checker.list_accessible_repo_ids(token).await.unwrap();
+    assert_eq!(result, Some(vec![repo_github_id]));
+
+    // Repo should NOT be upserted (wrong app_id filtered out)
+    let existing = boardflow_db::queries::repository::find_existing_github_ids(
+        &pool,
+        &[repo_github_id],
+    )
+    .await
+    .unwrap();
+    assert!(existing.is_empty());
+
+    // Throttle should still be set (sync was attempted)
+    let sync_cache = boardflow_db::queries::github_api_cache::get_valid_cache(
+        &pool,
+        user_id,
+        "installation_repos_sync",
+    )
+    .await
+    .unwrap();
+    assert!(sync_cache.is_some());
+}
+
+/// Test: Fallback sync filters out suspended installations
+#[tokio::test]
+#[serial]
+async fn test_fallback_sync_filters_suspended_installations() {
+    let Some(pool) = setup_pool().await else {
+        return;
+    };
+    let token = "gho_fallback_suspended_test";
+    let user_id = create_test_user_with_token(&pool, token).await;
+
+    let mock_server = MockServer::start().await;
+    let app_id: u64 = 66666;
+    let repo_github_id: i64 = rand_i64();
+
+    // Mock installations: matching app_id but suspended
+    Mock::given(method("GET"))
+        .and(path_regex(r"^/user/installations$"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "total_count": 1,
+            "installations": [
+                {
+                    "id": 7001,
+                    "app_id": app_id,
+                    "suspended_at": "2024-01-01T00:00:00Z"
+                }
+            ]
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let inner: Arc<dyn GithubAccessChecker> = Arc::new(FixedIdsGithubAccessChecker {
+        ids: vec![repo_github_id],
+    });
+    let checker = CachedGithubAccessChecker::with_base_url(
+        inner,
+        pool.clone(),
+        Some(app_id),
+        mock_server.uri(),
+    );
+
+    let result = checker.list_accessible_repo_ids(token).await.unwrap();
+    assert_eq!(result, Some(vec![repo_github_id]));
+
+    // Repo should NOT be upserted (installation is suspended)
+    let existing = boardflow_db::queries::repository::find_existing_github_ids(
+        &pool,
+        &[repo_github_id],
+    )
+    .await
+    .unwrap();
+    assert!(existing.is_empty());
+
+    // Throttle should still be set
+    let sync_cache = boardflow_db::queries::github_api_cache::get_valid_cache(
+        &pool,
+        user_id,
+        "installation_repos_sync",
+    )
+    .await
+    .unwrap();
+    assert!(sync_cache.is_some());
+}
+
+/// Test: Fallback sync handles GitHub API error gracefully (best-effort)
+#[tokio::test]
+#[serial]
+async fn test_fallback_sync_github_api_error_graceful() {
+    let Some(pool) = setup_pool().await else {
+        return;
+    };
+    let token = "gho_fallback_api_error_test";
+    let _user_id = create_test_user_with_token(&pool, token).await;
+
+    let mock_server = MockServer::start().await;
+    let repo_github_id: i64 = rand_i64();
+
+    // Mock installations returns 500
+    Mock::given(method("GET"))
+        .and(path_regex(r"^/user/installations"))
+        .respond_with(ResponseTemplate::new(500))
+        .mount(&mock_server)
+        .await;
+
+    let inner: Arc<dyn GithubAccessChecker> = Arc::new(FixedIdsGithubAccessChecker {
+        ids: vec![repo_github_id],
+    });
+    let checker = CachedGithubAccessChecker::with_base_url(
+        inner,
+        pool.clone(),
+        Some(12345),
+        mock_server.uri(),
+    );
+
+    // Should return successfully despite API error (best-effort sync)
+    let result = checker.list_accessible_repo_ids(token).await.unwrap();
+    assert_eq!(result, Some(vec![repo_github_id]));
+
+    // Repo should NOT be in DB (sync failed gracefully)
+    let existing = boardflow_db::queries::repository::find_existing_github_ids(
+        &pool,
+        &[repo_github_id],
+    )
+    .await
+    .unwrap();
+    assert!(existing.is_empty());
+}
+
+// ─── Test helper: fixed IDs access checker ──────────────────────────────────
+
+/// Mock that returns a fixed set of repo IDs (simulating successful /user/repos)
+struct FixedIdsGithubAccessChecker {
+    ids: Vec<i64>,
+}
+
+#[async_trait::async_trait]
+impl GithubAccessChecker for FixedIdsGithubAccessChecker {
+    async fn check_access(&self, _token: &str, _owner: &str, _name: &str) -> boardflow_api::github_access::AccessResult {
+        boardflow_api::github_access::AccessResult::Allowed
+    }
+
+    async fn list_accessible_repo_ids(
+        &self,
+        _token: &str,
+    ) -> Result<Option<Vec<i64>>, AccessError> {
+        Ok(Some(self.ids.clone()))
+    }
 }

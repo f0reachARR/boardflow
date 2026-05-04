@@ -35,6 +35,7 @@ boardflow-config = { path = "../config" }
 http-body-util = "0.1"
 serial_test = { workspace = true }
 tower = { version = "0.5", features = ["util"] }
+wiremock = "0.6"
 sqlx = { workspace = true, features = [
     "runtime-tokio",
     "tls-rustls",

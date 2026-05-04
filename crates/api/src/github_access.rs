@@ -304,12 +304,15 @@ pub type DynGithubAccessChecker = Arc<dyn GithubAccessChecker>;
 
 // ─── Cached implementation ───────────────────────────────────────────────────
 
+const GITHUB_API_BASE_URL: &str = "https://api.github.com";
+
 /// Caching decorator that stores `list_accessible_repo_ids` results in PostgreSQL.
 /// Falls back to stale cache on rate-limit errors (stale-while-error).
 pub struct CachedGithubAccessChecker {
     inner: Arc<dyn GithubAccessChecker>,
     pool: sqlx::PgPool,
     github_app_id: Option<u64>,
+    github_api_base_url: String,
 }
 
 impl CachedGithubAccessChecker {
@@ -318,6 +321,7 @@ impl CachedGithubAccessChecker {
             inner: Arc::new(RealGithubAccessChecker::new()),
             pool,
             github_app_id,
+            github_api_base_url: GITHUB_API_BASE_URL.to_string(),
         }
     }
 
@@ -330,6 +334,23 @@ impl CachedGithubAccessChecker {
             inner,
             pool,
             github_app_id,
+            github_api_base_url: GITHUB_API_BASE_URL.to_string(),
+        }
+    }
+
+    /// Create a checker with a custom GitHub API base URL (for testing).
+    #[doc(hidden)]
+    pub fn with_base_url(
+        inner: Arc<dyn GithubAccessChecker>,
+        pool: sqlx::PgPool,
+        github_app_id: Option<u64>,
+        base_url: String,
+    ) -> Self {
+        Self {
+            inner,
+            pool,
+            github_app_id,
+            github_api_base_url: base_url,
         }
     }
 
@@ -623,7 +644,8 @@ impl CachedGithubAccessChecker {
 
         loop {
             let url = format!(
-                "https://api.github.com/user/installations?per_page=100&page={page}"
+                "{}/user/installations?per_page=100&page={page}",
+                self.github_api_base_url
             );
 
             let resp = client
@@ -668,7 +690,8 @@ impl CachedGithubAccessChecker {
 
         loop {
             let url = format!(
-                "https://api.github.com/user/installations/{installation_id}/repositories?per_page=100&page={page}"
+                "{}/user/installations/{installation_id}/repositories?per_page=100&page={page}",
+                self.github_api_base_url
             );
 
             let resp = client
