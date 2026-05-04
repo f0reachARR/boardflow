@@ -11,54 +11,57 @@ import {
   Portal,
   Text,
 } from '@chakra-ui/react';
+import { useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
-import { apiClient } from '@/lib/api/client';
+import { $api } from '@/lib/api/react-query';
 
 interface Props {
   repositoryId: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onCreated: () => void;
 }
 
-export function CreateTokenDialog({ repositoryId, open, onOpenChange, onCreated }: Props) {
+export function CreateTokenDialog({ repositoryId, open, onOpenChange }: Props) {
   const [name, setName] = useState('');
   const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
   const [createdToken, setCreatedToken] = useState<string | null>(null);
+  const queryClient = useQueryClient();
 
-  const handleCreate = async () => {
+  const { mutate, isPending } = $api.useMutation(
+    'post',
+    '/api/v1/repositories/{github_repository_id}/api-tokens',
+    {
+      onSuccess: (data) => {
+        if (!data?.token) {
+          setError('トークンの作成に失敗しました');
+          return;
+        }
+        setCreatedToken(data.token);
+        queryClient.invalidateQueries({
+          queryKey: ['get', '/api/v1/repositories/{github_repository_id}/api-tokens'],
+        });
+      },
+      onError: (err) => {
+        setError(err.error?.message ?? 'トークンの作成に失敗しました');
+      },
+    },
+  );
+
+  const handleCreate = () => {
     const trimmed = name.trim();
     if (trimmed.length < 1 || trimmed.length > 100) {
       setError('名前は1〜100文字で入力してください');
       return;
     }
     setError('');
-    setLoading(true);
-    const { data, error: apiError } = await apiClient.POST(
-      '/api/v1/repositories/{github_repository_id}/api-tokens',
-      {
-        params: { path: { github_repository_id: Number(repositoryId) } },
-        body: { name: trimmed },
-      },
-    );
-    setLoading(false);
-    if (apiError) {
-      setError(apiError.error.message);
-      return;
-    }
-    if (!data?.token) {
-      setError('トークンの作成に失敗しました');
-      return;
-    }
-    setCreatedToken(data.token);
+    mutate({
+      params: { path: { github_repository_id: Number(repositoryId) } },
+      body: { name: trimmed },
+    });
   };
 
   const handleClose = (open: boolean) => {
     if (!open) {
-      if (createdToken) {
-        onCreated();
-      }
       setName('');
       setError('');
       setCreatedToken(null);
@@ -70,8 +73,8 @@ export function CreateTokenDialog({ repositoryId, open, onOpenChange, onCreated 
     <Dialog.Root
       open={open}
       onOpenChange={(e) => handleClose(e.open)}
-      closeOnInteractOutside={!createdToken && !loading}
-      closeOnEscape={!createdToken && !loading}
+      closeOnInteractOutside={!createdToken && !isPending}
+      closeOnEscape={!createdToken && !isPending}
     >
       <Portal>
         <Dialog.Backdrop />
@@ -118,13 +121,13 @@ export function CreateTokenDialog({ repositoryId, open, onOpenChange, onCreated 
                 <Button onClick={() => handleClose(false)}>閉じる</Button>
               ) : (
                 <HStack>
-                  <Button variant='outline' onClick={() => handleClose(false)} disabled={loading}>
+                  <Button variant='outline' onClick={() => handleClose(false)} disabled={isPending}>
                     キャンセル
                   </Button>
                   <Button
                     colorPalette='blue'
                     onClick={handleCreate}
-                    loading={loading}
+                    loading={isPending}
                     disabled={!name.trim()}
                   >
                     作成
@@ -132,7 +135,7 @@ export function CreateTokenDialog({ repositoryId, open, onOpenChange, onCreated 
                 </HStack>
               )}
             </Dialog.Footer>
-            {!createdToken && !loading && <Dialog.CloseTrigger />}
+            {!createdToken && !isPending && <Dialog.CloseTrigger />}
           </Dialog.Content>
         </Dialog.Positioner>
       </Portal>

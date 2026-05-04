@@ -1,8 +1,10 @@
-import { Box, Heading, VStack } from '@chakra-ui/react';
-import { notFound } from 'next/navigation';
-import { TokenList } from '@/components/tokens/token-list';
-import { Breadcrumb } from '@/components/ui/breadcrumb';
+import { Box } from '@chakra-ui/react';
+import { dehydrate, HydrationBoundary } from '@tanstack/react-query';
+import { Suspense } from 'react';
+import { TokensPageContent } from '@/components/tokens/tokens-page-content';
+import { $api } from '@/lib/api/react-query';
 import { createServerClient } from '@/lib/api/server';
+import { getQueryClient } from '@/lib/query-client';
 
 interface Props {
   params: Promise<{ repositoryId: string }>;
@@ -10,46 +12,60 @@ interface Props {
 
 export default async function TokensPage({ params }: Props) {
   const { repositoryId } = await params;
-  const client = await createServerClient();
+  const queryClient = getQueryClient();
+  const serverClient = await createServerClient();
 
-  const [repoRes, tokensRes] = await Promise.all([
-    client.GET('/api/v1/repositories/{github_repository_id}', {
-      params: { path: { github_repository_id: Number(repositoryId) } },
-    }),
-    client.GET('/api/v1/repositories/{github_repository_id}/api-tokens', {
-      params: { path: { github_repository_id: Number(repositoryId) }, query: { limit: 50 } },
-    }),
-  ]);
+  const repoOptions = $api.queryOptions('get', '/api/v1/repositories/{github_repository_id}', {
+    params: { path: { github_repository_id: Number(repositoryId) } },
+  });
 
-  if (repoRes.error) {
-    notFound();
-  }
+  const tokensOptions = $api.queryOptions(
+    'get',
+    '/api/v1/repositories/{github_repository_id}/api-tokens',
+    {
+      params: {
+        path: { github_repository_id: Number(repositoryId) },
+        query: { limit: 50 },
+      },
+    },
+  );
 
-  const repo = repoRes.data;
-  const fetchError = tokensRes.error ? 'トークン一覧の取得に失敗しました' : undefined;
-  const tokens = tokensRes.data?.items ?? [];
-  const hasMore = tokensRes.data?.has_more ?? false;
-  const nextCursor = tokensRes.data?.next_cursor ?? null;
+  queryClient.prefetchQuery({
+    ...repoOptions,
+    queryFn: async () => {
+      const { data, error } = await serverClient.GET(
+        '/api/v1/repositories/{github_repository_id}',
+        {
+          params: { path: { github_repository_id: Number(repositoryId) } },
+        },
+      );
+      if (error) throw new Error('Failed to fetch repository');
+      return data;
+    },
+  });
+
+  queryClient.prefetchQuery({
+    ...tokensOptions,
+    queryFn: async () => {
+      const { data, error } = await serverClient.GET(
+        '/api/v1/repositories/{github_repository_id}/api-tokens',
+        {
+          params: {
+            path: { github_repository_id: Number(repositoryId) },
+            query: { limit: 50 },
+          },
+        },
+      );
+      if (error) throw new Error('Failed to fetch tokens');
+      return data;
+    },
+  });
 
   return (
-    <Box>
-      <Breadcrumb
-        items={[
-          { label: 'Repositories', href: '/repositories' },
-          { label: `${repo.owner}/${repo.name}`, href: `/repositories/${repositoryId}` },
-          { label: 'API Tokens' },
-        ]}
-      />
-      <VStack align='stretch' gap={6}>
-        <Heading size='lg'>API Tokens</Heading>
-        <TokenList
-          items={tokens}
-          repositoryId={repositoryId}
-          hasMore={hasMore}
-          nextCursor={nextCursor}
-          fetchError={fetchError}
-        />
-      </VStack>
-    </Box>
+    <HydrationBoundary state={dehydrate(queryClient)}>
+      <Suspense fallback={<Box>Loading...</Box>}>
+        <TokensPageContent repositoryId={repositoryId} />
+      </Suspense>
+    </HydrationBoundary>
   );
 }
