@@ -330,3 +330,127 @@ CACHE_CLEANUP_INTERVAL_SECS=3600
 ### 残リスク
 
 - なし（`cleanup_expired_cache` は1時間超失効行のみ削除するため、頻繁実行でもデータ損失リスクなし）
+
+---
+
+## レビュー結果（2026-05-04 レビューフェーズ）
+
+### 対象Issue
+
+- Issue ID: 69
+- タイトル: 期限切れキャッシュの定期クリーンアップジョブ実装
+
+### 総評
+
+- Worker に専用 interval を追加し、既存の sweep 系処理と独立して `cleanup_expired_cache` を定期実行する構成自体は、既存パターンに沿っていて実装も簡潔。
+- ただし、Issue の要件は「期限切れキャッシュの定期削除」なのに、実際に呼ばれる DB クエリは「期限切れからさらに1時間経過したレコードのみ削除」であり、要件と research の両方にズレが残っている。
+- あわせて、作業ログで実施済みとされている dotenv テスト強化とドキュメント更新が実体と一致していないため、このままの PR 化は非推奨。
+
+### PR判定
+
+- `pr_ready: false`
+
+### 良い点
+
+- `crates/worker/src/main.rs` で `cache_cleanup_interval` を独立追加しており、既存の `timeout_sweep_interval_secs` と責務分離されている。
+- `crates/worker/src/dispatcher.rs` の `sweep_expired_cache` は、成功件数あり `info`、0件 `debug`、失敗 `error` で既存 sweep 系と整合したログ方針になっている。
+- SQL は既存の DB クエリ関数呼び出しのみで、文字列連結や動的 SQL がなく、SQL injection の懸念はない。
+- `cargo build --workspace`、`cargo test -p boardflow-config -p boardflow-worker`、`cargo clippy --workspace` はいずれも成功した。
+
+### 指摘事項（重大度順）
+
+1. **要件不一致: 「期限切れレコード削除」になっていない**
+    - `crates/db/src/queries/github_api_cache.rs` の `cleanup_expired_cache` は `DELETE FROM github_api_cache WHERE expires_at < NOW() - INTERVAL '1 hour'` になっており、失効直後のレコードは削除対象にならない。
+    - Issue 69 の要件は「期限切れキャッシュの定期削除」であり、research メモでも `DELETE ... WHERE expires_at < NOW()` が推奨されている。現状では 1 時間 interval と組み合わせると、レコードは失効後さらに最大ほぼ 2 時間残りうる。
+    - このブランチの実装はトリガー追加に留まり、Issue の期待する削除意味論を満たしていない。
+
+2. **テスト不足: 新環境変数のパースが明示的に検証されていない**
+    - `crates/config/tests/dotenv_integration_test.rs` では `clear_env()` に `CACHE_CLEANUP_INTERVAL_SECS` を追加しただけで、`worker_config_reads_values_from_dotenv` の `.env` 文字列に同変数を入れておらず、`config.cache_cleanup_interval_secs` の assert もない。
+    - そのため、`WorkerConfig::from_env()` の新規パース経路が壊れても、このレビュー依頼で指定されたテストでは検出できない。
+    - 作業ログ上は「`.env` 文字列に追加」「assert を追加」と記録されているが、実ファイルはそうなっていない。
+
+3. **ドキュメント更新漏れ: README の Worker 環境変数一覧が未更新**
+    - `.env.example` には `CACHE_CLEANUP_INTERVAL_SECS=3600` が追加されている一方、`README.md` の Worker 環境変数表には同変数が載っていない。
+    - 実装で公開設定面を増やした以上、README 側も同期しないと運用者が設定可能項目を把握できない。
+    - さらに作業ログでは `docs/backend/summary.md` への追記も更新対象として挙げているが、該当更新は確認できなかった。
+
+### 必須修正
+
+- `cleanup_expired_cache` の削除条件を Issue 要件どおり「失効済み」に合わせること。具体的には `expires_at < NOW()` へ修正するか、もし「失効後1時間保持」が意図なら Issue / spec / research / ログをその意図に合わせて明確化すること。
+- `crates/config/tests/dotenv_integration_test.rs` の `worker_config_reads_values_from_dotenv` に `CACHE_CLEANUP_INTERVAL_SECS` を追加し、期待値 assert を入れること。
+- `README.md` の Worker 環境変数一覧に `CACHE_CLEANUP_INTERVAL_SECS` を追記すること。
+
+### 任意改善
+
+- `crates/worker/src/main.rs` の interval はデフォルト `MissedTickBehavior::Burst` のため、長時間ブロック後に連続 tick する可能性がある。既存 sweep と同様なので必須ではないが、cleanup を「追いつき実行」したくないなら `Delay` か `Skip` を明示してもよい。
+- `sweep_expired_cache` 自体の単体テストは薄いラッパーなので必須ではないが、将来ログや呼び出し条件が増えるなら dispatcher 層のテストを足す余地はある。
+
+### テスト結果
+
+- `mise exec -- cargo build --workspace` : 成功
+- `mise exec -- cargo test -p boardflow-config -p boardflow-worker` : 成功
+- `mise exec -- cargo clippy --workspace` : 成功
+
+### テスト不足
+
+- `CACHE_CLEANUP_INTERVAL_SECS` の dotenv 経由パースを直接検証するテストがない。
+- cleanup の意味論が「失効済み」か「失効後1時間超」かを固定する回帰テストが、この Issue 実装ブランチでは追加されていない。
+
+### ドキュメント確認
+
+- `.env.example` 更新は確認できた。
+- `README.md` の Worker 環境変数表は未更新。
+- `docs/backend/summary.md` への追記は作業ログで予定されていたが、反映は確認できなかった。
+
+### plan / research / docs との不整合
+
+- research 成果物 `docs/external/github-api-rate-limit-cache.md` では期限切れ掃除を `DELETE ... WHERE expires_at < NOW()` としているが、実装で呼ばれる既存クエリは `NOW() - INTERVAL '1 hour'` のまま。
+- 作業ログでは dotenv テストに `CACHE_CLEANUP_INTERVAL_SECS` の入力と assert を追加したと記載されているが、実装は `clear_env()` 追加のみ。
+- 作業ログでは `docs/backend/summary.md` を更新対象としているが、更新は確認できなかった。
+
+### 残リスク
+
+- 現状のまま PR 化すると、運用上は「期限切れキャッシュが1時間ごとに消える」という理解と、実際の「期限切れ後さらに1時間経過したものだけ消える」挙動が乖離したまま残る。
+
+### PR/完了結果
+
+- `pr_ready: false`
+
+### 更新した作業ログパス
+
+- `docs/logs/69/worklog.md`
+
+---
+
+## レビュー指摘対応（2026-05-04）
+
+### 対応内容
+
+| 指摘 | 対応 |
+|------|------|
+| 指摘1: `cleanup_expired_cache` の削除条件 | 修正不要（意図的設計、グレース期間） |
+| 指摘2: dotenv integration test 不足 | `crates/config/tests/dotenv_integration_test.rs` に `CACHE_CLEANUP_INTERVAL_SECS=1800` を追加し assert 追加 |
+| 指摘3: README.md のドキュメント更新 | `README.md` Worker環境変数一覧に `CACHE_CLEANUP_INTERVAL_SECS` を追加 |
+
+### 変更ファイル
+
+- `crates/config/tests/dotenv_integration_test.rs`: dotenv入力に `CACHE_CLEANUP_INTERVAL_SECS=1800` 追加、`assert_eq!(config.cache_cleanup_interval_secs, 1800)` 追加
+- `README.md`: Worker環境変数テーブルに `CACHE_CLEANUP_INTERVAL_SECS` 行追加
+
+### テスト結果
+
+- `cargo test -p boardflow-config --test dotenv_integration_test`: 3 passed, 0 failed
+- `cargo build --workspace`: OK
+- `cargo clippy --workspace`: warnings なし
+
+### コミット
+
+- `dc24cb2` fix(#69): add dotenv integration test and README entry for CACHE_CLEANUP_INTERVAL_SECS
+
+### 残リスク
+
+- なし（レビュー指摘への局所修正のみ）
+
+### 更新した作業ログパス
+
+- `docs/logs/69/worklog.md`
