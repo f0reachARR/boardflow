@@ -32,6 +32,19 @@
 | `GITHUB_PRIVATE_KEY_PEM` | No | GitHub App RSA秘密鍵(PEM)。未設定時はGitHub APIジョブをスキップ |
 | `BOARDFLOW_APP_DOMAIN` | No | SaaSベースURL (default: `https://boardflow.example.com`)。後方互換として `APP_BASE_URL` も使用可 |
 
+## GitHub OAuth App 設定
+
+OAuth 認証は Next.js rewrites 経由でフロントエンドドメインを callback 先に使用します。GitHub OAuth App の **Authorization callback URL** は `BOARDFLOW_APP_DOMAIN` と一致させてください。
+
+| 環境 | Callback URL 例 |
+|------|----------------|
+| 開発環境 | `http://localhost:3000/api/v1/auth/callback` |
+| 本番環境 | `https://app.boardflow.example.com/api/v1/auth/callback` |
+
+- Callback URL のホスト・ポートは `BOARDFLOW_APP_DOMAIN` と完全一致が必要です
+- この仕組みは Next.js の `rewrites()` で `/api/v1/*` をバックエンド API にプロキシしていることが前提です
+- `BOARDFLOW_APP_DOMAIN` が `https://` の場合、Cookie に `Secure` フラグが自動付与されます
+
 ## Frontend ローカル開発
 
 バックエンドAPI起動には `DATABASE_URL` 等の環境変数が必要です。`docker-compose.yml` で依存サービスを起動し、ルートディレクトリに `.env` を用意してください。

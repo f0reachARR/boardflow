@@ -286,3 +286,55 @@ fix(auth): add redirect_uri to OAuth flow and conditional Secure cookie flag
 - GitHub OAuth App の callback URL 設定が現在 API ドメイン向きの場合、手動変更が必要
 - 開発環境（HTTP）と本番環境（HTTPS）での Cookie Secure フラグの挙動差異
 - `BOARDFLOW_APP_DOMAIN` 末尾スラッシュの統一が未確認
+
+## レビュー結果
+
+### 2026-05-04: Review phase
+
+#### 総評
+
+- 実装方針そのものは妥当。`state` cookie と query `state` の照合は維持されており、`redirect_uri` を authorize と token exchange の双方に渡している点も外部調査と整合する。
+- 一方で、この修正は GitHub OAuth App 側の callback URL をフロントエンドドメインへ変更して初めて成立するが、その運用手順が README / 恒久ドキュメントへ反映されていない。
+- また、追加テストは `login` ハンドラに偏っており、`callback` / `logout` 側の今回変更した経路を自動検証できていない。
+
+#### 判定
+
+- `pr_ready: false`
+
+#### 指摘事項
+
+1. **major**: 運用上必須の GitHub OAuth App callback URL 変更がドキュメント化されていない。調査と計画では `redirect_uri` 方式の成立条件として GitHub OAuth App の callback URL をフロントエンドドメインへ変更する必要があると明記されているが、README 等の利用者向けドキュメントには反映がない。この状態だとコードをデプロイしても OAuth App 設定が旧 API ドメインのまま残り、Issue の不具合が再現し続ける可能性が高い。
+2. **minor**: `BOARDFLOW_APP_DOMAIN` の空文字・不正値を受け入れてしまう。`optional_env_or()` は未設定時のみデフォルトへフォールバックし、空文字はそのまま通すため、`auth.rs` 側では `redirect_uri=/api/v1/auth/callback` のような無効値を組み立てうる。Issue のレビュー観点に含まれている空ドメインのエッジケースが未解消。
+3. **minor**: テスト追加は `login` の Location / cookie に限定され、今回変更した `callback` の token exchange `redirect_uri`、callback 成功時 cookie の `Secure` 条件、`logout` の `Secure` 条件が未検証。受け入れ条件では callback 側の `redirect_uri` 付与も明示されているため、回帰検知として不足がある。
+
+#### 必須修正
+
+1. GitHub OAuth App の callback URL をフロントエンドドメインへ変更する必要があることを README か運用ドキュメントへ追記する。少なくとも開発環境・本番環境の設定例と、`BOARDFLOW_APP_DOMAIN` と一致させる必要がある旨を明記する。
+2. `BOARDFLOW_APP_DOMAIN` が空文字または絶対 URL でない場合に起動時またはルータ構築時に失敗させる。最低限、空文字をデフォルト扱いにするか、明示的な設定エラーにする。
+3. `callback` / `logout` の今回変更箇所を対象にしたテストを追加する。少なくとも token exchange に `redirect_uri` が渡ること、HTTPS 時の session/clear cookie に `Secure` が付くこと、logout cookie でも同条件が適用されることを確認する。
+
+#### 任意改善
+
+1. `app_domain.trim_end_matches('/')` 済みの値から `Secure` 判定も行い、URL 正規化ロジックを一箇所へ寄せる。
+2. `BOARDFLOW_APP_DOMAIN` を URL 型で保持する helper を追加し、scheme / host の妥当性を config crate 側で共通化する。
+
+#### テスト不足
+
+1. GitHub token exchange リクエストに `redirect_uri` が含まれることの確認
+2. callback 成功時の `boardflow_session` / `boardflow_oauth_state` / `boardflow_redirect_to` cookie の `Secure` 条件確認
+3. `logout` の cookie clear に対する HTTPS / HTTP 分岐確認
+4. `BOARDFLOW_APP_DOMAIN` 空文字・不正 URL の異常系確認
+
+#### ドキュメント確認
+
+- research メモと worklog では callback URL 手動変更の必要性が明記されている
+- README / 利用者向け恒久ドキュメントにはその運用手順が見当たらない
+
+#### PR/完了結果
+
+- レビュー時点では PR 作成非推奨 (`pr_ready: false`)
+
+#### 残リスク
+
+- GitHub OAuth App 設定が環境ごとにズレると、本修正コードが入っていても state mismatch ではなく callback mismatch として障害化する
+- 現状テストだけでは callback / logout 側の将来回帰を捕捉しにくい

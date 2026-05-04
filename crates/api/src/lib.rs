@@ -87,10 +87,14 @@ pub fn create_app_with_config(
             .unwrap_or_else(|| optional_env_or("MINIO_BUCKET_STAGING", "boardflow-staging")),
     );
 
-    let domain = AppDomain(
-        app_domain
-            .unwrap_or_else(|| optional_env_or("BOARDFLOW_APP_DOMAIN", "http://localhost:3000")),
-    );
+    let domain_str = app_domain
+        .unwrap_or_else(|| optional_env_or("BOARDFLOW_APP_DOMAIN", "http://localhost:3000"));
+    let domain_str = if domain_str.is_empty() {
+        "http://localhost:3000".to_string()
+    } else {
+        domain_str
+    };
+    let domain = AppDomain(domain_str);
 
     let base_url = ArtifactBaseUrl(artifact_base_url.unwrap_or_else(|| {
         optional_env_or("BOARDFLOW_ARTIFACT_BASE_URL", "http://localhost:8080")

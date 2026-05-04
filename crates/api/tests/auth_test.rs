@@ -155,7 +155,7 @@ fn request_id_clone() {
 
 use axum::Extension;
 use boardflow_api::AppDomain;
-use boardflow_api::routes::auth::{OAuthConfig, login};
+use boardflow_api::routes::auth::{OAuthConfig, cookie_secure_flag, login};
 
 fn login_app() -> Router {
     login_app_with_domain("http://localhost:3000")
@@ -474,6 +474,65 @@ async fn test_login_http_domain_no_secure_cookie() {
     assert!(
         !oauth_cookie.contains("Secure"),
         "HTTP domain should NOT set Secure flag on cookie, got: {}",
+        oauth_cookie
+    );
+}
+
+// ─── cookie_secure_flag helper tests (integration-level) ────────────────────
+
+#[test]
+fn test_cookie_secure_flag_https_returns_secure() {
+    assert_eq!(cookie_secure_flag("https://app.boardflow.dev"), "; Secure");
+}
+
+#[test]
+fn test_cookie_secure_flag_http_returns_empty() {
+    assert_eq!(cookie_secure_flag("http://localhost:3000"), "");
+}
+
+#[test]
+fn test_cookie_secure_flag_empty_domain_returns_empty() {
+    assert_eq!(cookie_secure_flag(""), "");
+}
+
+// ─── AppDomain empty string fallback test ───────────────────────────────────
+
+#[tokio::test]
+#[serial]
+async fn test_login_empty_app_domain_fallback() {
+    // When AppDomain is empty, the app_domain construction in lib.rs should have fallen back
+    // to default. But even if empty string reaches the handler, it should not crash.
+    let app = login_app_with_domain("");
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/auth/login")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // Should still redirect (302) even with empty domain
+    assert_eq!(response.status(), StatusCode::FOUND);
+
+    let cookies: Vec<&str> = response
+        .headers()
+        .get_all(axum::http::header::SET_COOKIE)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .collect();
+
+    // Empty domain is HTTP-like, so Secure flag should not be present
+    let oauth_cookie = cookies
+        .iter()
+        .find(|c| c.starts_with("boardflow_oauth_state="))
+        .expect("oauth_state cookie should be set");
+
+    assert!(
+        !oauth_cookie.contains("Secure"),
+        "Empty domain should NOT set Secure flag, got: {}",
         oauth_cookie
     );
 }

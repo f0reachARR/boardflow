@@ -50,11 +50,7 @@ pub async fn login(
         urlencoding::encode(&redirect_uri)
     );
 
-    let secure_flag = if app_domain.starts_with("https://") {
-        "; Secure"
-    } else {
-        ""
-    };
+    let secure_flag = cookie_secure_flag(&app_domain);
 
     let oauth_state_cookie = format!(
         "boardflow_oauth_state={}; Path=/; HttpOnly; SameSite=Lax; Max-Age=300{}",
@@ -207,11 +203,7 @@ pub async fn callback(
         .to_owned();
 
     // Set session cookie, clear oauth_state cookie and redirect_to cookie
-    let secure_flag = if app_domain.starts_with("https://") {
-        "; Secure"
-    } else {
-        ""
-    };
+    let secure_flag = cookie_secure_flag(&app_domain);
 
     let session_cookie = format!(
         "boardflow_session={}; Path=/; HttpOnly; SameSite=Lax; Max-Age=604800{}",
@@ -261,11 +253,7 @@ pub async fn logout(
             AppError::internal_error("database error", &request_id)
         })?;
 
-    let secure_flag = if app_domain.starts_with("https://") {
-        "; Secure"
-    } else {
-        ""
-    };
+    let secure_flag = cookie_secure_flag(&app_domain);
     let cookie = format!(
         "boardflow_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0{}",
         secure_flag
@@ -322,6 +310,16 @@ fn extract_cookie_value(headers: &HeaderMap, name: &str) -> Option<String> {
                 None
             }
         })
+}
+
+/// Determine the Secure flag string for cookies based on the app domain scheme.
+/// Returns "; Secure" for HTTPS domains, empty string for HTTP.
+pub fn cookie_secure_flag(app_domain: &str) -> &'static str {
+    if app_domain.starts_with("https://") {
+        "; Secure"
+    } else {
+        ""
+    }
 }
 
 /// Validate that a redirect path is a safe relative path.
@@ -442,5 +440,33 @@ mod tests {
         assert_eq!(validate_redirect_path("/foo\nbar"), None);
         // Space
         assert_eq!(validate_redirect_path("/foo bar"), None);
+    }
+
+    // ─── cookie_secure_flag tests ───────────────────────────────────────────
+
+    #[test]
+    fn test_cookie_secure_flag_https() {
+        assert_eq!(cookie_secure_flag("https://app.boardflow.dev"), "; Secure");
+        assert_eq!(
+            cookie_secure_flag("https://boardflow.example.com"),
+            "; Secure"
+        );
+    }
+
+    #[test]
+    fn test_cookie_secure_flag_http() {
+        assert_eq!(cookie_secure_flag("http://localhost:3000"), "");
+        assert_eq!(cookie_secure_flag("http://127.0.0.1:8080"), "");
+    }
+
+    #[test]
+    fn test_cookie_secure_flag_empty_string() {
+        assert_eq!(cookie_secure_flag(""), "");
+    }
+
+    #[test]
+    fn test_cookie_secure_flag_no_scheme() {
+        assert_eq!(cookie_secure_flag("localhost:3000"), "");
+        assert_eq!(cookie_secure_flag("app.boardflow.dev"), "");
     }
 }
