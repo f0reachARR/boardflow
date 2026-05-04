@@ -16,11 +16,7 @@ export function middleware(request: NextRequest) {
   }
 
   // Public paths always accessible (no session check for /login to prevent redirect loop)
-  if (
-    PUBLIC_PATHS.some(
-      (p) => pathname === p || pathname.startsWith(`${p}/`),
-    )
-  ) {
+  if (PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`))) {
     return NextResponse.next();
   }
 

@@ -4,1799 +4,1810 @@
  */
 
 export interface paths {
-    "/api/v1/auth/callback": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["callback"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
+  '/api/v1/auth/callback': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    "/api/v1/auth/login": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["login"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
+    get: operations['callback'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/auth/login': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    "/api/v1/auth/logout": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["logout"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
+    get: operations['login'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/auth/logout': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    "/api/v1/auth/me": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["me"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
+    get?: never;
+    put?: never;
+    post: operations['logout'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/auth/me': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    "/api/v1/board-projects/{board_project_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["get_board_project"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
+    get: operations['me'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/board-projects/{board_project_id}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    "/api/v1/board-projects/{board_project_id}/board-runs": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["list_board_runs"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
+    get: operations['get_board_project'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/board-projects/{board_project_id}/board-runs': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    "/api/v1/board-runs": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["create_board_run"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
+    get: operations['list_board_runs'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/board-runs': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    "/api/v1/board-runs/{board_run_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["get_board_run"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
+    get?: never;
+    put?: never;
+    post: operations['create_board_run'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/board-runs/{board_run_id}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    "/api/v1/board-runs/{board_run_id}/artifact-bundles/import": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["import_artifact_bundle"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
+    get: operations['get_board_run'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/board-runs/{board_run_id}/artifact-bundles/import': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    "/api/v1/board-runs/{board_run_id}/artifacts": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["list_artifacts"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
+    get?: never;
+    put?: never;
+    post: operations['import_artifact_bundle'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/board-runs/{board_run_id}/artifacts': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    "/api/v1/board-runs/{board_run_id}/checks/{check_kind}/findings": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["list_findings"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
+    get: operations['list_artifacts'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/board-runs/{board_run_id}/checks/{check_kind}/findings': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    "/api/v1/board-runs/{board_run_id}/diff": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["get_board_run_diff"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
+    get: operations['list_findings'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/board-runs/{board_run_id}/diff': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    "/api/v1/board-runs/{board_run_id}/fail": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["fail_board_run"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
+    get: operations['get_board_run_diff'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/board-runs/{board_run_id}/fail': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    "/api/v1/board-runs/{board_run_id}/viewer-sources": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["get_viewer_sources"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
+    get?: never;
+    put?: never;
+    post: operations['fail_board_run'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/board-runs/{board_run_id}/viewer-sources': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    "/api/v1/repositories": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["list_repositories"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
+    get: operations['get_viewer_sources'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/repositories': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    "/api/v1/repositories/{github_repository_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["get_repository"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
+    get: operations['list_repositories'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/repositories/{github_repository_id}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    "/api/v1/repositories/{github_repository_id}/api-tokens": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["list_api_tokens"];
-        put?: never;
-        post: operations["create_api_token"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
+    get: operations['get_repository'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/repositories/{github_repository_id}/api-tokens': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    "/api/v1/repositories/{github_repository_id}/api-tokens/{token_id}/revoke": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["revoke_api_token"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
+    get: operations['list_api_tokens'];
+    put?: never;
+    post: operations['create_api_token'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/repositories/{github_repository_id}/api-tokens/{token_id}/revoke': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    "/api/v1/repositories/{github_repository_id}/board-projects": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["list_board_projects"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
+    get?: never;
+    put?: never;
+    post: operations['revoke_api_token'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/repositories/{github_repository_id}/board-projects': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    "/api/v1/runs/plan": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["plan_run"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
+    get: operations['list_board_projects'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/runs/plan': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    "/healthz": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["healthz"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
+    get?: never;
+    put?: never;
+    post: operations['plan_run'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/healthz': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
+    get: operations['healthz'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
 }
 export type webhooks = Record<string, never>;
 export interface components {
-    schemas: {
-        ApiTokenDetailResponse: {
-            created_at: string;
-            id: string;
-            last_used_at?: string | null;
-            name: string;
-            revoked_at?: string | null;
-        };
-        ApiTokenListItem: {
-            created_at: string;
-            id: string;
-            last_used_at?: string | null;
-            name: string;
-            revoked_at?: string | null;
-        };
-        ApiTokenListResponse: {
-            has_more: boolean;
-            items: components["schemas"]["ApiTokenListItem"][];
-            next_cursor?: string | null;
-        };
-        ArtifactBundleInfo: {
-            expires_at: string;
-            method: string;
-            object_key: string;
-            upload_mode: string;
-            upload_url: string;
-        };
-        ArtifactListItem: {
-            artifact_id?: string | null;
-            content_type?: string | null;
-            created_at?: string | null;
-            filename?: string | null;
-            logical_name?: string | null;
-            sha256?: string | null;
-            /** Format: int64 */
-            size_bytes?: number | null;
-            source_path?: string | null;
-            status: string;
-            status_reason?: string | null;
-            type: string;
-        };
-        ArtifactListResponse: {
-            items: components["schemas"]["ArtifactListItem"][];
-        };
-        ArtifactSummary: {
-            /** Format: int64 */
-            available: number;
-            /** Format: int64 */
-            failed: number;
-            /** Format: int64 */
-            missing: number;
-            /** Format: int64 */
-            skipped: number;
-        };
-        BoardProjectDetailResponse: {
-            board_project_id: string;
-            created_at: string;
-            display_name: string;
-            /** Format: int32 */
-            issue_number?: number | null;
-            issue_url?: string | null;
-            latest_completed_run_id?: string | null;
-            latest_tree_hash?: string | null;
-            project_dir: string;
-            project_path: string;
-            recreate_issue_on_update: boolean;
-            repository: components["schemas"]["RepositoryRef"];
-            state: string;
-            updated_at: string;
-        };
-        BoardProjectListItem: {
-            board_project_id: string;
-            display_name: string;
-            issue_url?: string | null;
-            latest_completed_run_id?: string | null;
-            latest_tree_hash?: string | null;
-            project_dir: string;
-            project_path: string;
-            state: string;
-            updated_at: string;
-        };
-        BoardRunDetailResponse: {
-            artifact_summary: components["schemas"]["ArtifactSummary"];
-            board_project_id: string;
-            board_run_id: string;
-            branch: string;
-            checks: components["schemas"]["CheckInfo"][];
-            commit_sha: string;
-            completed_at?: string | null;
-            created_at: string;
-            github_run_attempt: string;
-            github_run_id: string;
-            ref: string;
-            status: string;
-            tree_hash?: string | null;
-        };
-        BoardRunDiffResponse: {
-            base_board_run_id?: string | null;
-            board_run_id: string;
-            created_at: string;
-            error_message?: string | null;
-            metadata?: null | components["schemas"]["DiffMetadataResponse"];
-            status: string;
-            summary?: unknown;
-        };
-        BoardRunListItem: {
-            board_run_id: string;
-            branch: string;
-            commit_sha: string;
-            completed_at?: string | null;
-            created_at: string;
-            /** Format: int32 */
-            drc_errors: number;
-            drc_status?: string | null;
-            /** Format: int32 */
-            drc_warnings: number;
-            /** Format: int32 */
-            erc_errors: number;
-            erc_status?: string | null;
-            /** Format: int32 */
-            erc_warnings: number;
-            github_run_attempt: string;
-            github_run_id: string;
-            ref: string;
-            status: string;
-            tree_hash?: string | null;
-        };
-        CheckInfo: {
-            /** Format: int32 */
-            error_count: number;
-            kind: string;
-            /** Format: int32 */
-            notice_count: number;
-            status: string;
-            /** Format: int32 */
-            warning_count: number;
-        };
-        CoordinateMmResponse: {
-            /** Format: double */
-            x: number;
-            /** Format: double */
-            y: number;
-        };
-        CreateApiTokenRequest: {
-            name: string;
-        };
-        CreateApiTokenResponse: {
-            created_at: string;
-            id: string;
-            name: string;
-            token: string;
-        };
-        CreateBoardRunRequest: {
-            board_project_id: string;
-            branch: string;
-            commit_sha: string;
-            github_run_attempt: string;
-            github_run_id: string;
-            project_path: string;
-            ref: string;
-            tree_hash: string;
-        };
-        CreateBoardRunResponse: {
-            artifact_bundle?: null | components["schemas"]["ArtifactBundleInfo"];
-            board_run_id: string;
-            status: string;
-        };
-        DiffMetadataResponse: {
-            artifacts_summary?: unknown;
-            bom_summary?: unknown;
-            checks_summary?: unknown;
-            file_hashes?: unknown;
-            previews?: unknown;
-        };
-        ErrorBody: {
-            code: string;
-            details?: unknown;
-            message: string;
-            request_id: string;
-        };
-        ErrorResponse: {
-            error: components["schemas"]["ErrorBody"];
-        };
-        FailBoardRunRequest: {
-            error: components["schemas"]["FailErrorInfo"];
-            status: string;
-        };
-        FailBoardRunResponse: {
-            board_run_id: string;
-            failed_at: string;
-            status: string;
-        };
-        FailErrorInfo: {
-            details?: unknown;
-            message: string;
-        };
-        FindingListItem: {
-            id: string;
-            message?: string | null;
-            pcb_layer?: string | null;
-            pos_mm?: null | components["schemas"]["CoordinateMmResponse"];
-            rule_code?: string | null;
-            severity: string;
-            sheet_path?: string | null;
-            subject_kind?: string | null;
-            subject_ref?: string | null;
-            title?: string | null;
-        };
-        HealthResponse: {
-            status: string;
-        };
-        ImportArtifactBundleRequest: {
-            bundle_sha256: string;
-            /** Format: int64 */
-            bundle_size_bytes: number;
-            staging_object_key: string;
-        };
-        ImportArtifactBundleResponse: {
-            bundle_id: string;
-            status: string;
-        };
-        MeResponse: {
-            github_avatar_url?: string | null;
-            github_login: string;
-            user_id: string;
-        };
-        PaginatedResponse_BoardProjectListItem: {
-            has_more: boolean;
-            items: {
-                board_project_id: string;
-                display_name: string;
-                issue_url?: string | null;
-                latest_completed_run_id?: string | null;
-                latest_tree_hash?: string | null;
-                project_dir: string;
-                project_path: string;
-                state: string;
-                updated_at: string;
-            }[];
-            next_cursor?: string | null;
-        };
-        PaginatedResponse_BoardRunListItem: {
-            has_more: boolean;
-            items: {
-                board_run_id: string;
-                branch: string;
-                commit_sha: string;
-                completed_at?: string | null;
-                created_at: string;
-                /** Format: int32 */
-                drc_errors: number;
-                drc_status?: string | null;
-                /** Format: int32 */
-                drc_warnings: number;
-                /** Format: int32 */
-                erc_errors: number;
-                erc_status?: string | null;
-                /** Format: int32 */
-                erc_warnings: number;
-                github_run_attempt: string;
-                github_run_id: string;
-                ref: string;
-                status: string;
-                tree_hash?: string | null;
-            }[];
-            next_cursor?: string | null;
-        };
-        PaginatedResponse_FindingListItem: {
-            has_more: boolean;
-            items: {
-                id: string;
-                message?: string | null;
-                pcb_layer?: string | null;
-                pos_mm?: null | components["schemas"]["CoordinateMmResponse"];
-                rule_code?: string | null;
-                severity: string;
-                sheet_path?: string | null;
-                subject_kind?: string | null;
-                subject_ref?: string | null;
-                title?: string | null;
-            }[];
-            next_cursor?: string | null;
-        };
-        PaginatedResponse_RepositoryListItem: {
-            has_more: boolean;
-            items: {
-                /** Format: int64 */
-                board_project_count: number;
-                github_repository_id: string;
-                installation_id: string;
-                latest_run_status?: string | null;
-                name: string;
-                owner: string;
-                updated_at: string;
-            }[];
-            next_cursor?: string | null;
-        };
-        PlanActionInput: {
-            run_attempt: string;
-            run_id: string;
-            workflow: string;
-        };
-        /** @enum {string} */
-        PlanDecision: "build" | "skip" | "error";
-        PlanGitInput: {
-            branch: string;
-            commit_sha: string;
-            event_name: string;
-            ref: string;
-        };
-        /** @enum {string} */
-        PlanMode: "auto" | "all";
-        PlanProjectFile: {
-            path: string;
-            sha256: string;
-        };
-        PlanProjectInput: {
-            config_path: string;
-            files: components["schemas"]["PlanProjectFile"][];
-            project_dir: string;
-            project_path: string;
-            tree_hash: string;
-        };
-        PlanProjectOutput: {
-            board_project_id: string;
-            decision: components["schemas"]["PlanDecision"];
-            latest_completed_run_id?: string | null;
-            project_path: string;
-            reason: components["schemas"]["PlanReason"];
-        };
-        /** @enum {string} */
-        PlanReason: "new_project" | "hash_changed" | "config_changed" | "manual_dispatch" | "unchanged" | "previous_failed" | "no_previous_snapshot" | "duplicate_project_path" | "invalid_project_path" | "invalid_tree_hash" | "invalid_config_path";
-        PlanRepositoryInput: {
-            github_repository_id: string;
-            name: string;
-            owner: string;
-        };
-        PlanRepositoryOutput: {
-            github_repository_id: string;
-            name: string;
-            owner: string;
-        };
-        PlanRequest: {
-            action: components["schemas"]["PlanActionInput"];
-            git: components["schemas"]["PlanGitInput"];
-            mode: components["schemas"]["PlanMode"];
-            projects: components["schemas"]["PlanProjectInput"][];
-            repository: components["schemas"]["PlanRepositoryInput"];
-        };
-        PlanResponse: {
-            projects: components["schemas"]["PlanProjectOutput"][];
-            repository: components["schemas"]["PlanRepositoryOutput"];
-        };
-        RepositoryDetailResponse: {
-            /** Format: int64 */
-            board_project_count: number;
-            created_at: string;
-            github_repository_id: string;
-            html_url: string;
-            installation_id: string;
-            name: string;
-            owner: string;
-            updated_at: string;
-        };
-        RepositoryListItem: {
-            /** Format: int64 */
-            board_project_count: number;
-            github_repository_id: string;
-            installation_id: string;
-            latest_run_status?: string | null;
-            name: string;
-            owner: string;
-            updated_at: string;
-        };
-        RepositoryRef: {
-            github_repository_id: string;
-            name: string;
-            owner: string;
-        };
-        ViewerDownload: {
-            artifact_id?: string | null;
-            artifact_type: string;
-            status: string;
-            status_reason?: string | null;
-            url?: string | null;
-        };
-        ViewerMap: {
-            bom: components["schemas"]["ViewerStatus"];
-            fabrication: components["schemas"]["ViewerStatus"];
-            ibom: components["schemas"]["ViewerStatus"];
-            kicanvas: components["schemas"]["ViewerStatus"];
-            pcb_preview: components["schemas"]["ViewerStatus"];
-            schematic: components["schemas"]["ViewerStatus"];
-        };
-        ViewerSource: {
-            artifact_id?: string | null;
-            artifact_type?: string | null;
-            kind?: string | null;
-            name?: string | null;
-            source_path?: string | null;
-            url?: string | null;
-        };
-        ViewerSourcesResponse: {
-            board_run_id: string;
-            expires_at: string;
-            viewers: components["schemas"]["ViewerMap"];
-        };
-        ViewerStatus: {
-            downloads?: components["schemas"]["ViewerDownload"][] | null;
-            iframe_url?: string | null;
-            primary?: null | components["schemas"]["ViewerSource"];
-            sources?: components["schemas"]["ViewerSource"][] | null;
-            status: string;
-        };
+  schemas: {
+    ApiTokenDetailResponse: {
+      created_at: string;
+      id: string;
+      last_used_at?: string | null;
+      name: string;
+      revoked_at?: string | null;
     };
-    responses: never;
-    parameters: never;
-    requestBodies: never;
-    headers: never;
-    pathItems: never;
+    ApiTokenListItem: {
+      created_at: string;
+      id: string;
+      last_used_at?: string | null;
+      name: string;
+      revoked_at?: string | null;
+    };
+    ApiTokenListResponse: {
+      has_more: boolean;
+      items: components['schemas']['ApiTokenListItem'][];
+      next_cursor?: string | null;
+    };
+    ArtifactBundleInfo: {
+      expires_at: string;
+      method: string;
+      object_key: string;
+      upload_mode: string;
+      upload_url: string;
+    };
+    ArtifactListItem: {
+      artifact_id?: string | null;
+      content_type?: string | null;
+      created_at?: string | null;
+      filename?: string | null;
+      logical_name?: string | null;
+      sha256?: string | null;
+      /** Format: int64 */
+      size_bytes?: number | null;
+      source_path?: string | null;
+      status: string;
+      status_reason?: string | null;
+      type: string;
+    };
+    ArtifactListResponse: {
+      items: components['schemas']['ArtifactListItem'][];
+    };
+    ArtifactSummary: {
+      /** Format: int64 */
+      available: number;
+      /** Format: int64 */
+      failed: number;
+      /** Format: int64 */
+      missing: number;
+      /** Format: int64 */
+      skipped: number;
+    };
+    BoardProjectDetailResponse: {
+      board_project_id: string;
+      created_at: string;
+      display_name: string;
+      /** Format: int32 */
+      issue_number?: number | null;
+      issue_url?: string | null;
+      latest_completed_run_id?: string | null;
+      latest_tree_hash?: string | null;
+      project_dir: string;
+      project_path: string;
+      recreate_issue_on_update: boolean;
+      repository: components['schemas']['RepositoryRef'];
+      state: string;
+      updated_at: string;
+    };
+    BoardProjectListItem: {
+      board_project_id: string;
+      display_name: string;
+      issue_url?: string | null;
+      latest_completed_run_id?: string | null;
+      latest_tree_hash?: string | null;
+      project_dir: string;
+      project_path: string;
+      state: string;
+      updated_at: string;
+    };
+    BoardRunDetailResponse: {
+      artifact_summary: components['schemas']['ArtifactSummary'];
+      board_project_id: string;
+      board_run_id: string;
+      branch: string;
+      checks: components['schemas']['CheckInfo'][];
+      commit_sha: string;
+      completed_at?: string | null;
+      created_at: string;
+      github_run_attempt: string;
+      github_run_id: string;
+      ref: string;
+      status: string;
+      tree_hash?: string | null;
+    };
+    BoardRunDiffResponse: {
+      base_board_run_id?: string | null;
+      board_run_id: string;
+      created_at: string;
+      error_message?: string | null;
+      metadata?: null | components['schemas']['DiffMetadataResponse'];
+      status: string;
+      summary?: unknown;
+    };
+    BoardRunListItem: {
+      board_run_id: string;
+      branch: string;
+      commit_sha: string;
+      completed_at?: string | null;
+      created_at: string;
+      /** Format: int32 */
+      drc_errors: number;
+      drc_status?: string | null;
+      /** Format: int32 */
+      drc_warnings: number;
+      /** Format: int32 */
+      erc_errors: number;
+      erc_status?: string | null;
+      /** Format: int32 */
+      erc_warnings: number;
+      github_run_attempt: string;
+      github_run_id: string;
+      ref: string;
+      status: string;
+      tree_hash?: string | null;
+    };
+    CheckInfo: {
+      /** Format: int32 */
+      error_count: number;
+      kind: string;
+      /** Format: int32 */
+      notice_count: number;
+      status: string;
+      /** Format: int32 */
+      warning_count: number;
+    };
+    CoordinateMmResponse: {
+      /** Format: double */
+      x: number;
+      /** Format: double */
+      y: number;
+    };
+    CreateApiTokenRequest: {
+      name: string;
+    };
+    CreateApiTokenResponse: {
+      created_at: string;
+      id: string;
+      name: string;
+      token: string;
+    };
+    CreateBoardRunRequest: {
+      board_project_id: string;
+      branch: string;
+      commit_sha: string;
+      github_run_attempt: string;
+      github_run_id: string;
+      project_path: string;
+      ref: string;
+      tree_hash: string;
+    };
+    CreateBoardRunResponse: {
+      artifact_bundle?: null | components['schemas']['ArtifactBundleInfo'];
+      board_run_id: string;
+      status: string;
+    };
+    DiffMetadataResponse: {
+      artifacts_summary?: unknown;
+      bom_summary?: unknown;
+      checks_summary?: unknown;
+      file_hashes?: unknown;
+      previews?: unknown;
+    };
+    ErrorBody: {
+      code: string;
+      details?: unknown;
+      message: string;
+      request_id: string;
+    };
+    ErrorResponse: {
+      error: components['schemas']['ErrorBody'];
+    };
+    FailBoardRunRequest: {
+      error: components['schemas']['FailErrorInfo'];
+      status: string;
+    };
+    FailBoardRunResponse: {
+      board_run_id: string;
+      failed_at: string;
+      status: string;
+    };
+    FailErrorInfo: {
+      details?: unknown;
+      message: string;
+    };
+    FindingListItem: {
+      id: string;
+      message?: string | null;
+      pcb_layer?: string | null;
+      pos_mm?: null | components['schemas']['CoordinateMmResponse'];
+      rule_code?: string | null;
+      severity: string;
+      sheet_path?: string | null;
+      subject_kind?: string | null;
+      subject_ref?: string | null;
+      title?: string | null;
+    };
+    HealthResponse: {
+      status: string;
+    };
+    ImportArtifactBundleRequest: {
+      bundle_sha256: string;
+      /** Format: int64 */
+      bundle_size_bytes: number;
+      staging_object_key: string;
+    };
+    ImportArtifactBundleResponse: {
+      bundle_id: string;
+      status: string;
+    };
+    MeResponse: {
+      github_avatar_url?: string | null;
+      github_login: string;
+      user_id: string;
+    };
+    PaginatedResponse_BoardProjectListItem: {
+      has_more: boolean;
+      items: {
+        board_project_id: string;
+        display_name: string;
+        issue_url?: string | null;
+        latest_completed_run_id?: string | null;
+        latest_tree_hash?: string | null;
+        project_dir: string;
+        project_path: string;
+        state: string;
+        updated_at: string;
+      }[];
+      next_cursor?: string | null;
+    };
+    PaginatedResponse_BoardRunListItem: {
+      has_more: boolean;
+      items: {
+        board_run_id: string;
+        branch: string;
+        commit_sha: string;
+        completed_at?: string | null;
+        created_at: string;
+        /** Format: int32 */
+        drc_errors: number;
+        drc_status?: string | null;
+        /** Format: int32 */
+        drc_warnings: number;
+        /** Format: int32 */
+        erc_errors: number;
+        erc_status?: string | null;
+        /** Format: int32 */
+        erc_warnings: number;
+        github_run_attempt: string;
+        github_run_id: string;
+        ref: string;
+        status: string;
+        tree_hash?: string | null;
+      }[];
+      next_cursor?: string | null;
+    };
+    PaginatedResponse_FindingListItem: {
+      has_more: boolean;
+      items: {
+        id: string;
+        message?: string | null;
+        pcb_layer?: string | null;
+        pos_mm?: null | components['schemas']['CoordinateMmResponse'];
+        rule_code?: string | null;
+        severity: string;
+        sheet_path?: string | null;
+        subject_kind?: string | null;
+        subject_ref?: string | null;
+        title?: string | null;
+      }[];
+      next_cursor?: string | null;
+    };
+    PaginatedResponse_RepositoryListItem: {
+      has_more: boolean;
+      items: {
+        /** Format: int64 */
+        board_project_count: number;
+        github_repository_id: string;
+        installation_id: string;
+        latest_run_status?: string | null;
+        name: string;
+        owner: string;
+        updated_at: string;
+      }[];
+      next_cursor?: string | null;
+    };
+    PlanActionInput: {
+      run_attempt: string;
+      run_id: string;
+      workflow: string;
+    };
+    /** @enum {string} */
+    PlanDecision: 'build' | 'skip' | 'error';
+    PlanGitInput: {
+      branch: string;
+      commit_sha: string;
+      event_name: string;
+      ref: string;
+    };
+    /** @enum {string} */
+    PlanMode: 'auto' | 'all';
+    PlanProjectFile: {
+      path: string;
+      sha256: string;
+    };
+    PlanProjectInput: {
+      config_path: string;
+      files: components['schemas']['PlanProjectFile'][];
+      project_dir: string;
+      project_path: string;
+      tree_hash: string;
+    };
+    PlanProjectOutput: {
+      board_project_id: string;
+      decision: components['schemas']['PlanDecision'];
+      latest_completed_run_id?: string | null;
+      project_path: string;
+      reason: components['schemas']['PlanReason'];
+    };
+    /** @enum {string} */
+    PlanReason:
+      | 'new_project'
+      | 'hash_changed'
+      | 'config_changed'
+      | 'manual_dispatch'
+      | 'unchanged'
+      | 'previous_failed'
+      | 'no_previous_snapshot'
+      | 'duplicate_project_path'
+      | 'invalid_project_path'
+      | 'invalid_tree_hash'
+      | 'invalid_config_path';
+    PlanRepositoryInput: {
+      github_repository_id: string;
+      name: string;
+      owner: string;
+    };
+    PlanRepositoryOutput: {
+      github_repository_id: string;
+      name: string;
+      owner: string;
+    };
+    PlanRequest: {
+      action: components['schemas']['PlanActionInput'];
+      git: components['schemas']['PlanGitInput'];
+      mode: components['schemas']['PlanMode'];
+      projects: components['schemas']['PlanProjectInput'][];
+      repository: components['schemas']['PlanRepositoryInput'];
+    };
+    PlanResponse: {
+      projects: components['schemas']['PlanProjectOutput'][];
+      repository: components['schemas']['PlanRepositoryOutput'];
+    };
+    RepositoryDetailResponse: {
+      /** Format: int64 */
+      board_project_count: number;
+      created_at: string;
+      github_repository_id: string;
+      html_url: string;
+      installation_id: string;
+      name: string;
+      owner: string;
+      updated_at: string;
+    };
+    RepositoryListItem: {
+      /** Format: int64 */
+      board_project_count: number;
+      github_repository_id: string;
+      installation_id: string;
+      latest_run_status?: string | null;
+      name: string;
+      owner: string;
+      updated_at: string;
+    };
+    RepositoryRef: {
+      github_repository_id: string;
+      name: string;
+      owner: string;
+    };
+    ViewerDownload: {
+      artifact_id?: string | null;
+      artifact_type: string;
+      status: string;
+      status_reason?: string | null;
+      url?: string | null;
+    };
+    ViewerMap: {
+      bom: components['schemas']['ViewerStatus'];
+      fabrication: components['schemas']['ViewerStatus'];
+      ibom: components['schemas']['ViewerStatus'];
+      kicanvas: components['schemas']['ViewerStatus'];
+      pcb_preview: components['schemas']['ViewerStatus'];
+      schematic: components['schemas']['ViewerStatus'];
+    };
+    ViewerSource: {
+      artifact_id?: string | null;
+      artifact_type?: string | null;
+      kind?: string | null;
+      name?: string | null;
+      source_path?: string | null;
+      url?: string | null;
+    };
+    ViewerSourcesResponse: {
+      board_run_id: string;
+      expires_at: string;
+      viewers: components['schemas']['ViewerMap'];
+    };
+    ViewerStatus: {
+      downloads?: components['schemas']['ViewerDownload'][] | null;
+      iframe_url?: string | null;
+      primary?: null | components['schemas']['ViewerSource'];
+      sources?: components['schemas']['ViewerSource'][] | null;
+      status: string;
+    };
+  };
+  responses: never;
+  parameters: never;
+  requestBodies: never;
+  headers: never;
+  pathItems: never;
 }
 export type $defs = Record<string, never>;
 export interface operations {
-    callback: {
-        parameters: {
-            query: {
-                code: string;
-                state?: string | null;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Redirect after successful OAuth */
-            302: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description OAuth failed */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description CSRF state mismatch */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
+  callback: {
+    parameters: {
+      query: {
+        code: string;
+        state?: string | null;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    login: {
-        parameters: {
-            query?: {
-                redirect_to?: string | null;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
+    requestBody?: never;
+    responses: {
+      /** @description Redirect after successful OAuth */
+      302: {
+        headers: {
+          [name: string]: unknown;
         };
-        requestBody?: never;
-        responses: {
-            /** @description Redirect to GitHub OAuth */
-            302: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
+        content?: never;
+      };
+      /** @description OAuth failed */
+      401: {
+        headers: {
+          [name: string]: unknown;
         };
+        content?: never;
+      };
+      /** @description CSRF state mismatch */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
     };
-    logout: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Logged out */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Unauthorized */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
+  };
+  login: {
+    parameters: {
+      query?: {
+        redirect_to?: string | null;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    me: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
+    requestBody?: never;
+    responses: {
+      /** @description Redirect to GitHub OAuth */
+      302: {
+        headers: {
+          [name: string]: unknown;
         };
-        requestBody?: never;
-        responses: {
-            /** @description Current user info */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["MeResponse"];
-                };
-            };
-            /** @description Unauthorized */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
+        content?: never;
+      };
     };
-    get_board_project: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description BoardProject ID (bp_ prefix) */
-                board_project_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description BoardProject detail */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["BoardProjectDetailResponse"];
-                };
-            };
-            /** @description Unauthorized */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
+  };
+  logout: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    list_board_runs: {
-        parameters: {
-            query?: {
-                limit?: number | null;
-                cursor?: string | null;
-            };
-            header?: never;
-            path: {
-                /** @description BoardProject ID (bp_ prefix) */
-                board_project_id: string;
-            };
-            cookie?: never;
+    requestBody?: never;
+    responses: {
+      /** @description Logged out */
+      200: {
+        headers: {
+          [name: string]: unknown;
         };
-        requestBody?: never;
-        responses: {
-            /** @description BoardRun list */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PaginatedResponse_BoardRunListItem"];
-                };
-            };
-            /** @description Unauthorized */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
+        content?: never;
+      };
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown;
         };
+        content?: never;
+      };
     };
-    create_board_run: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CreateBoardRunRequest"];
-            };
-        };
-        responses: {
-            /** @description Board run created or existing returned */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CreateBoardRunResponse"];
-                };
-            };
-            /** @description Validation error */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Unauthorized */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Forbidden */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Internal error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
+  };
+  me: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    get_board_run: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description BoardRun ID (br_ prefix) */
-                board_run_id: string;
-            };
-            cookie?: never;
+    requestBody?: never;
+    responses: {
+      /** @description Current user info */
+      200: {
+        headers: {
+          [name: string]: unknown;
         };
-        requestBody?: never;
-        responses: {
-            /** @description BoardRun detail */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["BoardRunDetailResponse"];
-                };
-            };
-            /** @description Unauthorized */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
+        content: {
+          'application/json': components['schemas']['MeResponse'];
         };
+      };
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
     };
-    import_artifact_bundle: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Board run ID with br_ prefix */
-                board_run_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ImportArtifactBundleRequest"];
-            };
-        };
-        responses: {
-            /** @description Import queued or existing returned */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ImportArtifactBundleResponse"];
-                };
-            };
-            /** @description Validation error */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Unauthorized */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Forbidden */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Conflict */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Gone */
-            410: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Internal error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
+  };
+  get_board_project: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description BoardProject ID (bp_ prefix) */
+        board_project_id: string;
+      };
+      cookie?: never;
     };
-    list_artifacts: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description BoardRun ID (br_ prefix) */
-                board_run_id: string;
-            };
-            cookie?: never;
+    requestBody?: never;
+    responses: {
+      /** @description BoardProject detail */
+      200: {
+        headers: {
+          [name: string]: unknown;
         };
-        requestBody?: never;
-        responses: {
-            /** @description Artifact list */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ArtifactListResponse"];
-                };
-            };
-            /** @description Unauthorized */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
+        content: {
+          'application/json': components['schemas']['BoardProjectDetailResponse'];
         };
+      };
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorResponse'];
+        };
+      };
+      /** @description Not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorResponse'];
+        };
+      };
     };
-    list_findings: {
-        parameters: {
-            query?: {
-                limit?: number | null;
-                cursor?: string | null;
-                severity?: string | null;
-            };
-            header?: never;
-            path: {
-                /** @description BoardRun ID (br_ prefix) */
-                board_run_id: string;
-                /** @description Check kind: erc or drc */
-                check_kind: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Findings list */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PaginatedResponse_FindingListItem"];
-                };
-            };
-            /** @description Validation error */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Unauthorized */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
+  };
+  list_board_runs: {
+    parameters: {
+      query?: {
+        limit?: number | null;
+        cursor?: string | null;
+      };
+      header?: never;
+      path: {
+        /** @description BoardProject ID (bp_ prefix) */
+        board_project_id: string;
+      };
+      cookie?: never;
     };
-    get_board_run_diff: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Board run ID (br_<uuid>) */
-                board_run_id: string;
-            };
-            cookie?: never;
+    requestBody?: never;
+    responses: {
+      /** @description BoardRun list */
+      200: {
+        headers: {
+          [name: string]: unknown;
         };
-        requestBody?: never;
-        responses: {
-            /** @description Diff details */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["BoardRunDiffResponse"];
-                };
-            };
-            /** @description Validation error */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Unauthorized */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
+        content: {
+          'application/json': components['schemas']['PaginatedResponse_BoardRunListItem'];
         };
+      };
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorResponse'];
+        };
+      };
+      /** @description Not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorResponse'];
+        };
+      };
     };
-    fail_board_run: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Board run ID with br_ prefix */
-                board_run_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["FailBoardRunRequest"];
-            };
-        };
-        responses: {
-            /** @description Board run marked as failed */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["FailBoardRunResponse"];
-                };
-            };
-            /** @description Validation error */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Unauthorized */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Forbidden */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Conflict */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Gone */
-            410: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Internal error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
+  };
+  create_board_run: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    get_viewer_sources: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description BoardRun ID (br_ prefix) */
-                board_run_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Viewer sources */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ViewerSourcesResponse"];
-                };
-            };
-            /** @description Unauthorized */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['CreateBoardRunRequest'];
+      };
     };
-    list_repositories: {
-        parameters: {
-            query?: {
-                limit?: number | null;
-                cursor?: string | null;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
+    responses: {
+      /** @description Board run created or existing returned */
+      200: {
+        headers: {
+          [name: string]: unknown;
         };
-        requestBody?: never;
-        responses: {
-            /** @description Repository list */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PaginatedResponse_RepositoryListItem"];
-                };
-            };
-            /** @description Validation error */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Unauthorized */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
+        content: {
+          'application/json': components['schemas']['CreateBoardRunResponse'];
         };
+      };
+      /** @description Validation error */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorResponse'];
+        };
+      };
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorResponse'];
+        };
+      };
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorResponse'];
+        };
+      };
+      /** @description Internal error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorResponse'];
+        };
+      };
     };
-    get_repository: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description GitHub repository ID */
-                github_repository_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Repository detail */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["RepositoryDetailResponse"];
-                };
-            };
-            /** @description Unauthorized */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
+  };
+  get_board_run: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description BoardRun ID (br_ prefix) */
+        board_run_id: string;
+      };
+      cookie?: never;
     };
-    list_api_tokens: {
-        parameters: {
-            query?: {
-                limit?: number | null;
-                cursor?: string | null;
-            };
-            header?: never;
-            path: {
-                /** @description GitHub repository ID */
-                github_repository_id: number;
-            };
-            cookie?: never;
+    requestBody?: never;
+    responses: {
+      /** @description BoardRun detail */
+      200: {
+        headers: {
+          [name: string]: unknown;
         };
-        requestBody?: never;
-        responses: {
-            /** @description Token list */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiTokenListResponse"];
-                };
-            };
-            /** @description Validation error */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Unauthorized */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
+        content: {
+          'application/json': components['schemas']['BoardRunDetailResponse'];
         };
+      };
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorResponse'];
+        };
+      };
+      /** @description Not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorResponse'];
+        };
+      };
     };
-    create_api_token: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description GitHub repository ID */
-                github_repository_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CreateApiTokenRequest"];
-            };
-        };
-        responses: {
-            /** @description Token created */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CreateApiTokenResponse"];
-                };
-            };
-            /** @description Validation error */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Unauthorized */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
+  };
+  import_artifact_bundle: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Board run ID with br_ prefix */
+        board_run_id: string;
+      };
+      cookie?: never;
     };
-    revoke_api_token: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description GitHub repository ID */
-                github_repository_id: number;
-                /** @description API token ID */
-                token_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Token revoked */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiTokenDetailResponse"];
-                };
-            };
-            /** @description Validation error */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Unauthorized */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['ImportArtifactBundleRequest'];
+      };
     };
-    list_board_projects: {
-        parameters: {
-            query?: {
-                limit?: number | null;
-                cursor?: string | null;
-            };
-            header?: never;
-            path: {
-                /** @description GitHub repository ID */
-                github_repository_id: number;
-            };
-            cookie?: never;
+    responses: {
+      /** @description Import queued or existing returned */
+      200: {
+        headers: {
+          [name: string]: unknown;
         };
-        requestBody?: never;
-        responses: {
-            /** @description BoardProject list */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PaginatedResponse_BoardProjectListItem"];
-                };
-            };
-            /** @description Unauthorized */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
+        content: {
+          'application/json': components['schemas']['ImportArtifactBundleResponse'];
         };
+      };
+      /** @description Validation error */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorResponse'];
+        };
+      };
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorResponse'];
+        };
+      };
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorResponse'];
+        };
+      };
+      /** @description Not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorResponse'];
+        };
+      };
+      /** @description Conflict */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorResponse'];
+        };
+      };
+      /** @description Gone */
+      410: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorResponse'];
+        };
+      };
+      /** @description Internal error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorResponse'];
+        };
+      };
     };
-    plan_run: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["PlanRequest"];
-            };
-        };
-        responses: {
-            /** @description Plan decisions */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PlanResponse"];
-                };
-            };
-            /** @description Validation error */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Unauthorized */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Forbidden */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Internal error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
+  };
+  list_artifacts: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description BoardRun ID (br_ prefix) */
+        board_run_id: string;
+      };
+      cookie?: never;
     };
-    healthz: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
+    requestBody?: never;
+    responses: {
+      /** @description Artifact list */
+      200: {
+        headers: {
+          [name: string]: unknown;
         };
-        requestBody?: never;
-        responses: {
-            /** @description Service is healthy */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HealthResponse"];
-                };
-            };
-            /** @description Service is unhealthy */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
+        content: {
+          'application/json': components['schemas']['ArtifactListResponse'];
         };
+      };
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorResponse'];
+        };
+      };
+      /** @description Not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorResponse'];
+        };
+      };
     };
+  };
+  list_findings: {
+    parameters: {
+      query?: {
+        limit?: number | null;
+        cursor?: string | null;
+        severity?: string | null;
+      };
+      header?: never;
+      path: {
+        /** @description BoardRun ID (br_ prefix) */
+        board_run_id: string;
+        /** @description Check kind: erc or drc */
+        check_kind: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Findings list */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['PaginatedResponse_FindingListItem'];
+        };
+      };
+      /** @description Validation error */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorResponse'];
+        };
+      };
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorResponse'];
+        };
+      };
+      /** @description Not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorResponse'];
+        };
+      };
+    };
+  };
+  get_board_run_diff: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Board run ID (br_<uuid>) */
+        board_run_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Diff details */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['BoardRunDiffResponse'];
+        };
+      };
+      /** @description Validation error */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorResponse'];
+        };
+      };
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorResponse'];
+        };
+      };
+      /** @description Not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorResponse'];
+        };
+      };
+    };
+  };
+  fail_board_run: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Board run ID with br_ prefix */
+        board_run_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['FailBoardRunRequest'];
+      };
+    };
+    responses: {
+      /** @description Board run marked as failed */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['FailBoardRunResponse'];
+        };
+      };
+      /** @description Validation error */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorResponse'];
+        };
+      };
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorResponse'];
+        };
+      };
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorResponse'];
+        };
+      };
+      /** @description Not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorResponse'];
+        };
+      };
+      /** @description Conflict */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorResponse'];
+        };
+      };
+      /** @description Gone */
+      410: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorResponse'];
+        };
+      };
+      /** @description Internal error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorResponse'];
+        };
+      };
+    };
+  };
+  get_viewer_sources: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description BoardRun ID (br_ prefix) */
+        board_run_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Viewer sources */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ViewerSourcesResponse'];
+        };
+      };
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorResponse'];
+        };
+      };
+      /** @description Not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorResponse'];
+        };
+      };
+    };
+  };
+  list_repositories: {
+    parameters: {
+      query?: {
+        limit?: number | null;
+        cursor?: string | null;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Repository list */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['PaginatedResponse_RepositoryListItem'];
+        };
+      };
+      /** @description Validation error */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorResponse'];
+        };
+      };
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorResponse'];
+        };
+      };
+    };
+  };
+  get_repository: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description GitHub repository ID */
+        github_repository_id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Repository detail */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['RepositoryDetailResponse'];
+        };
+      };
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorResponse'];
+        };
+      };
+      /** @description Not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorResponse'];
+        };
+      };
+    };
+  };
+  list_api_tokens: {
+    parameters: {
+      query?: {
+        limit?: number | null;
+        cursor?: string | null;
+      };
+      header?: never;
+      path: {
+        /** @description GitHub repository ID */
+        github_repository_id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Token list */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ApiTokenListResponse'];
+        };
+      };
+      /** @description Validation error */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorResponse'];
+        };
+      };
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorResponse'];
+        };
+      };
+      /** @description Not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorResponse'];
+        };
+      };
+    };
+  };
+  create_api_token: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description GitHub repository ID */
+        github_repository_id: number;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['CreateApiTokenRequest'];
+      };
+    };
+    responses: {
+      /** @description Token created */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['CreateApiTokenResponse'];
+        };
+      };
+      /** @description Validation error */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorResponse'];
+        };
+      };
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorResponse'];
+        };
+      };
+      /** @description Not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorResponse'];
+        };
+      };
+    };
+  };
+  revoke_api_token: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description GitHub repository ID */
+        github_repository_id: number;
+        /** @description API token ID */
+        token_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Token revoked */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ApiTokenDetailResponse'];
+        };
+      };
+      /** @description Validation error */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorResponse'];
+        };
+      };
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorResponse'];
+        };
+      };
+      /** @description Not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorResponse'];
+        };
+      };
+    };
+  };
+  list_board_projects: {
+    parameters: {
+      query?: {
+        limit?: number | null;
+        cursor?: string | null;
+      };
+      header?: never;
+      path: {
+        /** @description GitHub repository ID */
+        github_repository_id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description BoardProject list */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['PaginatedResponse_BoardProjectListItem'];
+        };
+      };
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorResponse'];
+        };
+      };
+      /** @description Not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorResponse'];
+        };
+      };
+    };
+  };
+  plan_run: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['PlanRequest'];
+      };
+    };
+    responses: {
+      /** @description Plan decisions */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['PlanResponse'];
+        };
+      };
+      /** @description Validation error */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorResponse'];
+        };
+      };
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorResponse'];
+        };
+      };
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorResponse'];
+        };
+      };
+      /** @description Internal error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorResponse'];
+        };
+      };
+    };
+  };
+  healthz: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Service is healthy */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['HealthResponse'];
+        };
+      };
+      /** @description Service is unhealthy */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
 }
