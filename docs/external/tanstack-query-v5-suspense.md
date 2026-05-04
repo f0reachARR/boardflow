@@ -188,6 +188,7 @@ TanStack Query 公式ドキュメントは「prefetch on routing callbacks」を
 `ReactQueryStreamedHydration` を使うと、prefetch なしで Client Component の `useSuspenseQuery` だけで streaming SSR が実現できるパッケージ。
 
 **BoardFlow では不採用（既存判断を踏襲）:**
+
 - DX は良いが、ページナビゲーション時にリクエストウォーターフォールが発生
 - 公式でも prefetch パターンを推奨
 - 既存の `docs/external/tanstack-query-nextjs-app-router.md` で不採用判断済み
@@ -235,7 +236,7 @@ Server Component (page.tsx)
 ```tsx
 // app/repositories/error.tsx
 'use client'
-export default function Error({ error, reset }) {
+export default function ErrorPage({ error, reset }) {
   return (
     <div>
       <p>データの読み込みに失敗しました</p>
@@ -276,6 +277,6 @@ BoardFlow では Next.js の `error.tsx` + `useQueryErrorResetBoundary` フッ�
 
 ## 参照URL
 
-- https://tanstack.com/query/v5/docs/framework/react/guides/suspense （公式 Suspense ガイド）
-- https://tanstack.com/query/v5/docs/framework/react/guides/advanced-ssr （公式 Advanced SSR ガイド）
-- https://tanstack.com/query/v5/docs/framework/react/reference/useSuspenseQuery （API リファレンス）
+- <https://tanstack.com/query/v5/docs/framework/react/guides/suspense> （公式 Suspense ガイド）
+- <https://tanstack.com/query/v5/docs/framework/react/guides/advanced-ssr> （公式 Advanced SSR ガイド）
+- <https://tanstack.com/query/v5/docs/framework/react/reference/useSuspenseQuery> （API リファレンス）

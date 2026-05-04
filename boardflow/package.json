@@ -6,7 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint",
+    "lint": "next lint && biome check",
     "typecheck": "tsc --noEmit",
     "generate:api": "openapi-typescript http://localhost:3000/api/v1/openapi.json -o ./src/lib/api/schema.d.ts"
   },
@@ -23,6 +23,7 @@
     "react-dom": "^19"
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.4.14",
     "@eslint/eslintrc": "^3.3.5",
     "@types/node": "^20",
     "@types/react": "^19",

@@ -1,5 +1,5 @@
-import { BoardProjectDetailSkeleton } from "@/components/skeletons/board-project-detail-skeleton"
+import { BoardProjectDetailSkeleton } from '@/components/skeletons/board-project-detail-skeleton';
 
 export default function Loading() {
-  return <BoardProjectDetailSkeleton />
+  return <BoardProjectDetailSkeleton />;
 }

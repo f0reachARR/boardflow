@@ -1,3 +1,32 @@
 {
-    "ROS2.distro": "jazzy"
+    "biome.enabled": true,
+    "eslint.enable": false,
+    "editor.codeActionsOnSave": {
+        "quickfix.biome": "always",
+        "source.organizeImports.biome": "always"
+    },
+    "[typescript]": {
+        "editor.defaultFormatter": "biomejs.biome"
+    },
+    "[javascript]": {
+        "editor.defaultFormatter": "biomejs.biome"
+    },
+    "[typescriptreact]": {
+        "editor.defaultFormatter": "biomejs.biome"
+    },
+    "[json]": {
+        "editor.defaultFormatter": "biomejs.biome"
+    },
+    "[jsonc]": {
+        "editor.defaultFormatter": "biomejs.biome"
+    },
+    "[css]": {
+        "editor.defaultFormatter": "esbenp.prettier-vscode"
+    },
+    "editor.formatOnSave": true,
+    "css.lint.unknownAtRules": "ignore",
+    "ROS2.distro": "jazzy",
+    "chat.tools.terminal.autoApprove": {
+        "gh": true
+    }
 }

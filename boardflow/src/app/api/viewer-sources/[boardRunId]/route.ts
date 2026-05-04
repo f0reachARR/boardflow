@@ -1,16 +1,16 @@
-import { NextRequest, NextResponse } from "next/server"
+import { type NextRequest, NextResponse } from 'next/server';
 
-const API_BASE_URL = process.env.API_BASE_URL ?? "http://localhost:3000"
+const API_BASE_URL = process.env.API_BASE_URL ?? 'http://localhost:3000';
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: Promise<{ boardRunId: string }> }
+  { params }: { params: Promise<{ boardRunId: string }> },
 ) {
-  const { boardRunId } = await params
-  const session = request.cookies.get("boardflow_session")
+  const { boardRunId } = await params;
+  const session = request.cookies.get('boardflow_session');
 
   if (!session) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
   const res = await fetch(
@@ -19,17 +19,16 @@ export async function GET(
       headers: {
         Cookie: `boardflow_session=${session.value}`,
       },
-    }
-  )
+    },
+  );
 
-  const data = await res.json().catch(() => null)
+  const data = await res.json().catch(() => null);
 
   if (!res.ok) {
-    return NextResponse.json(
-      data ?? { error: "Failed to fetch viewer sources" },
-      { status: res.status }
-    )
+    return NextResponse.json(data ?? { error: 'Failed to fetch viewer sources' }, {
+      status: res.status,
+    });
   }
 
-  return NextResponse.json(data)
+  return NextResponse.json(data);
 }

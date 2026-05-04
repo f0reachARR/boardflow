@@ -3,23 +3,23 @@
  * Import component schema types from here instead of accessing
  * components["schemas"]["..."] directly.
  */
-import type { components } from "./schema"
+import type { components } from './schema';
 
-export type ApiToken = components["schemas"]["ApiTokenListItem"]
-export type Artifact = components["schemas"]["ArtifactListItem"]
-export type DiffResponse = components["schemas"]["BoardRunDiffResponse"]
-export type ViewerDownload = components["schemas"]["ViewerDownload"]
-export type ViewerEntry = components["schemas"]["ViewerStatus"]
-export type ViewerSource = components["schemas"]["ViewerSource"]
-export type ViewerSourcesResponse = components["schemas"]["ViewerSourcesResponse"]
+export type ApiToken = components['schemas']['ApiTokenListItem'];
+export type Artifact = components['schemas']['ArtifactListItem'];
+export type DiffResponse = components['schemas']['BoardRunDiffResponse'];
+export type ViewerDownload = components['schemas']['ViewerDownload'];
+export type ViewerEntry = components['schemas']['ViewerStatus'];
+export type ViewerSource = components['schemas']['ViewerSource'];
+export type ViewerSourcesResponse = components['schemas']['ViewerSourcesResponse'];
 
 /**
  * Frontend-defined shape for diff summary (backend returns as unknown JSON).
  * Fields are validated at runtime with type guards before access.
  */
 export interface DiffSummary {
-  file_changes?: unknown
-  bom_changes?: unknown
-  checks?: unknown
-  artifacts?: unknown
+  file_changes?: unknown;
+  bom_changes?: unknown;
+  checks?: unknown;
+  artifacts?: unknown;
 }

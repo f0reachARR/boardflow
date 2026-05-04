@@ -1,7 +1,13 @@
-"use client"
+"use client";
 
-import { ErrorUI } from "@/components/error-boundary"
+import { ErrorUI } from "@/components/error-boundary";
 
-export default function Error({ error, reset }: { error: Error & { digest?: string }; reset: () => void }) {
-  return <ErrorUI error={error} reset={reset} />
+export default function ErrorPage({
+  error,
+  reset,
+}: {
+  error: Error & { digest?: string };
+  reset: () => void;
+}) {
+  return <ErrorUI error={error} reset={reset} />;
 }

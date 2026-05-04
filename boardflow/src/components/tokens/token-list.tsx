@@ -1,49 +1,53 @@
-"use client"
+'use client';
 
-import { useState } from "react"
-import { Badge, Box, Button, HStack, Table, Text } from "@chakra-ui/react"
-import { useRouter } from "next/navigation"
-import type { ApiToken } from "@/lib/api/schema-types"
-import { CreateTokenDialog } from "./create-token-dialog"
-import { RevokeTokenDialog } from "./revoke-token-dialog"
+import { Badge, Box, Button, HStack, Table, Text } from '@chakra-ui/react';
+import { useRouter } from 'next/navigation';
+import { useState } from 'react';
+import type { ApiToken } from '@/lib/api/schema-types';
+import { CreateTokenDialog } from './create-token-dialog';
+import { RevokeTokenDialog } from './revoke-token-dialog';
 
 interface Props {
-  items: ApiToken[]
-  repositoryId: string
-  hasMore: boolean
-  nextCursor: string | null
-  fetchError?: string
+  items: ApiToken[];
+  repositoryId: string;
+  hasMore: boolean;
+  nextCursor: string | null;
+  fetchError?: string;
 }
 
 export function TokenList({ items, repositoryId, fetchError }: Props) {
-  const router = useRouter()
-  const [createOpen, setCreateOpen] = useState(false)
-  const [revokeTarget, setRevokeTarget] = useState<ApiToken | null>(null)
+  const router = useRouter();
+  const [createOpen, setCreateOpen] = useState(false);
+  const [revokeTarget, setRevokeTarget] = useState<ApiToken | null>(null);
 
   const handleCreated = () => {
-    router.refresh()
-  }
+    router.refresh();
+  };
 
   const handleRevoked = () => {
-    router.refresh()
-  }
+    router.refresh();
+  };
 
   return (
     <Box>
-      <HStack justify="space-between" mb={4}>
-        {!fetchError && <Text fontSize="sm" color="gray.600">{items.length} tokens</Text>}
+      <HStack justify='space-between' mb={4}>
+        {!fetchError && (
+          <Text fontSize='sm' color='gray.600'>
+            {items.length} tokens
+          </Text>
+        )}
         {fetchError && <Box />}
-        <Button colorPalette="blue" size="sm" onClick={() => setCreateOpen(true)}>
+        <Button colorPalette='blue' size='sm' onClick={() => setCreateOpen(true)}>
           新しいトークンを作成
         </Button>
       </HStack>
 
       {fetchError ? (
-        <Text color="red.500">{fetchError}</Text>
+        <Text color='red.500'>{fetchError}</Text>
       ) : items.length === 0 ? (
-        <Text color="gray.500">APIトークンはまだありません。</Text>
+        <Text color='gray.500'>APIトークンはまだありません。</Text>
       ) : (
-        <Table.Root size="sm" variant="outline">
+        <Table.Root size='sm' variant='outline'>
           <Table.Header>
             <Table.Row>
               <Table.ColumnHeader>Name</Table.ColumnHeader>
@@ -56,32 +60,30 @@ export function TokenList({ items, repositoryId, fetchError }: Props) {
           <Table.Body>
             {items.map((token) => (
               <Table.Row key={token.id}>
-                <Table.Cell fontWeight="medium">{token.name}</Table.Cell>
+                <Table.Cell fontWeight='medium'>{token.name}</Table.Cell>
                 <Table.Cell>
-                  <Text fontSize="sm" color="gray.600">
+                  <Text fontSize='sm' color='gray.600'>
                     {new Date(token.created_at).toLocaleDateString()}
                   </Text>
                 </Table.Cell>
                 <Table.Cell>
-                  <Text fontSize="sm" color="gray.600">
-                    {token.last_used_at
-                      ? new Date(token.last_used_at).toLocaleDateString()
-                      : "—"}
+                  <Text fontSize='sm' color='gray.600'>
+                    {token.last_used_at ? new Date(token.last_used_at).toLocaleDateString() : '—'}
                   </Text>
                 </Table.Cell>
                 <Table.Cell>
                   {token.revoked_at ? (
-                    <Badge colorPalette="red">Revoked</Badge>
+                    <Badge colorPalette='red'>Revoked</Badge>
                   ) : (
-                    <Badge colorPalette="green">Active</Badge>
+                    <Badge colorPalette='green'>Active</Badge>
                   )}
                 </Table.Cell>
                 <Table.Cell>
                   {!token.revoked_at && (
                     <Button
-                      size="xs"
-                      variant="outline"
-                      colorPalette="red"
+                      size='xs'
+                      variant='outline'
+                      colorPalette='red'
                       onClick={() => setRevokeTarget(token)}
                     >
                       Revoke
@@ -107,10 +109,12 @@ export function TokenList({ items, repositoryId, fetchError }: Props) {
           tokenId={revokeTarget.id}
           tokenName={revokeTarget.name}
           open={!!revokeTarget}
-          onOpenChange={(open) => { if (!open) setRevokeTarget(null) }}
+          onOpenChange={(open) => {
+            if (!open) setRevokeTarget(null);
+          }}
           onRevoked={handleRevoked}
         />
       )}
     </Box>
-  )
+  );
 }

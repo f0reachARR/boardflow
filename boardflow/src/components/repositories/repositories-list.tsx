@@ -1,42 +1,44 @@
-"use client"
+'use client';
 
-import { Box, Heading, Table, Text, Badge } from "@chakra-ui/react"
-import Link from "next/link"
-import { $api } from "@/lib/api/react-query"
+import { Badge, Box, Heading, Table, Text } from '@chakra-ui/react';
+import Link from 'next/link';
+import { $api } from '@/lib/api/react-query';
 
 function statusColor(status: string | null): string {
   switch (status) {
-    case "completed":
-      return "green"
-    case "failed":
-      return "red"
-    case "timed_out":
-      return "orange"
-    case "processing":
-    case "importing":
-      return "blue"
+    case 'completed':
+      return 'green';
+    case 'failed':
+      return 'red';
+    case 'timed_out':
+      return 'orange';
+    case 'processing':
+    case 'importing':
+      return 'blue';
     default:
-      return "gray"
+      return 'gray';
   }
 }
 
 export function RepositoriesList() {
-  const { data } = $api.useSuspenseQuery("get", "/api/v1/repositories", {
+  const { data } = $api.useSuspenseQuery('get', '/api/v1/repositories', {
     params: { query: { limit: 50 } },
-  })
+  });
 
-  const repositories = data?.items ?? []
+  const repositories = data?.items ?? [];
 
   return (
     <Box>
-      <Heading size="lg" mb={6}>Repositories</Heading>
+      <Heading size='lg' mb={6}>
+        Repositories
+      </Heading>
 
       {repositories.length === 0 ? (
-        <Text color="gray.500">
+        <Text color='gray.500'>
           No repositories found. Install the BoardFlow GitHub App to get started.
         </Text>
       ) : (
-        <Table.Root size="sm" variant="outline">
+        <Table.Root size='sm' variant='outline'>
           <Table.Header>
             <Table.Row>
               <Table.ColumnHeader>Repository</Table.ColumnHeader>
@@ -50,14 +52,20 @@ export function RepositoriesList() {
               <Table.Row
                 key={repo.github_repository_id}
                 bg={
-                  repo.latest_run_status === "failed" ? "red.50" :
-                  repo.latest_run_status === "timed_out" ? "orange.50" :
-                  undefined
+                  repo.latest_run_status === 'failed'
+                    ? 'red.50'
+                    : repo.latest_run_status === 'timed_out'
+                      ? 'orange.50'
+                      : undefined
                 }
               >
                 <Table.Cell>
                   <Link href={`/repositories/${repo.github_repository_id}`}>
-                    <Text color="blue.600" fontWeight="medium" _hover={{ textDecoration: "underline" }}>
+                    <Text
+                      color='blue.600'
+                      fontWeight='medium'
+                      _hover={{ textDecoration: 'underline' }}
+                    >
                       {repo.owner}/{repo.name}
                     </Text>
                   </Link>
@@ -69,11 +77,13 @@ export function RepositoriesList() {
                       {repo.latest_run_status}
                     </Badge>
                   ) : (
-                    <Text color="gray.400" fontSize="sm">—</Text>
+                    <Text color='gray.400' fontSize='sm'>
+                      —
+                    </Text>
                   )}
                 </Table.Cell>
                 <Table.Cell>
-                  <Text fontSize="sm" color="gray.600">
+                  <Text fontSize='sm' color='gray.600'>
                     {new Date(repo.updated_at).toLocaleDateString()}
                   </Text>
                 </Table.Cell>
@@ -83,5 +93,5 @@ export function RepositoriesList() {
         </Table.Root>
       )}
     </Box>
-  )
+  );
 }

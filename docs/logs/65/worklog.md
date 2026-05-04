@@ -33,12 +33,14 @@
 ## 実装作業ログ (2026-05-04)
 
 ### フェーズ: Research
+
 - 開始: 2026-05-04
 - 対象: Chakra UI v3 Skeleton, Next.js Streaming SSR, TanStack Query Suspense mode
 
 #### 調査結果サマリー
 
 **1. Chakra UI v3 Skeleton コンポーネント** (`docs/external/chakra-ui-v3-skeleton.md`)
+
 - `Skeleton`, `SkeletonCircle`, `SkeletonText` の3コンポーネントが `@chakra-ui/react` に含まれる（追加パッケージ不要）
 - `loading` prop で表示/非表示をトグル可能。`variant` は `pulse`(デフォルト) / `shine` / `none`
 - テーブル用: `Table.Root` の行内に `<Skeleton height="20px" />` を配置するパターン
@@ -46,6 +48,7 @@
 - 注意: Client Component 必須。CLS 対策としてスケルトンの寸法を実コンテンツに合わせる
 
 **2. Next.js 15 Streaming SSR** (`docs/external/nextjs-streaming-ssr-loading.md`)
+
 - `loading.tsx`: ディレクトリに配置するだけでページ全体を `<Suspense>` でラップする簡便な仕組み
 - 手動 `<Suspense>`: 並列ストリーミング（sibling boundaries）、ネスト（progressive detail）が可能
 - **使い分け**: `loading.tsx` はページ全体のフォールバック、`<Suspense>` は粒度の細かい制御向き
@@ -55,6 +58,7 @@
 - VPS デプロイ: Node.js サーバーではネイティブサポート。Nginx リバースプロキシでは `X-Accel-Buffering: no` が必要
 
 **3. TanStack Query v5 useSuspenseQuery** (`docs/external/tanstack-query-v5-suspense.md`)
+
 - `useSuspenseQuery` は `data` が `TData`（undefined なし）で型安全。ローディングは `<Suspense>` に委譲
 - **Streaming SSR パターン**: Server Component で `prefetchQuery`（await なし）→ Client Component で `useSuspenseQuery`
 - `openapi-react-query` は `$api.useSuspenseQuery()` を提供。BoardFlow の既存アーキテクチャに統合可能
@@ -78,6 +82,7 @@
 `implementation_required` — 3トピックとも調査完了。実装に必要な情報が揃っている。
 
 #### 残リスク
+
 - Issue #64 (TanStack Query 基盤) が先行する必要あり（QueryClient 設定の `shouldDehydrateQuery` 等）→ **解決済み**: `query-client.ts` に設定確認済み
 - 複数 `useSuspenseQuery` の直列 suspend 問題の方針決定が必要
 - Nginx リバースプロキシのストリーミング設定確認
@@ -256,6 +261,7 @@ boardflow/src/app/(authenticated)/repositories/page.tsx
 #### タスク 1: スケルトンコンポーネント作成
 
 **`repositories-table-skeleton.tsx`**:
+
 ```tsx
 import { Box, Heading, Table, Skeleton } from "@chakra-ui/react"
 
@@ -330,7 +336,7 @@ export default function Loading() {
 'use client'
 import ErrorUI from "@/components/error-boundary"
 
-export default function Error({ error, reset }: { error: Error; reset: () => void }) {
+export default function ErrorPage({ error, reset }: { error: Error; reset: () => void }) {
   return <ErrorUI error={error} reset={reset} />
 }
 ```
@@ -684,7 +690,7 @@ export default async function RepositoriesPage() {
 
 - **PR番号**: #71
 - **タイトル**: `feat(frontend): Streaming SSR with loading/error UI`
-- **URL**: https://github.com/f0reachARR/boardflow/pull/71
+- **URL**: <https://github.com/f0reachARR/boardflow/pull/71>
 - **ベースブランチ**: `main`
 - **ソースブランチ**: `feature/65-streaming-ssr-loading-ui`
 - **Closes**: #65

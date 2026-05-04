@@ -1,29 +1,33 @@
-import { Box, Heading, VStack, HStack, Skeleton, Table } from "@chakra-ui/react"
+import { Box, Heading, HStack, Skeleton, Table, VStack } from '@chakra-ui/react';
 
 export function RepositoryDetailSkeleton() {
   return (
     <Box>
-      <Skeleton height="20px" width="200px" mb={4} />
-      <VStack align="stretch" gap={6}>
+      <Skeleton height='20px' width='200px' mb={4} />
+      <VStack align='stretch' gap={6}>
         <Box>
           <HStack gap={2} mb={1}>
-            <Skeleton height="32px" width="250px" />
+            <Skeleton height='32px' width='250px' />
           </HStack>
           <HStack gap={4}>
-            <Skeleton height="16px" width="80px" />
-            <Skeleton height="16px" width="120px" />
+            <Skeleton height='16px' width='80px' />
+            <Skeleton height='16px' width='120px' />
           </HStack>
         </Box>
         <Box>
-          <Heading size="md" mb={4}>Settings</Heading>
+          <Heading size='md' mb={4}>
+            Settings
+          </Heading>
           <HStack gap={2}>
-            <Skeleton height="16px" width="16px" />
-            <Skeleton height="16px" width="100px" />
+            <Skeleton height='16px' width='16px' />
+            <Skeleton height='16px' width='100px' />
           </HStack>
         </Box>
         <Box>
-          <Heading size="md" mb={4}>Board Projects</Heading>
-          <Table.Root size="sm" variant="outline">
+          <Heading size='md' mb={4}>
+            Board Projects
+          </Heading>
+          <Table.Root size='sm' variant='outline'>
             <Table.Header>
               <Table.Row>
                 <Table.ColumnHeader>Project</Table.ColumnHeader>
@@ -35,10 +39,18 @@ export function RepositoryDetailSkeleton() {
             <Table.Body>
               {Array.from({ length: 3 }).map((_, i) => (
                 <Table.Row key={i}>
-                  <Table.Cell><Skeleton height="20px" width="150px" /></Table.Cell>
-                  <Table.Cell><Skeleton height="20px" width="80px" /></Table.Cell>
-                  <Table.Cell><Skeleton height="20px" width="180px" /></Table.Cell>
-                  <Table.Cell><Skeleton height="20px" width="100px" /></Table.Cell>
+                  <Table.Cell>
+                    <Skeleton height='20px' width='150px' />
+                  </Table.Cell>
+                  <Table.Cell>
+                    <Skeleton height='20px' width='80px' />
+                  </Table.Cell>
+                  <Table.Cell>
+                    <Skeleton height='20px' width='180px' />
+                  </Table.Cell>
+                  <Table.Cell>
+                    <Skeleton height='20px' width='100px' />
+                  </Table.Cell>
                 </Table.Row>
               ))}
             </Table.Body>
@@ -46,5 +58,5 @@ export function RepositoryDetailSkeleton() {
         </Box>
       </VStack>
     </Box>
-  )
+  );
 }
