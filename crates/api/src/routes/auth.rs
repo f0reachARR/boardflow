@@ -9,6 +9,7 @@ use sqlx::PgPool;
 use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
 
+use crate::AppDomain;
 use crate::error::{AppError, RequestId};
 use crate::extractors::AuthenticatedSession;
 
@@ -37,18 +38,27 @@ pub struct LoginQuery {
 )]
 pub async fn login(
     Extension(oauth_config): Extension<OAuthConfig>,
+    Extension(AppDomain(app_domain)): Extension<AppDomain>,
     Query(query): Query<LoginQuery>,
 ) -> Response {
     let state = Uuid::new_v4().to_string();
+    let redirect_uri = format!("{}/api/v1/auth/callback", app_domain.trim_end_matches('/'));
     let url = format!(
-        "https://github.com/login/oauth/authorize?client_id={}&scope=read:user&state={}",
+        "https://github.com/login/oauth/authorize?client_id={}&scope=read:user&state={}&redirect_uri={}",
         oauth_config.client_id,
-        urlencoding::encode(&state)
+        urlencoding::encode(&state),
+        urlencoding::encode(&redirect_uri)
     );
 
+    let secure_flag = if app_domain.starts_with("https://") {
+        "; Secure"
+    } else {
+        ""
+    };
+
     let oauth_state_cookie = format!(
-        "boardflow_oauth_state={}; Path=/; HttpOnly; SameSite=Lax; Max-Age=300",
-        state
+        "boardflow_oauth_state={}; Path=/; HttpOnly; SameSite=Lax; Max-Age=300{}",
+        state, secure_flag
     );
 
     let mut builder = Response::builder()
@@ -60,8 +70,8 @@ pub async fn login(
     if let Some(ref redirect_to) = query.redirect_to {
         if validate_redirect_path(redirect_to).is_some() {
             let redirect_cookie = format!(
-                "boardflow_redirect_to={}; Path=/; HttpOnly; SameSite=Lax; Max-Age=300",
-                redirect_to
+                "boardflow_redirect_to={}; Path=/; HttpOnly; SameSite=Lax; Max-Age=300{}",
+                redirect_to, secure_flag
             );
             builder = builder.header(header::SET_COOKIE, redirect_cookie);
         }
@@ -103,6 +113,7 @@ struct GitHubUserResponse {
 pub async fn callback(
     Extension(RequestId(request_id)): Extension<RequestId>,
     Extension(oauth_config): Extension<OAuthConfig>,
+    Extension(AppDomain(app_domain)): Extension<AppDomain>,
     State(pool): State<PgPool>,
     headers: HeaderMap,
     Query(query): Query<CallbackQuery>,
@@ -123,6 +134,7 @@ pub async fn callback(
     }
     // Exchange code for access token
     let client = reqwest::Client::new();
+    let redirect_uri = format!("{}/api/v1/auth/callback", app_domain.trim_end_matches('/'));
     let token_resp = client
         .post("https://github.com/login/oauth/access_token")
         .header(header::ACCEPT, "application/json")
@@ -130,6 +142,7 @@ pub async fn callback(
             ("client_id", oauth_config.client_id.as_str()),
             ("client_secret", oauth_config.client_secret.as_str()),
             ("code", query.code.as_str()),
+            ("redirect_uri", redirect_uri.as_str()),
         ])
         .send()
         .await
@@ -194,13 +207,24 @@ pub async fn callback(
         .to_owned();
 
     // Set session cookie, clear oauth_state cookie and redirect_to cookie
+    let secure_flag = if app_domain.starts_with("https://") {
+        "; Secure"
+    } else {
+        ""
+    };
+
     let session_cookie = format!(
-        "boardflow_session={}; Path=/; HttpOnly; SameSite=Lax; Max-Age=604800",
-        session.id
+        "boardflow_session={}; Path=/; HttpOnly; SameSite=Lax; Max-Age=604800{}",
+        session.id, secure_flag
     );
-    let clear_oauth_state_cookie =
-        "boardflow_oauth_state=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0";
-    let clear_redirect_cookie = "boardflow_redirect_to=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0";
+    let clear_oauth_state_cookie = format!(
+        "boardflow_oauth_state=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0{}",
+        secure_flag
+    );
+    let clear_redirect_cookie = format!(
+        "boardflow_redirect_to=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0{}",
+        secure_flag
+    );
 
     let response = Response::builder()
         .status(StatusCode::FOUND)
@@ -226,6 +250,7 @@ pub async fn callback(
 )]
 pub async fn logout(
     Extension(RequestId(request_id)): Extension<RequestId>,
+    Extension(AppDomain(app_domain)): Extension<AppDomain>,
     State(pool): State<PgPool>,
     session: AuthenticatedSession,
 ) -> Result<Response, AppError> {
@@ -236,7 +261,15 @@ pub async fn logout(
             AppError::internal_error("database error", &request_id)
         })?;
 
-    let cookie = "boardflow_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0";
+    let secure_flag = if app_domain.starts_with("https://") {
+        "; Secure"
+    } else {
+        ""
+    };
+    let cookie = format!(
+        "boardflow_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0{}",
+        secure_flag
+    );
     let response = Response::builder()
         .status(StatusCode::OK)
         .header(header::SET_COOKIE, cookie)
