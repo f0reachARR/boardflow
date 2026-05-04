@@ -315,6 +315,66 @@ fetchやclient.GETなどをフロントエンドで呼んでいる部分につ�
 ### 残リスク
 - なし
 
+---
+
+## Phase 4 実装 (2026-05-05)
+
+### 実装内容
+
+Phase 4: 複雑なページ3件の移行
+
+#### タスク 4-1: Run Detail ページ
+- **Server Component** (`runs/[boardRunId]/page.tsx`): 5つのprefetchQuery + HydrationBoundary + Suspense
+  - `/api/v1/board-runs/{board_run_id}` (run)
+  - `/api/v1/board-runs/{board_run_id}/artifacts` (artifacts)
+  - `/api/v1/board-runs/{board_run_id}/viewer-sources` (viewers)
+  - `/api/v1/board-projects/{board_project_id}` (project)
+  - `/api/v1/board-runs/{board_run_id}/diff` (diff)
+- **Client Component** (`components/run-detail/run-detail-content.tsx`):
+  - 4つの `useSuspenseQuery` (run, artifacts, viewer-sources, project)
+  - 1つの `useQuery` (diff - 404はnull, 非suspense)
+  - helper関数 (statusColor, checkStatusColor, artifactStatusColor, type guards) 移動
+  - ArtifactViewerSection へのprops渡しを維持
+
+#### タスク 4-2: Checks/Findings ページ
+- **Server Component** (`checks/[checkKind]/page.tsx`):
+  - バリデーション (VALID_CHECK_KINDS, VALID_SEVERITIES) は Server Component に残留
+  - 無効時は早期リターン (エラーメッセージ表示)
+  - 2つのprefetchQuery (findings, project) + HydrationBoundary + Suspense
+- **Client Component** (`components/checks/findings-content.tsx`):
+  - 2つの `useSuspenseQuery`
+  - helper関数 (severityColor, locationText) 移動
+  - severity filter UI維持
+
+#### タスク 4-3: Diff ページ
+- **Server Component** (`diff/page.tsx`): 2つのprefetchQuery (diff, project) + HydrationBoundary + Suspense
+- **Client Component** (`components/diff/diff-content.tsx`):
+  - 2つの `useSuspenseQuery`
+  - 全セクションコンポーネント移動 (FileChangesSection, BomChangesSection, ChecksSection, ArtifactChangesSection, PreviewLinksSection)
+  - helper関数 (diffStatusColor, type guards) 移動
+
+### 変更ファイル一覧
+- M: `boardflow/src/app/(authenticated)/repositories/[repositoryId]/boards/[boardProjectId]/runs/[boardRunId]/page.tsx`
+- M: `boardflow/src/app/(authenticated)/repositories/[repositoryId]/boards/[boardProjectId]/runs/[boardRunId]/checks/[checkKind]/page.tsx`
+- M: `boardflow/src/app/(authenticated)/repositories/[repositoryId]/boards/[boardProjectId]/runs/[boardRunId]/diff/page.tsx`
+- M: `boardflow/src/app/(authenticated)/repositories/[repositoryId]/boards/[boardProjectId]/runs/page.tsx` (biome formatのみ)
+- A: `boardflow/src/components/run-detail/run-detail-content.tsx`
+- A: `boardflow/src/components/checks/findings-content.tsx`
+- A: `boardflow/src/components/diff/diff-content.tsx`
+
+### テスト結果
+- `pnpm build`: 成功 (TypeScript + Next.js production build)
+- `pnpm lint --write --unsafe`: 5ファイル自動修正 (unused import, formatting)
+- 全ルートが正常にコンパイル
+
+### 設計判断
+- Run Detail の diff は `useQuery` (非Suspense) を使用。理由: diff は 404 (まだ生成されていない) を正常ケースとして扱い、エラーメッセージを表示するため
+- prefetchQuery は全て await しない (Streaming SSR対応)
+- checkKind/severity のバリデーションは Server Component 側に残し、Client Componentに到達する前に無効値を弾く
+
+### 残リスク
+- なし
+
 ## テスト結果
 
 (impl agent完了後に記載)
