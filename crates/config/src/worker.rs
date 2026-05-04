@@ -25,8 +25,7 @@ impl WorkerConfig {
             None => None,
         };
 
-        let cache_cleanup_interval_secs =
-            parse_env_or("CACHE_CLEANUP_INTERVAL_SECS", 3600u64)?;
+        let cache_cleanup_interval_secs = parse_env_or("CACHE_CLEANUP_INTERVAL_SECS", 3600u64)?;
         if cache_cleanup_interval_secs == 0 {
             return Err(ConfigError::InvalidValue {
                 var: "CACHE_CLEANUP_INTERVAL_SECS".to_string(),
