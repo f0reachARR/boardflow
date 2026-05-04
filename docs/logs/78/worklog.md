@@ -486,3 +486,383 @@ Client側の `RunDetailContent` が `$api.useQuery` (非Suspense) で取得し�
 
 - 自動テスト未追加のまま（404挙動の回帰テストは別Issue検討）
 - `fetchQuery` の `.catch(() => null)` で全エラーを notFound に変換しているため、5xx等も notFound 扱いになる（移行前と同じ挙動）
+
+## レビュー結果 (2026-05-05 再レビュー)
+
+### 対象Issue
+
+- Issue #78: TanStack Queryへのデータフェッチ全面リファクタリング
+
+### 再レビュー要旨
+
+- 前回指摘のうち、`repositories/[repositoryId]`、`boards/[boardProjectId]`、`runs`、`runs/[boardRunId]` の主要リソースに対する `fetchQuery + notFound()` 復元は反映済み
+- `runs/[boardRunId]` の diff server prefetch 削除も反映済み
+- `router.refresh()` と `apiClient.POST/DELETE` の旧 mutation パターン残存は確認されず、token mutation は `$api.useMutation()` + `invalidateQueries()` に移行済み
+- ただし、checks / diff / tokens の 404・APIエラー処理はなお回帰しており、作業ログ中の「checks と diff は既存 notFound で対応済み」という記述とも一致していない
+- `pnpm build` は成功
+
+### 指摘事項
+
+1. **必須**: checks ページは `notFound()` と明示エラーUIを失っている
+  - HEAD の [boardflow/src/app/(authenticated)/repositories/[repositoryId]/boards/[boardProjectId]/runs/[boardRunId]/checks/[checkKind]/page.tsx](boardflow/src/app/(authenticated)/repositories/[repositoryId]/boards/[boardProjectId]/runs/[boardRunId]/checks/[checkKind]/page.tsx#L44) 以降では `prefetchQuery` に統一されているが、`not_found` を `notFound()` に変換する処理がない
+  - main の同ファイルでは API の `not_found` を `notFound()` にし、それ以外は `Failed to load findings: ...` を表示していた
+  - 現状は queryFn が `Failed to fetch findings` を投げるだけで、404 とその他エラーを区別できず、既存挙動維持に反する
+
+2. **必須**: diff ページも `notFound()` とページ内エラー表示が失われている
+  - HEAD の [boardflow/src/app/(authenticated)/repositories/[repositoryId]/boards/[boardProjectId]/runs/[boardRunId]/diff/page.tsx](boardflow/src/app/(authenticated)/repositories/[repositoryId]/boards/[boardProjectId]/runs/[boardRunId]/diff/page.tsx#L13) 以降は `prefetchQuery` 化されているが、404 を `notFound()` に戻していない
+  - main では `not_found` を `notFound()` にし、それ以外はページ内でエラーメッセージを表示していた
+  - ユーザー依頼の「checks/[checkKind] と diff は既存 notFound で対応済み」は、HEAD の実装では満たしていない
+
+3. **必須**: tokens ページで repository 取得失敗時の `notFound()` が消えている
+  - main の [boardflow/src/app/(authenticated)/repositories/[repositoryId]/settings/tokens/page.tsx](boardflow/src/app/(authenticated)/repositories/[repositoryId]/settings/tokens/page.tsx#L21) には `if (repoRes.error) { notFound(); }` があった
+  - HEAD の [boardflow/src/app/(authenticated)/repositories/[repositoryId]/settings/tokens/page.tsx](boardflow/src/app/(authenticated)/repositories/[repositoryId]/settings/tokens/page.tsx#L30) 以降では両クエリを `prefetchQuery` に置き換えたため、repository 不在時に generic error fallback 側へ流れる
+  - 主要リソースで 404 を返すパターンの一貫性が崩れている
+
+## レビュー結果 (2026-05-05 最終レビュー 5回目)
+
+### 対象Issue
+
+- Issue #78: TanStack Query移行 - 最終レビュー (5回目 - エラーハンドリング復元後)
+
+### Issueまでの経緯
+
+- 4回目レビュー時点では checks / diff の `not_found` と非404エラーの扱いが移行前挙動から後退していた
+- 今回はその2ページについて、`not_found` は `notFound()`、それ以外はページ内インラインエラー表示に戻す修正が入った
+
+### 調査結果
+
+- `pnpm build` は現ブランチで成功
+- `pnpm lint` はユーザー報告上成功。今回レビューでは追加の lint エラーは確認されず
+- `apiClient.POST` と `router.refresh()` の残存は確認できず、mutation 移行漏れも見当たらない
+- `checks/[checkKind]/page.tsx` は main と同様に `not_found` を `notFound()`、それ以外を `Failed to load findings: ...` のページ内表示に戻している
+- `diff/page.tsx` は main と同様に `not_found` を `notFound()`、それ以外をページ内エラー表示に戻している
+- `runs/[boardRunId]/page.tsx` 側の diff 取得は server prefetch せず、client の `useQuery` で非Suspense取得する構成のまま維持されており、checks/diff の復元内容と矛盾しない
+- `docs/frontend/summary.md` は Issue #78 完了後の標準パターンと exceptions を反映済み
+- `docs/spec.md` と README には今回の frontend データフェッチ移行に追加更新を要する差分は見当たらない
+- `docs/external/nextjs-streaming-ssr-loading.md` の整理とも矛盾せず、404 を返す必要があるページで Suspense 前に `notFound()` する方針と整合する
+
+### 計画との差分
+
+- 実装は計画された 9 ページの TanStack Query 移行と 2 mutation の置換に沿っている
+- checks / diff を例外として `notFound()` とインラインエラー表示を維持する方針も、現時点では docs / worklog / 実装が一致している
+
+### テスト結果
+
+- 確認済み: `pnpm build` 成功
+- ユーザー報告: `pnpm lint` 成功
+- 追加された自動テスト: なし
+- ブラウザ手動確認の記録: なし
+
+### ドキュメント確認
+
+- `docs/frontend/summary.md` 更新済み
+- `README.md` 追記不要
+- `CONTRIBUTING.md` は repository 内に見当たらず、確認対象なし
+
+### レビュー結果
+
+- 総評: 今回の修正で、前回までの blocker だった checks / diff のエラーハンドリング回帰は解消され、実装・計画・ドキュメントの整合も取れている。コード上の新たな重大な不整合は見つからなかった。
+- pr_ready: true
+
+#### 必須修正
+
+- なし
+
+#### 任意改善
+
+- checks / diff / token mutation の回帰を防ぐため、エラー分岐を対象にした component test または E2E smoke test を追加したい
+
+#### テスト不足
+
+- `not_found` と非404エラーの分岐について自動テストがない
+- token 作成/失効後の invalidate に対する自動テストがない
+
+#### 残リスク
+
+- 今回のレビュー観点だった「旧挙動の復元」はコード上確認できたが、回帰テストがないため今後の refactor で同種の後退が再発しやすい
+- checks / diff は UX 分岐が特例化されており、今後の共通化時に再び generic error boundary へ吸収される可能性がある
+
+### PR/完了結果
+
+- pr_ready: true
+
+4. **中**: 作業ログの修正完了報告が HEAD と一致していない
+  - 本ログ内の「変更不要のページ」に checks / diff を挙げているが、HEAD では両ページとも `prefetchQuery` 化されており、しかも `notFound()` 復元は未実装
+  - レビュー観点と実装状態のトレーサビリティが崩れるため、ログ更新が必要
+
+### テスト結果
+
+- `pnpm build`: 成功
+- `pnpm lint`: ユーザー申告では成功、今回の再レビューでは再実行していない
+- 自動テスト追加なし
+
+### ドキュメント確認
+
+- `docs/frontend/summary.md` に今回の移行完了状況や例外パターンの追記なし
+- `docs/logs/78/worklog.md` の再修正記述と HEAD 実装に不整合あり
+
+### PR/完了結果
+
+- pr_ready: false
+
+### 必須修正
+
+- checks ページで `not_found` を `notFound()` に戻し、その他エラーは既存どおり画面表示する
+- diff ページで `not_found` を `notFound()` に戻し、その他エラーは既存どおり画面表示する
+- tokens ページで repository 取得失敗時の `notFound()` を復元する
+- worklog の「修正済み」記述を HEAD 実装と一致させる
+
+### 任意改善
+
+- 404 / backend error 回帰を防ぐため、ページ単位の component test か E2E smoke test を追加する
+- `Loading...` fallback の扱いをページごとに整理し、既存 UX と揃えるか方針を明文化する
+
+### 残リスク
+
+- 404 と一般APIエラーの分離が未テストなため、同種の回帰が再発しやすい
+
+## レビュー結果 (2026-05-05 最終レビュー 2回目修正後)
+
+### 対象Issue
+
+- Issue #78: TanStack Queryへのデータフェッチ全面リファクタリング
+
+### 調査結果
+
+- ブランチ差分は TanStack Query への移行対象 17 ファイルに集約されている
+- `pnpm build` を再実行し成功を確認
+- `pnpm lint` を再実行し成功を確認
+- issue 対象配下に `client.GET` / `apiClient.POST` / `router.refresh()` の残存は確認されず
+- Web 調査では TanStack Query v5 の prefetch パターンについて、`prefetchQuery` はエラーを投げず、server 側で存在確認やエラー分岐を行いたい場合は `fetchQuery` を使う前提が改めて確認できた
+
+### 実装内容の確認
+
+- `repositories/[repositoryId]`、`boards/[boardProjectId]`、`runs`、`runs/[boardRunId]`、`settings/tokens` は主要リソースを `fetchQuery + notFound()`、付随データを `prefetchQuery` に分けており、一貫性は概ねある
+- checks ページは `VALID_CHECK_KINDS` / `VALID_SEVERITIES` のバリデーションを Server Component 側に残している
+- token mutation は `$api.useMutation()` + `invalidateQueries()` に移行済み
+- 型面では generated schema type と局所 type guard を使っており、build でも破綻は確認されなかった
+
+### レビュー結果
+
+- 総評: 移行の大部分は揃っているが、前回必須指摘だった checks / diff の 404 処理は HEAD 上ではなお復元されていない。tokens の `notFound()` は復元済みで、旧 mutation パターンも解消済み。ただし checks / diff の扱いが受け入れ条件と前回修正報告の両方と食い違うため、PR 可能状態ではない。
+- pr_ready: false
+
+#### 指摘事項
+
+1. **必須**: checks ページは still `prefetchQuery` のみで、主要リソースに対する `fetchQuery + notFound()` になっていない
+  - `boardflow/src/app/(authenticated)/repositories/[repositoryId]/boards/[boardProjectId]/runs/[boardRunId]/checks/[checkKind]/page.tsx` の 75-101 行は findings / project の両方を `prefetchQuery` しているだけで、404 を `notFound()` に変換する経路がない
+  - そのため findings API が `not_found` を返した場合、ルートは 404 ではなく query error → generic error boundary 側に流れる
+  - 前回レビュー指摘への修正報告と一致していない
+
+2. **必須**: diff ページも still `prefetchQuery` のみで、404 / API error のページ単位分岐が復元されていない
+  - `boardflow/src/app/(authenticated)/repositories/[repositoryId]/boards/[boardProjectId]/runs/[boardRunId]/diff/page.tsx` の 26-46 行は diff / project の両方を `prefetchQuery` しているだけで、`notFound()` 分岐が存在しない
+  - diff API の `not_found` は `DiffContent` の `useSuspenseQuery` 経由で error boundary に流れるため、前回レビューで求めた 404 復元を満たしていない
+
+3. **中**: `docs/frontend/summary.md` は計画上の更新対象だったが未更新
+  - Server prefetch / HydrationBoundary の一般方針は残っているが、Issue #78 で適用した例外パターンや移行完了状況の反映がない
+  - 実装方針とドキュメントのトレーサビリティが不足している
+
+### テスト結果
+
+- `pnpm build`: 成功
+- `pnpm lint`: 成功
+- 自動テスト追加: なし
+- ブラウザ手動確認の新しい記録: なし
+
+### ドキュメント確認
+
+- `docs/frontend/summary.md` は差分なし
+- `docs/logs/78/worklog.md` の「checks / diff は修正済み」という報告は現 HEAD と一致しないため、今回のレビュー結果で補正
+
+### PR/完了結果
+
+- pr_ready: false
+- 必須修正:
+  - checks ページで主要リソースを `fetchQuery + notFound()` に戻す、または少なくとも `not_found` とその他エラーを明確に分岐する
+  - diff ページでも同様に `not_found` を 404 として扱う経路を復元する
+- 任意改善:
+  - token invalidate を repositoryId 単位まで絞る
+  - `docs/frontend/summary.md` に Issue #78 の移行完了と例外パターンを追記する
+
+### 残リスク
+
+- checks / diff の 404 回帰を防ぐ自動テストがなく、同種の後退が再発しやすい
+- `fetchQuery(...).catch(() => null)` を使うページ群は 5xx と 404 を同列に `notFound()` へ落としており、将来的な UX 要件変更時に見直し余地がある
+- server prefetch と client query の責務分担がページごとに揺れており、次回以降の移行で同じ不整合を生みやすい
+
+## レビュー結果 (2026-05-05 最終レビュー 3回目修正後)
+
+### 対象Issue
+
+- Issue #78: TanStack Queryへのデータフェッチ全面リファクタリング
+
+### 調査結果
+
+- `checks/[checkKind]/page.tsx` と `diff/page.tsx` は、今回の修正で `fetchQuery + await + .catch(() => null) + notFound()` に変更されており、前回指摘していた「404 経路がない」状態は解消されている
+- `settings/tokens/page.tsx` でも repository 取得に `fetchQuery + notFound()` が入っており、主要リソースの存在確認パターンは全7ページに配置されている
+- 一方で、main の `checks/[checkKind]/page.tsx` と `diff/page.tsx` はどちらも `not_found` のときだけ `notFound()` を呼び、それ以外の API エラーはページ内メッセージとして表示していた
+- 現在の `checks/[checkKind]/page.tsx` と `diff/page.tsx` は `.catch(() => null)` により 404 以外も `notFound()` に吸収するため、元のページ内エラー表示が失われている
+- Web 調査でも TanStack Query の `fetchQuery` はエラーを throw し、`prefetchQuery` はデータもエラーも返さないこと、また Next.js App Router では Server Component で条件分岐して `notFound()` やエラー表示を行う前提が確認できた
+
+### 実装内容の確認
+
+- notFound 配置自体は以下 7 ページで確認した
+  - `repositories/[repositoryId]/page.tsx`
+  - `boards/[boardProjectId]/page.tsx`
+  - `runs/page.tsx`
+  - `runs/[boardRunId]/page.tsx`
+  - `checks/[checkKind]/page.tsx`
+  - `diff/page.tsx`
+  - `settings/tokens/page.tsx`
+- issue 対象配下で `router.refresh()` の残存は確認されなかった
+- `apiClient` は基盤実装 (`src/lib/api/client.ts`, `src/lib/api/react-query.ts`) にのみ残っており、移行漏れとしては見当たらない
+
+### レビュー結果
+
+- 総評: 前回の必須指摘だった「checks / diff に notFound がない」は解消済み。ただし、今回の修正方法は 404 と一般 API エラーを同一扱いにしており、移行前にあったページ内エラー表示を消している。Issue #78 の受け入れ条件にある `UI変更なし` / `既存挙動維持` まで含めて見ると、まだ PR 可能状態ではない。
+- pr_ready: false
+
+### 指摘事項
+
+1. **必須**: checks ページで 404 以外の API エラーまで `notFound()` になっている
+  - 現 HEAD の `boardflow/src/app/(authenticated)/repositories/[repositoryId]/boards/[boardProjectId]/runs/[boardRunId]/checks/[checkKind]/page.tsx` は `fetchQuery(...).catch(() => null)` の結果だけで分岐しているため、backend の 5xx や権限系エラーも 404 UI になる
+  - main では `not_found` のみ `notFound()`、それ以外は `Failed to load findings: ...` を画面表示していたため、挙動が変わっている
+
+2. **必須**: diff ページでも 404 以外の API エラーを 404 UI に丸めている
+  - 現 HEAD の `boardflow/src/app/(authenticated)/repositories/[repositoryId]/boards/[boardProjectId]/runs/[boardRunId]/diff/page.tsx` も `.catch(() => null)` により全エラーを `notFound()` に落としている
+  - main では `not_found` のみ 404、それ以外はページ内にエラー文言を表示していたため、こちらも既存 UX を維持していない
+
+3. **中**: `docs/frontend/summary.md` は今回の移行完了状態と例外パターンを反映していない
+  - Server prefetch / HydrationBoundary の一般方針はあるが、Issue #78 で採用した `fetchQuery` と `prefetchQuery` の使い分け、run detail diff を prefetch 対象から外した判断などの記録がない
+
+### テスト結果
+
+- ユーザー申告の `pnpm build` 成功は確認対象に含めた
+- ユーザー申告の `pnpm lint` 成功は確認対象に含めた
+- `get_errors` では `checks/[checkKind]/page.tsx` と `diff/page.tsx` に新規エラーは見当たらなかった
+- `settings/tokens/page.tsx` には VS Code 上で `@/components/tokens/tokens-page-content` の解決エラー表示が出ていたが、ユーザー申告の build 成功と食い違うため、今回レビューでは残留環境差分の可能性として扱う
+- 404 / 一般 API エラー分岐を保証する自動テスト追加は未確認
+
+### ドキュメント確認
+
+- `docs/logs/78/worklog.md` は今回のレビュー結果で更新
+- `docs/frontend/summary.md` は未更新
+
+### PR/完了結果
+
+- pr_ready: false
+
+### 必須修正
+
+- `checks/[checkKind]/page.tsx` で `not_found` だけを `notFound()` にし、それ以外は従来どおりページ内エラー表示へ戻す
+- `diff/page.tsx` でも同様に 404 とその他エラーを分岐する
+
+### 任意改善
+
+- 404 と一般 API エラーの分岐を E2E か component test で固定する
+- `docs/frontend/summary.md` に Issue #78 の最終パターンを追記する
+
+### 残リスク
+
+- `.catch(() => null)` を多用すると 404 と一般障害の区別が消え、今後も同種の回帰が入りやすい
+
+## レビュー結果 (2026-05-05 最終レビュー 4回目修正後)
+
+### 対象Issue
+
+- Issue #78: TanStack Queryへのデータフェッチ全面リファクタリング
+
+### 調査結果
+
+- `checks/[checkKind]/page.tsx` と `diff/page.tsx` は、今回の修正で `not_found` のみ `notFound()` に変換し、それ以外の API エラーは再 throw する形に変更されている
+- `settings/tokens/page.tsx` は repository を `fetchQuery(...).catch(() => null)` + `notFound()` で扱っており、移行前の tokens ページ挙動と整合している
+- `docs/logs/78/worklog.md` の受け入れ条件には「各ページの表示・動作が既存と同一」とある
+- main の `checks/[checkKind]/page.tsx` と `diff/page.tsx` は、`not_found` のみ `notFound()` とし、それ以外の API エラーはページ内の赤色エラーメッセージとして表示していた
+- 現在の修正では checks / diff の一般 API エラーが route `error.tsx` に流れ、既存のページ固有エラー表示ではなく generic Error Boundary UI に置き換わる
+- `docs/frontend/summary.md` は今回の移行完了状況や例外パターンを依然として反映していない
+
+### レビュー結果
+
+- 総評: 4回目修正で 404 と一般エラーを区別する点は改善されたが、checks / diff の一般 API エラー時 UX は移行前から変わっている。Issue #78 の受け入れ条件である「既存と同一の表示・動作」にはまだ届いていないため、PR 可能状態ではない。
+- pr_ready: false
+
+### 指摘事項
+
+1. **必須**: checks ページで一般 API エラーの表示経路が移行前と変わっている
+  - 現在の `boardflow/src/app/(authenticated)/repositories/[repositoryId]/boards/[boardProjectId]/runs/[boardRunId]/checks/[checkKind]/page.tsx` は `not_found` 以外を再 throw して route error boundary に委譲している
+  - main では同条件で `Failed to load findings: ...` をページ内表示していたため、`UI変更なし` / `既存挙動維持` を満たしていない
+
+2. **必須**: diff ページでも一般 API エラーの表示経路が移行前と変わっている
+  - 現在の `boardflow/src/app/(authenticated)/repositories/[repositoryId]/boards/[boardProjectId]/runs/[boardRunId]/diff/page.tsx` は `not_found` 以外を再 throw して generic error boundary を使う
+  - main では `Diff` 見出し配下に API エラーメッセージを表示していたため、こちらも既存 UX と不一致
+
+3. **中**: `docs/frontend/summary.md` が計画上の更新対象のまま未更新
+  - worklog 上も更新対象として挙がっているが、実際の最終パターンと例外扱いが反映されていない
+
+### テスト結果
+
+- ユーザー申告: `pnpm build` 成功
+- ユーザー申告: `pnpm lint` 成功
+- 今回のレビューでは追加のビルド再実行はしていない
+- 404 と一般 API エラー分岐を固定する自動テストは未確認
+
+### ドキュメント確認
+
+- `docs/logs/78/worklog.md` を今回のレビュー結果で更新
+- `docs/frontend/summary.md` は未更新
+- `README.md` に今回の Issue 固有更新が必要な差分は見当たらない
+
+### PR/完了結果
+
+- pr_ready: false
+
+### 必須修正
+
+- checks ページで `not_found` 以外の API エラーを、移行前と同じページ内エラー表示に戻すか、Issue #78 の受け入れ条件から明示的に UX 変更を除外する
+- diff ページでも同様に generic Error Boundary ではなく、移行前と同等のページ内エラー表示へ戻すか、要件変更を文書化する
+
+### 任意改善
+
+- checks / diff の 404 と一般 API エラーを分離して保証する component test または E2E smoke test を追加する
+- `docs/frontend/summary.md` に Issue #78 の最終パターンと例外ケースを追記する
+
+## ドキュメント確認 (2026-05-05 docs agent)
+
+### 対象Issue
+
+- Issue #78: TanStack Queryへのデータフェッチ全面リファクタリング
+
+### 確認結果
+
+- `docs/frontend/summary.md` に、Issue #78 で完了した全ページの TanStack Query 移行状況を追記した
+- Server Component の標準パターンを `fetchQuery` / `prefetchQuery` の役割分担つきで明文化した
+- Client Component の標準パターンを `HydrationBoundary` + `$api.useSuspenseQuery()` として明文化した
+- Mutation を `$api.useMutation()` + `invalidateQueries()` に統一した点を反映した
+- checks / diff だけは `not_found` を `notFound()` に変換しつつ、その他エラーはページ内インライン表示を維持する例外パターンとして整理した
+- `README.md` と `CONTRIBUTING.md` は今回の Issue #78 の範囲では更新不要と判断した
+
+### 判定
+
+- docs_ready: true
+
+### 必須修正
+
+- なし
+
+### 任意改善
+
+- 将来的に `artifact-viewer-section.tsx` の fetch 混在を解消する場合は、frontend summary に viewer 系の例外扱いも追記する
+- 404 と一般 API エラー分岐を固定する自動テストが追加された時点で、テスト方針節へ具体例を補足してよい
+
+### 残リスク
+
+- frontend summary は最終パターンを反映したが、viewer 系の fetch 混在や Route Handler など Issue #78 の対象外箇所は別 Issue 前提のまま
+
+### PR/完了結果
+
+- docs_ready: true
+
+### 残リスク
+
+- 404 と一般 API エラーの分離を UI レベルで自動検証していないため、同種の回帰が再発しやすい
+- Error Boundary に寄せるかページ内エラー表示を維持するかの方針がページごとに揺れると、次回の移行でも同じ判断ずれが起きやすい
