@@ -243,21 +243,57 @@ pub struct GithubAppId(pub Option<u64>);
 
 ### テスト結果
 - `cargo check --workspace`: 成功（コンパイルエラーなし）
-- 既存テストのシグネチャ変更: 全て `None` を追加引数として渡す形で修正済み
-- フォールバック同期ロジックは `github_app_id = None` の場合に即リターンするため、既存テスト動作に影響なし
+- `cargo test -p boardflow-api --test github_cache_test`: 26テスト全パス
+- `cargo test -p boardflow-api -- --skip test_app_config_from_env`: 全テストパス（223テスト）
+- wiremockによる成功系フォールバックテスト: `test_fallback_sync_success_upserts_repos`, `test_fallback_sync_filters_wrong_app_id`, `test_fallback_sync_filters_suspended_installations`, `test_fallback_sync_github_api_error_graceful`
+- スキップ系テスト: `test_fallback_sync_skipped_when_app_id_none`, `test_fallback_sync_skipped_when_all_repos_exist`, `test_fallback_sync_skipped_when_throttled`
+- DBクエリテスト: `test_find_existing_github_ids`, `test_find_existing_github_ids_empty_input`
 
 ### ドキュメント
 - `docs/external/github-user-installations-api.md`: リサーチエージェントにより作成済み（APIリファレンス・設計方針）
+- `docs/backend/api.md`: Section 1.2.1 に fallback sync 仕様追記
+- `README.md`: GITHUB_APP_ID のAPI側使用について Note 追記
 
 ### 残リスク
-- フォールバック同期の統合テスト（実GitHub APIを使うため、mockサーバーの導入が望ましい）
-- `GITHUB_APP_ID` が本番環境で未設定の場合、フォールバック同期がサイレントにスキップされる
 - 大量リポジトリ org でのレイテンシ増加（best-effort だが数百msのレイテンシ追加の可能性）
+- `GITHUB_APP_ID` が本番環境で未設定の場合、フォールバック同期がサイレントにスキップされる（意図的な設計）
 
 ---
 
 ## 更新した作業ログパス
 `docs/logs/77/worklog.md`
+
+---
+
+## ドキュメント確認（2026-05-04 docsエージェント）
+
+### 対象 Issue
+- #77: Webhook不着時のリポジトリ一覧取得: Installed Repositories APIフォールバック
+
+### 確認結果
+- `README.md` の `GITHUB_APP_ID` Note は実装と整合している
+- `docs/backend/api.md` の Section 1.2.1 は実装と整合している
+- `docs/external/github-user-installations-api.md` の調査内容は実装方針と整合している
+- `docs/logs/77/worklog.md` は一部不整合あり
+
+### 不整合の詳細
+- `テスト結果` に `cargo check --workspace` のみが記載されており、実装概要にある wiremock 成功系テストの追加状況を反映できていない
+- `残リスク` に「mockサーバーの導入が望ましい」とあるが、実装には `wiremock` を使った成功系テストが既に存在するため記述が古い
+- `docs/logs/77/worklog.md` 内の earlier note では成功系テストが未整備である前提の記述が残っている
+
+### 必須修正
+- `docs/logs/77/worklog.md` の `テスト結果` を、Issue #77 で追加されたフォールバック同期テスト群の実態に合わせて更新する
+- `docs/logs/77/worklog.md` の `残リスク` から、mockサーバー未導入を前提とする古い記述を修正または削除する
+
+### 任意改善
+- `docs/logs/77/worklog.md` に、フォールバック同期が cache hit / cache miss の両経路で判定されることを明記すると、後続レビューで実装意図を追いやすい
+
+### PR/完了結果
+- `docs_ready: false`
+
+### レビュー結果
+- README / backend API spec / external research は PR 作成を阻害する不整合なし
+- 作業ログのみ、現在の実装・テスト状況を正確に表していないため修正が必要
 
 ---
 
