@@ -32,7 +32,7 @@
 | `GITHUB_PRIVATE_KEY_PEM` | No | GitHub App RSA秘密鍵(PEM)。未設定時はGitHub APIジョブをスキップ |
 | `BOARDFLOW_APP_DOMAIN` | No | フロントエンドのベースURL (default: `http://localhost:3000`)。OAuth callback と CORS で使用。後方互換として `APP_BASE_URL` も使用可 |
 
-> **Note**: `GITHUB_APP_ID` は API サーバーでも使用されます。設定すると、Webhook 不着時にユーザーの Installation Repositories API を使ってリポジトリ一覧を DB に best-effort 同期するフォールバックが有効になります。未設定の場合、フォールバック同期は無効ですが他の機能には影響しません。
+> **Note**: `GITHUB_APP_ID` は API サーバーでも使用されます。設定すると、Webhook 不着時にユーザーの GitHub App user access token（OAuth ログイン時に発行）を使い、Installation Repositories API (`GET /user/installations/{id}/repositories`) 経由でリポジトリ一覧を DB に best-effort 同期するフォールバックが有効になります。この機能を利用するには、GitHub App のユーザー認可フロー（OAuth）が正しく設定されている必要があります。未設定の場合、フォールバック同期は無効ですが他の機能には影響しません。
 
 ## GitHub OAuth App 設定
 
