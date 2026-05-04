@@ -9,6 +9,7 @@ members = [
     "crates/github",
     "crates/artifact",
     "crates/config",
+    "crates/kicad",
 ]
 
 [workspace.dependencies]
@@ -53,6 +54,10 @@ jsonwebtoken = { version = "10", default-features = false, features = [
     "use_pem",
 ] }
 dotenvy = "0.15"
+serde_yaml = "0.9"
+globset = "0.4"
+walkdir = "2"
+tempfile = "3"
 
 [workspace.lints.clippy]
 collapsible_if = "allow"
