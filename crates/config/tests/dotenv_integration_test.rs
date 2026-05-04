@@ -36,6 +36,7 @@ fn clear_env() {
         "GITHUB_WEBHOOK_SECRET",
         "POLL_INTERVAL_SECS",
         "TIMEOUT_SWEEP_INTERVAL_SECS",
+        "CACHE_CLEANUP_INTERVAL_SECS",
         "GITHUB_APP_ID",
         "GITHUB_PRIVATE_KEY_PEM",
         "APP_BASE_URL",

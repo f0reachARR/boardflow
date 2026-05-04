@@ -7,6 +7,7 @@ pub struct WorkerConfig {
     pub s3: S3Config,
     pub poll_interval_secs: u64,
     pub timeout_sweep_interval_secs: u64,
+    pub cache_cleanup_interval_secs: u64,
     pub github_app_id: Option<u64>,
     pub github_private_key_pem: Option<String>,
     pub app_domain: String,
@@ -29,6 +30,7 @@ impl WorkerConfig {
             s3: S3Config::from_env(),
             poll_interval_secs: parse_env_or("POLL_INTERVAL_SECS", 2u64)?,
             timeout_sweep_interval_secs: parse_env_or("TIMEOUT_SWEEP_INTERVAL_SECS", 60u64)?,
+            cache_cleanup_interval_secs: parse_env_or("CACHE_CLEANUP_INTERVAL_SECS", 3600u64)?,
             github_app_id,
             github_private_key_pem: optional_env("GITHUB_PRIVATE_KEY_PEM"),
             app_domain: std::env::var("BOARDFLOW_APP_DOMAIN").unwrap_or_else(|_| {

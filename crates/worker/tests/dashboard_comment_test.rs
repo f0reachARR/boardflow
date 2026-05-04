@@ -127,6 +127,7 @@ fn make_config() -> boardflow_worker::WorkerConfig {
         },
         poll_interval_secs: 2,
         timeout_sweep_interval_secs: 60,
+        cache_cleanup_interval_secs: 3600,
         github_app_id: None,
         github_private_key_pem: None,
         app_domain: "https://test.boardflow.example.com".into(),

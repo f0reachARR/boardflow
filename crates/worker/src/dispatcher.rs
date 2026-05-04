@@ -226,3 +226,19 @@ pub async fn sweep_expired_staging_bundles(
         "Swept expired staging bundles"
     );
 }
+
+/// Delete expired entries from the GitHub API cache table.
+pub async fn sweep_expired_cache(pool: &PgPool) {
+    match boardflow_db::queries::github_api_cache::cleanup_expired_cache(pool).await {
+        Ok(count) => {
+            if count > 0 {
+                tracing::info!(deleted = count, "Swept expired API cache entries");
+            } else {
+                tracing::debug!("No expired API cache entries to sweep");
+            }
+        }
+        Err(e) => {
+            tracing::error!(error = %e, "Failed to sweep expired API cache");
+        }
+    }
+}
