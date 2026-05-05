@@ -476,3 +476,27 @@ boardflow-api-types = { workspace = true }
 ### 更新した作業ログパス
 
 - `docs/logs/89/worklog.md`
+
+---
+
+## PR作成結果 (2026-05-05)
+
+### PR情報
+
+- PR番号: #92
+- タイトル: feat: add boardflow-api-types shared crate (#89)
+- URL: https://github.com/f0reachARR/boardflow/pull/92
+- ブランチ: feat/89-api-types-crate → main
+- ラベル: enhancement
+
+### 確認事項
+
+- review: `pr_ready: true` (再レビュー 2026-05-05)
+- docs: `docs_ready: true` (2026-05-05)
+- 未コミット変更: なし
+- CI: 作成前に `cargo build/test/clippy --workspace` 全通過確認済み
+
+### 残リスク
+
+- OpenAPI スキーマ互換性の自動差分検証は未実施（別Issue #91で対応予定）
+- runner全体として skip動作までを直接検証するrunnerレベルのテストは未追加（将来の回帰検知強化余地あり）
