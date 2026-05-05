@@ -11,9 +11,18 @@ import {
   Portal,
   Text,
 } from '@chakra-ui/react';
+import { useForm } from '@tanstack/react-form';
 import { useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
+import { z } from 'zod';
 import { $api } from '@/lib/api/react-query';
+
+const createTokenSchema = z.object({
+  name: z
+    .string()
+    .min(1, '名前は1文字以上で入力してください')
+    .max(100, '名前は100文字以内で入力してください'),
+});
 
 interface Props {
   repositoryId: string;
@@ -22,48 +31,46 @@ interface Props {
 }
 
 export function CreateTokenDialog({ repositoryId, open, onOpenChange }: Props) {
-  const [name, setName] = useState('');
-  const [error, setError] = useState('');
+  const [serverError, setServerError] = useState('');
   const [createdToken, setCreatedToken] = useState<string | null>(null);
   const queryClient = useQueryClient();
 
-  const { mutate, isPending } = $api.useMutation(
+  const { mutateAsync } = $api.useMutation(
     'post',
     '/api/v1/repositories/{github_repository_id}/api-tokens',
-    {
-      onSuccess: (data) => {
+  );
+
+  const form = useForm({
+    defaultValues: { name: '' },
+    validators: {
+      onChange: createTokenSchema,
+    },
+    onSubmit: async ({ value }) => {
+      setServerError('');
+      try {
+        const data = await mutateAsync({
+          params: { path: { github_repository_id: Number(repositoryId) } },
+          body: { name: value.name.trim() },
+        });
         if (!data?.token) {
-          setError('トークンの作成に失敗しました');
+          setServerError('トークンの作成に失敗しました');
           return;
         }
         setCreatedToken(data.token);
         queryClient.invalidateQueries({
           queryKey: ['get', '/api/v1/repositories/{github_repository_id}/api-tokens'],
         });
-      },
-      onError: (err) => {
-        setError(err.error?.message ?? 'トークンの作成に失敗しました');
-      },
+      } catch (err: unknown) {
+        const apiErr = err as { error?: { message?: string } };
+        setServerError(apiErr.error?.message ?? 'トークンの作成に失敗しました');
+      }
     },
-  );
-
-  const handleCreate = () => {
-    const trimmed = name.trim();
-    if (trimmed.length < 1 || trimmed.length > 100) {
-      setError('名前は1〜100文字で入力してください');
-      return;
-    }
-    setError('');
-    mutate({
-      params: { path: { github_repository_id: Number(repositoryId) } },
-      body: { name: trimmed },
-    });
-  };
+  });
 
   const handleClose = (open: boolean) => {
     if (!open) {
-      setName('');
-      setError('');
+      form.reset();
+      setServerError('');
       setCreatedToken(null);
     }
     onOpenChange(open);
@@ -73,8 +80,8 @@ export function CreateTokenDialog({ repositoryId, open, onOpenChange }: Props) {
     <Dialog.Root
       open={open}
       onOpenChange={(e) => handleClose(e.open)}
-      closeOnInteractOutside={!createdToken && !isPending}
-      closeOnEscape={!createdToken && !isPending}
+      closeOnInteractOutside={!createdToken && !form.state.isSubmitting}
+      closeOnEscape={!createdToken && !form.state.isSubmitting}
     >
       <Portal>
         <Dialog.Backdrop />
@@ -104,38 +111,78 @@ export function CreateTokenDialog({ repositoryId, open, onOpenChange }: Props) {
                   </Clipboard.Root>
                 </Box>
               ) : (
-                <Field.Root invalid={!!error}>
-                  <Field.Label>トークン名</Field.Label>
-                  <Input
-                    placeholder='例: CI用トークン'
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    maxLength={100}
-                  />
-                  {error && <Field.ErrorText>{error}</Field.ErrorText>}
-                </Field.Root>
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    form.handleSubmit();
+                  }}
+                >
+                  <form.Field name='name'>
+                    {(field) => (
+                      <Field.Root
+                        invalid={
+                          (field.state.meta.isTouched && field.state.meta.errors.length > 0) ||
+                          !!serverError
+                        }
+                      >
+                        <Field.Label>トークン名</Field.Label>
+                        <Input
+                          placeholder='例: CI用トークン'
+                          value={field.state.value}
+                          onChange={(e) => field.handleChange(e.target.value)}
+                          onBlur={field.handleBlur}
+                          maxLength={100}
+                        />
+                        {field.state.meta.isTouched && field.state.meta.errors.length > 0 && (
+                          <Field.ErrorText>
+                            {field.state.meta.errors
+                              .map((e) =>
+                                typeof e === 'string'
+                                  ? e
+                                  : ((e as { message?: string })?.message ?? String(e)),
+                              )
+                              .join(', ')}
+                          </Field.ErrorText>
+                        )}
+                        {serverError && <Field.ErrorText>{serverError}</Field.ErrorText>}
+                      </Field.Root>
+                    )}
+                  </form.Field>
+                  <Dialog.Footer>
+                    <form.Subscribe
+                      selector={(state) => [state.canSubmit, state.isSubmitting] as const}
+                    >
+                      {([canSubmit, isSubmitting]) => (
+                        <HStack>
+                          <Button
+                            variant='outline'
+                            onClick={() => handleClose(false)}
+                            disabled={isSubmitting}
+                          >
+                            キャンセル
+                          </Button>
+                          <Button
+                            type='submit'
+                            colorPalette='blue'
+                            loading={isSubmitting}
+                            disabled={!canSubmit}
+                          >
+                            作成
+                          </Button>
+                        </HStack>
+                      )}
+                    </form.Subscribe>
+                  </Dialog.Footer>
+                </form>
               )}
             </Dialog.Body>
-            <Dialog.Footer>
-              {createdToken ? (
+            {createdToken && (
+              <Dialog.Footer>
                 <Button onClick={() => handleClose(false)}>閉じる</Button>
-              ) : (
-                <HStack>
-                  <Button variant='outline' onClick={() => handleClose(false)} disabled={isPending}>
-                    キャンセル
-                  </Button>
-                  <Button
-                    colorPalette='blue'
-                    onClick={handleCreate}
-                    loading={isPending}
-                    disabled={!name.trim()}
-                  >
-                    作成
-                  </Button>
-                </HStack>
-              )}
-            </Dialog.Footer>
-            {!createdToken && !isPending && <Dialog.CloseTrigger />}
+              </Dialog.Footer>
+            )}
+            {!createdToken && !form.state.isSubmitting && <Dialog.CloseTrigger />}
           </Dialog.Content>
         </Dialog.Positioner>
       </Portal>
