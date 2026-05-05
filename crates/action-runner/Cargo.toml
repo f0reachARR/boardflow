@@ -28,6 +28,7 @@ anyhow = { workspace = true }
 
 [dev-dependencies]
 wiremock = "0.6"
+serial_test = { workspace = true }
 
 [lints]
 workspace = true

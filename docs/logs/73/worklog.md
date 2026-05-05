@@ -912,3 +912,114 @@ test result: ok. 6 passed (summary_test)
 - Dockerビルドは未テスト (CI環境での確認が必要)
 - `PlanPayload`/`RepositoryInfo`/`GitInfo`/`ActionInfo` 構造体は未使用警告あり (runner.rsでは `serde_json::json!` マクロ直接使用のため)
 - cargo-chef のバージョンピン未指定 (Dockerfileで `--locked` は指定済み)
+
+---
+
+## Review結果 (2026-05-05, Phase 2-4 実装レビュー)
+
+### 総評
+
+- `cargo test -p boardflow-action-runner -- --test-threads=1` は通っているが、bash 実装および `docs/spec.md` が要求する契約に対して重要な後退が残っている。
+- とくに manifest 形式、`fail-on-drc` / `fail-on-erc` の exit code 反映、失敗 API payload、`exclude-paths` の扱いは、実装概要で期待している「旧 entrypoint の忠実移植」に達していない。
+
+### テスト結果
+
+- `mise exec -- cargo test -p boardflow-action-runner -- --test-threads=1`: 33 passed, 1 ignored
+- `get_errors` では `action/Dockerfile` に hadolint warning、`crates/action-runner` に未使用 code / clippy warning を確認
+
+### レビュー結果
+
+- `pr_ready: false`
+
+### 必須修正
+
+1. `crates/action-runner/src/bundle.rs` の manifest が spec / bash 実装と互換でない。現行実装は `project_path` / `project_dir` / `config_path` / `tree_hash` を top-level に平坦化し、`github_actions.workflow`、`kicad.version`、`hash.tree_hash`、`diff_metadata` を出力していない。`docs/spec.md` は `diff_metadata` と zip entry の整合を要求しており、legacy bash もここを埋めているため、現状の bundle は backend import で reject される可能性が高い。
+2. `crates/action-runner/src/runner.rs` の ERC/DRC handling で `fail-on-erc` / `fail-on-drc` が実質 no-op になっている。exit code 5 を検知した箇所がコメントだけで、最終 `exit_code` に反映されないため、spec の「import 完了後に GitHub Actions job だけ失敗させる」挙動を満たしていない。
+3. `crates/action-runner/src/api.rs` の fail API payload が spec / bash 実装と不一致。現状は `{message, details}` を送っているが、`docs/spec.md` と旧 `action/lib/api.sh` は `{status: "failed", error: {message, details}}` を要求している。サーバ側が schema validation していれば fail API は 4xx になり、bundle/upload/import 前の失敗を正しく通知できない。
+4. `crates/action-runner/src/runner.rs` の `exclude-paths` 処理が action metadata と不一致で、さらに必須ファイル除外の検出が抜けている。`action/action.yml` では改行区切り input だが、実装は `split(',')` 固定のため複数行入力を正しく解釈できない。加えて、bash にあった `validate_required_files` 相当がなく、`.kicad_pro` / `.kicad_pcb` / `.kicad_sch` が除外されても detection error にせず Plan API へ送ってしまう。
+
+### 任意改善
+
+1. `crates/action-runner/src/summary.rs` の job summary 形式が旧 bash と変わっている。ヘッダが `BoardFlow Action Results` から `BoardFlow Results` に変わり、合計件数行も消えているため、既存ドキュメントや利用者の期待に寄せるなら互換性を戻した方がよい。
+2. `action/Dockerfile` は目的のマルチステージ化自体はできているが、runtime が `USER root` のまま、`interactivehtmlbom` も unpinned install のままなので、CI 用イメージとしての hardening 余地は残る。
+
+### テスト不足
+
+- manifest の shape と `diff_metadata` を spec 例に照合するテストがない。
+- fail API body の JSON schema を wiremock で検証するテストがない。
+- `fail-on-drc=true` / `fail-on-erc=true` で import 後に終了コードだけ失敗になる runner-level テストがない。
+- `exclude-paths` の改行区切り入力、必須ファイルが exclude されたときに detection error になるケースのテストがない。
+- Dockerfile の build smoke test がなく、runtime image 側の entrypoint 起動確認も未実施。
+
+### ドキュメント確認
+
+- `README.md` の更新は必須ではない。
+- ただし `docs/logs/73/worklog.md` では `src/bundle.rs` を「manifest.json (spec §8.5準拠)」と記載しているが、現行コードはその記述と一致していない。
+
+### PR/完了結果
+
+- Phase 2-4 は現時点では PR 作成不可。
+- 上記 4 件を解消し、runner-level の回帰テストを追加した後に再レビューが妥当。
+
+### 残リスク
+
+- manifest と fail API の schema 不一致は、単体テストが通っても SaaS 側との結合で初めて顕在化するタイプの不具合。
+- `exclude-paths` 解釈違いはユーザー設定依存で発火するため、表面上は正常に見えても一部 repository でのみ壊れる可能性がある。
+
+---
+
+## Review結果 (2026-05-05, Phase 2-4 再レビュー)
+
+### 総評
+
+- 前回の必須修正4件について、action-runner 単体のコード変更としては解消を確認した。
+  - `create_manifest` は `project` / `github_actions` / `kicad` / `hash` / `diff_metadata` のネスト構造へ変更済み。
+  - `process_project` は `Result<bool>` を返し、ERC/DRC exit code 5 と `fail_on_*` の組み合わせで `checks_failed = true` を返し、呼び出し側で upload/import 後に job exit code を 1 にしている。
+  - fail API payload は `{"status":"failed","error":{"message":...,"details":...}}` へ変更済み。
+  - `exclude-paths` は `lines()` で改行区切りに変更され、必須入力ファイルが exclude された場合は detection error にしている。
+- ただし、生成される新 manifest 形式と import 側の `crates/artifact` がまだ互換になっておらず、このままでは bundle import が runtime で失敗する。Issue #73 Phase 2-4 全体としては PR ready ではない。
+
+### 調査結果
+
+- `mise exec -- cargo test -p boardflow-action-runner`: 33 passed, 1 ignored
+- `mise exec -- cargo check --workspace`: passed
+- Web 調査では GitHub Actions の output / summary は改行区切りのファイル追記が正であり、`exclude-paths` の multiline 入力方針自体は妥当。
+
+### レビュー結果
+
+- `pr_ready: false`
+
+### 重大度順の指摘
+
+1. **Blocker**: `crates/action-runner/src/bundle.rs` は spec §8.5 形式の manifest を生成するが、import 側の `crates/artifact/src/lib.rs` は旧 schema の `BundleManifest` をまだ期待している。具体的には import 側は top-level に `version`, `project_path`, `tree_hash`, `commit_sha`, `files`, `checks: Vec<_>` を要求し、artifact entry も `filename` / `source_path` 前提で ZIP entry を検証している。一方、action-runner 側は `schema_version`, `project`, `git`, `hash`, `checks` object, `path` ベースの artifact を出力している。この不一致により `manifest.json` の deserialize もしくは zip entry 検証で import worker が失敗する可能性が高い。前回の manifest format 修正自体は入っているが、受け側未更新のため E2E では未解消。
+
+### 必須修正
+
+1. `crates/artifact` と import worker を新 manifest schema に合わせて更新し、`boardflow-action-runner` が生成する bundle を実際に受理できる状態にすること。少なくとも manifest struct、artifact path 解決、checks / diff_metadata の読み取り、許可 zip entry 判定を同時に揃える必要がある。
+
+### 任意改善
+
+1. `tests/api_test.rs` の `test_fail_api` は endpoint 呼び出し成功しか見ておらず、`error.message` / `error.details` の payload shape を検証していない。今回の修正点を固定するなら request body matcher を追加した方がよい。
+2. `tests/bundle_test.rs` の `test_create_manifest` は `diff_metadata` が object であることしか確認しておらず、各 diff ファイルについて `path` / `sha256` / `size_bytes` が入ることを検証していない。
+
+### テスト不足
+
+- `fail-on-erc` / `fail-on-drc` の「upload/import を完了してから job exit code のみ失敗にする」制御を確認する runner レベルのテストがない。
+- `exclude-paths` の改行区切り解釈と、`.kicad_pro` / `.kicad_pcb` / `.kicad_sch` を exclude した際に detection error になるケースの回帰テストがない。
+- 新 manifest を import 側が受理できることを確認する cross-crate / integration test がない。
+
+### ドキュメント確認
+
+- `docs/spec.md` の §8.5 manifest 例とは action-runner 側の出力方針が整合している。
+- `docs/external/github-actions-rust-binary-entrypoint.md` と GitHub Docs 系の確認結果から、Docker Action での `INPUT_*` / `GITHUB_OUTPUT` / `GITHUB_STEP_SUMMARY` の扱いは妥当。
+- ただし、spec と実装の整合は「生成側のみ」で、artifact import 側の schema が追随していない。
+
+### PR/完了結果
+
+- 前回の必須修正4件は「action-runner 単体のコード変更」としては概ね解消を確認。
+- しかし Issue #73 の成果物としては bundle import まで含めた end-to-end 成立が必要であり、現時点では PR 作成不可。
+
+### 残リスク
+
+- import 側を直しても、runner レベルの回帰テストが無いままだと `fail-on-*` や required file exclusion の後退を検知しにくい。
+- 実 KiCad 実行環境を使う end-to-end 検証は未実施のため、Docker image 置換後の実行時差分は残る。

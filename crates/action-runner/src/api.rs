@@ -151,8 +151,11 @@ impl ApiClient {
     pub async fn fail(&self, board_run_id: &str, message: &str, details: &str) -> Result<()> {
         let endpoint = format!("/api/v1/board-runs/{board_run_id}/fail");
         let payload = serde_json::json!({
-            "message": message,
-            "details": details,
+            "status": "failed",
+            "error": {
+                "message": message,
+                "details": details,
+            }
         });
         self.request(reqwest::Method::POST, &endpoint, Some(&payload))
             .await?;

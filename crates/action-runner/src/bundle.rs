@@ -354,48 +354,77 @@ pub fn generate_previews_json(output_dir: &Path, output: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Create manifest.json (spec §8.5 compliant).
+/// Create manifest.json compatible with crates/artifact BundleManifest struct.
 pub fn create_manifest(
-    board_project_id: &str,
     project_path: &str,
-    project_dir: &str,
-    config_path: &str,
     tree_hash: &str,
     commit_sha: &str,
-    git_ref: &str,
-    branch: &str,
-    run_id: &str,
-    run_attempt: &str,
     checks_summary_path: &Path,
     artifacts: &[serde_json::Value],
     output: &Path,
 ) -> Result<()> {
-    let checks = if checks_summary_path.exists() {
-        let content = fs::read_to_string(checks_summary_path)?;
-        serde_json::from_str(&content).unwrap_or(serde_json::json!({}))
-    } else {
-        serde_json::json!({})
-    };
+    // Build diff_metadata entries with sha256 and size_bytes from actual files
+    let diff_dir = checks_summary_path.parent().unwrap_or(Path::new("."));
+    let diff_metadata = build_diff_metadata(diff_dir);
+
+    // Convert artifact entries to the format expected by crates/artifact's ManifestArtifact:
+    // { type, filename, content_type, status, source_path?, sha256?, size_bytes? }
+    let manifest_artifacts: Vec<serde_json::Value> = artifacts
+        .iter()
+        .map(|a| {
+            let mut entry = serde_json::Map::new();
+            entry.insert("type".to_string(), a["type"].clone());
+            entry.insert("status".to_string(), a["status"].clone());
+
+            // filename = the display name (basename of path)
+            if let Some(path) = a["path"].as_str() {
+                let filename = Path::new(path)
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or(path);
+                entry.insert("filename".to_string(), serde_json::json!(filename));
+                // source_path = zip entry path (same as path in staging)
+                entry.insert("source_path".to_string(), serde_json::json!(path));
+            } else {
+                entry.insert("filename".to_string(), serde_json::json!(""));
+            }
+
+            if let Some(ct) = a.get("content_type") {
+                entry.insert("content_type".to_string(), ct.clone());
+            } else {
+                entry.insert("content_type".to_string(), serde_json::json!("application/octet-stream"));
+            }
+
+            if let Some(sha) = a.get("sha256") {
+                entry.insert("sha256".to_string(), sha.clone());
+            }
+            if let Some(size) = a.get("size_bytes") {
+                entry.insert("size_bytes".to_string(), size.clone());
+            }
+            if let Some(sp) = a.get("source_path") {
+                // For kicad source artifacts, source_path was already the zip path
+                entry.insert("source_path".to_string(), sp.clone());
+            }
+            if let Some(err) = a.get("error_message") {
+                entry.insert("status_reason".to_string(), err.clone());
+            }
+
+            serde_json::Value::Object(entry)
+        })
+        .collect();
+
+    // Build files array (same as plan files but stored in manifest)
+    let files = build_manifest_files(checks_summary_path);
 
     let manifest = serde_json::json!({
-        "schema_version": 1,
-        "board_project_id": board_project_id,
+        "version": 1,
         "project_path": project_path,
-        "project_dir": project_dir,
-        "config_path": config_path,
         "tree_hash": tree_hash,
-        "git": {
-            "commit_sha": commit_sha,
-            "ref": git_ref,
-            "branch": branch,
-        },
-        "action": {
-            "run_id": run_id,
-            "run_attempt": run_attempt,
-        },
-        "checks": checks,
-        "artifacts": artifacts,
-        "created_at": chrono::Utc::now().to_rfc3339(),
+        "commit_sha": commit_sha,
+        "files": files,
+        "artifacts": manifest_artifacts,
+        "checks": [],
+        "diff_metadata": diff_metadata,
     });
 
     if let Some(parent) = output.parent() {
@@ -404,6 +433,46 @@ pub fn create_manifest(
     let json = serde_json::to_string_pretty(&manifest)?;
     fs::write(output, json)?;
     Ok(())
+}
+
+/// Build a minimal files array for the manifest (list project files with hashes is handled at plan time).
+fn build_manifest_files(_checks_path: &Path) -> Vec<serde_json::Value> {
+    // Files array in manifest is informational; the actual file validation happens at plan time
+    Vec::new()
+}
+
+/// Build diff_metadata object with path, sha256, and size_bytes for each diff file.
+fn build_diff_metadata(diff_dir: &Path) -> serde_json::Value {
+    let entries = [
+        ("file_hashes", "diff/file_hashes.json"),
+        ("bom_summary", "diff/bom_summary.json"),
+        ("checks_summary", "diff/checks_summary.json"),
+        ("artifacts_summary", "diff/artifacts_summary.json"),
+        ("previews", "diff/previews.json"),
+    ];
+
+    let mut metadata = serde_json::Map::new();
+    for (key, rel_path) in &entries {
+        let file_name = Path::new(rel_path).file_name().unwrap_or_default();
+        let full_path = diff_dir.join(file_name);
+        if full_path.exists() {
+            if let Ok(data) = fs::read(&full_path) {
+                let size_bytes = data.len() as u64;
+                let mut hasher = Sha256::new();
+                hasher.update(&data);
+                let hash = hex::encode(hasher.finalize());
+                metadata.insert(
+                    key.to_string(),
+                    serde_json::json!({
+                        "path": rel_path,
+                        "sha256": format!("sha256:{hash}"),
+                        "size_bytes": size_bytes,
+                    }),
+                );
+            }
+        }
+    }
+    serde_json::Value::Object(metadata)
 }
 
 fn copy_if_exists(base: &Path, rel: &str, dest: &Path) {

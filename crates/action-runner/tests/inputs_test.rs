@@ -1,5 +1,7 @@
 use std::env;
 
+use serial_test::serial;
+
 #[path = "../src/error.rs"]
 mod error;
 #[path = "../src/inputs.rs"]
@@ -46,6 +48,7 @@ impl Drop for EnvGuard {
 }
 
 #[test]
+#[serial]
 fn test_parse_inputs_missing_token_fails() {
     let mut g = EnvGuard::new();
     g.remove("INPUT_TOKEN");
@@ -58,6 +61,7 @@ fn test_parse_inputs_missing_token_fails() {
 }
 
 #[test]
+#[serial]
 fn test_parse_inputs_empty_token_fails() {
     let mut g = EnvGuard::new();
     g.set("INPUT_TOKEN", "");
@@ -67,6 +71,7 @@ fn test_parse_inputs_empty_token_fails() {
 }
 
 #[test]
+#[serial]
 fn test_parse_inputs_valid_defaults() {
     let mut g = EnvGuard::new();
     g.set("INPUT_TOKEN", "ghp_test123");
@@ -99,6 +104,7 @@ fn test_parse_inputs_valid_defaults() {
 }
 
 #[test]
+#[serial]
 fn test_parse_inputs_custom_values() {
     let mut g = EnvGuard::new();
     g.set("INPUT_TOKEN", "token_abc");
@@ -118,6 +124,7 @@ fn test_parse_inputs_custom_values() {
 }
 
 #[test]
+#[serial]
 fn test_parse_inputs_hyphenated_env_vars() {
     let mut g = EnvGuard::new();
     g.set("INPUT_TOKEN", "tok");
@@ -135,6 +142,7 @@ fn test_parse_inputs_hyphenated_env_vars() {
 }
 
 #[test]
+#[serial]
 fn test_parse_github_context_defaults() {
     let mut g = EnvGuard::new();
     g.remove("GITHUB_EVENT_NAME");
@@ -155,6 +163,7 @@ fn test_parse_github_context_defaults() {
 }
 
 #[test]
+#[serial]
 fn test_parse_github_context_splits_repository() {
     let mut g = EnvGuard::new();
     g.set("GITHUB_REPOSITORY", "myorg/myrepo");
@@ -181,6 +190,7 @@ fn test_parse_github_context_splits_repository() {
 }
 
 #[test]
+#[serial]
 fn test_parse_github_context_no_slash_in_repo() {
     let mut g = EnvGuard::new();
     g.set("GITHUB_REPOSITORY", "noslash");

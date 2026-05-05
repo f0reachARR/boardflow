@@ -167,10 +167,10 @@ pub async fn run() -> i32 {
             continue;
         }
 
-        // Merge excludes
+        // Merge excludes (action.yml specifies newline-separated patterns)
         let input_excludes: Vec<String> = action_inputs
             .exclude_paths
-            .split(',')
+            .lines()
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty())
             .collect();
@@ -221,6 +221,22 @@ pub async fn run() -> i32 {
                 continue;
             }
         };
+
+        // Validate required files are not excluded
+        let pro_rel = pro_file.file_name().unwrap_or_default().to_str().unwrap_or_default();
+        let pcb_rel = pcb_file.file_name().unwrap_or_default().to_str().unwrap_or_default();
+        let sch_rel = sch_file.file_name().unwrap_or_default().to_str().unwrap_or_default();
+        if hash::is_excluded(pro_rel, &excludes)
+            || hash::is_excluded(pcb_rel, &excludes)
+            || hash::is_excluded(sch_rel, &excludes)
+        {
+            summary::warning(&format!(
+                "Required files excluded in {}",
+                project_dir.display()
+            ));
+            detection_errors += 1;
+            continue;
+        }
 
         // Compute relative paths
         let rel_dir = project_dir
@@ -334,12 +350,16 @@ pub async fn run() -> i32 {
             .unwrap_or_default();
 
         match process_project(&kicad, &api, vp, &gh, &action_inputs, &board_project_id).await {
-            Ok(()) => {
+            Ok(checks_failed) => {
                 results.push(ProjectResult {
                     path: vp.rel_pro_path.clone(),
                     status: "success".to_string(),
                     error: None,
                 });
+                // fail-on-erc/fail-on-drc: after successful upload/import, fail the job
+                if checks_failed {
+                    exit_code = 1;
+                }
             }
             Err(e) => {
                 error!("Project {} failed: {e}", vp.rel_pro_path);
@@ -374,7 +394,7 @@ async fn process_project(
     gh: &GitHubContext,
     inputs: &ActionInputs,
     board_project_id: &str,
-) -> std::result::Result<(), ActionError> {
+) -> std::result::Result<bool, ActionError> {
     let pro_stem = vp
         .pro_file
         .file_stem()
@@ -409,6 +429,7 @@ async fn process_project(
     let staging_object_key = &create_resp.artifact_bundle.object_key;
 
     let mut artifacts: Vec<serde_json::Value> = Vec::new();
+    let mut checks_failed = false;
 
     // Run ERC
     let erc_json = output_path.join("erc.json");
@@ -419,7 +440,7 @@ async fn process_project(
                     "erc_report", "checks/erc.json", "application/json", &erc_json,
                 )).unwrap());
                 if cmd_out.exit_code == 5 && inputs.fail_on_erc {
-                    // violations found, fail_on_erc set
+                    checks_failed = true;
                 }
             } else {
                 artifacts.push(serde_json::to_value(ArtifactEntry::failed(
@@ -444,7 +465,7 @@ async fn process_project(
                     "drc_report", "checks/drc.json", "application/json", &drc_json,
                 )).unwrap());
                 if cmd_out.exit_code == 5 && inputs.fail_on_drc {
-                    // violations found, fail_on_drc set
+                    checks_failed = true;
                 }
             } else {
                 artifacts.push(serde_json::to_value(ArtifactEntry::failed(
@@ -737,20 +758,9 @@ async fn process_project(
     // Create manifest
     let manifest_path = output_path.join("manifest.json");
     bundle::create_manifest(
-        board_project_id,
         &vp.rel_pro_path,
-        &vp.rel_dir,
-        &if vp.rel_dir == "." {
-            ".boardflow.yml".to_string()
-        } else {
-            format!("{}/.boardflow.yml", vp.rel_dir)
-        },
         &format!("sha256:{tree_hash}"),
         &gh.sha,
-        &gh.git_ref,
-        &gh.ref_name,
-        &gh.run_id,
-        &gh.run_attempt,
         &diff_dir.join("checks_summary.json"),
         &artifacts,
         &manifest_path,
@@ -794,7 +804,7 @@ async fn process_project(
     }
 
     info!("Successfully processed project: {}", vp.rel_pro_path);
-    Ok(())
+    Ok(checks_failed)
 }
 
 fn build_plan_files(project_dir: &Path, excludes: &[String]) -> Vec<PlanFile> {

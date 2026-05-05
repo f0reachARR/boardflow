@@ -205,16 +205,9 @@ fn test_create_manifest() {
 
     let output = dir.path().join("manifest.json");
     bundle::create_manifest(
-        "proj-id-1",
         "board/board.kicad_pro",
-        "board",
-        "board/.boardflow.yml",
         "sha256:abcdef",
         "abc123",
-        "refs/heads/main",
-        "main",
-        "99",
-        "1",
         &checks_path,
         &artifacts,
         &output,
@@ -222,11 +215,19 @@ fn test_create_manifest() {
 
     let content = fs::read_to_string(&output).unwrap();
     let parsed: serde_json::Value = serde_json::from_str(&content).unwrap();
-    assert_eq!(parsed["schema_version"].as_u64().unwrap(), 1);
-    assert_eq!(parsed["board_project_id"].as_str().unwrap(), "proj-id-1");
+    assert_eq!(parsed["version"].as_u64().unwrap(), 1);
     assert_eq!(parsed["project_path"].as_str().unwrap(), "board/board.kicad_pro");
-    assert_eq!(parsed["git"]["commit_sha"].as_str().unwrap(), "abc123");
-    assert!(parsed["created_at"].as_str().is_some());
+    assert_eq!(parsed["tree_hash"].as_str().unwrap(), "sha256:abcdef");
+    assert_eq!(parsed["commit_sha"].as_str().unwrap(), "abc123");
+    assert!(parsed["files"].is_array());
+    assert!(parsed["artifacts"].is_array());
+    assert_eq!(parsed["artifacts"].as_array().unwrap().len(), 1);
+    // Check artifact conversion to ManifestArtifact format
+    let art = &parsed["artifacts"][0];
+    assert_eq!(art["type"].as_str().unwrap(), "erc_report");
+    assert_eq!(art["status"].as_str().unwrap(), "available");
+    assert!(parsed["diff_metadata"].is_object());
+    assert!(parsed["checks"].is_array());
 }
 
 #[test]
