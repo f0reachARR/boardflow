@@ -29,25 +29,39 @@
 4. スナップショットファイルを生成・コミット
 5. CIでは既存の `cargo test --workspace` で自動検証される（追加設定不要）
 
-## 実装内容
+## 実装内容 (2026-05-05)
 
-TBD
+1. **workspace Cargo.toml**: `insta = { version = "1", features = ["yaml"] }` 追加
+2. **crates/api/Cargo.toml**: `[dev-dependencies]` に `insta = { workspace = true }` 追加
+3. **crates/api/src/lib.rs**:
+   - `pub fn openapi_schema()` 追加（全ルート登録済みの完全なOpenAPIスキーマを返す）
+   - `fn openapi_router() -> OpenApiRouter<PgPool>` を抽出し、`create_app_with_config` と `openapi_schema` でルート定義を共有（重複排除）
+4. **crates/api/tests/openapi_schema_test.rs**: スナップショットテスト作成
+5. **crates/api/tests/snapshots/openapi_schema_test__openapi_schema.snap**: 3064行のスナップショット（全paths + components含む）
 
-## テスト結果
+## テスト結果 (2026-05-05)
 
-TBD
+- `cargo test -p boardflow-api --test openapi_schema_test` → 1 passed
+- `cargo test -p boardflow-api --lib` → 29 passed（既存テスト全パス）
+- `cargo clippy -p boardflow-api --all-targets -- -D warnings` → 警告なし
 
 ## レビュー結果
 
-TBD
+- ルート登録の重複を `openapi_router()` 関数で解消済み
+- DBやサーバ起動不要で実行可能
 
 ## ドキュメント確認
 
-TBD
+- 特に追加ドキュメント不要（CIに設定変更なし、`cargo test --workspace` で自動検証される）
 
 ## PR/完了結果
 
-TBD
+- ブランチ: `feat/91-openapi-schema-snapshot-test`
+- コミット: `feat(api): add OpenAPI schema snapshot test (#91)`
+
+## 残リスク
+
+- OpenAPIスキーマの変更が意図的な場合は `cargo insta review` でスナップショットを更新する必要あり（READMEやCONTRIBUTINGへの手順追記は未実施）
 
 ## 残リスク
 
