@@ -47,12 +47,7 @@ struct ArtifactEntry {
 }
 
 impl ArtifactEntry {
-    fn available(
-        artifact_type: &str,
-        path: &str,
-        content_type: &str,
-        file_path: &Path,
-    ) -> Self {
+    fn available(artifact_type: &str, path: &str, content_type: &str, file_path: &Path) -> Self {
         let sha256 = hash::compute_file_sha256(file_path).ok();
         let size_bytes = fs::metadata(file_path).ok().map(|m| m.len());
         Self {
@@ -80,7 +75,12 @@ impl ArtifactEntry {
         }
     }
 
-    fn source(artifact_type: &str, staging_path: &str, source_path: &str, file_path: &Path) -> Self {
+    fn source(
+        artifact_type: &str,
+        staging_path: &str,
+        source_path: &str,
+        file_path: &Path,
+    ) -> Self {
         let sha256 = hash::compute_file_sha256(file_path).ok();
         let size_bytes = fs::metadata(file_path).ok().map(|m| m.len());
         Self {
@@ -174,11 +174,8 @@ pub async fn run() -> i32 {
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty())
             .collect();
-        let excludes = config::merge_excludes(
-            hash::BUILTIN_EXCLUDES,
-            &input_excludes,
-            &cfg.exclude_paths,
-        );
+        let excludes =
+            config::merge_excludes(hash::BUILTIN_EXCLUDES, &input_excludes, &cfg.exclude_paths);
 
         let pro_file = match detect::resolve_kicad_pro(&project_dir) {
             Ok(p) => p,
@@ -223,9 +220,21 @@ pub async fn run() -> i32 {
         };
 
         // Validate required files are not excluded
-        let pro_rel = pro_file.file_name().unwrap_or_default().to_str().unwrap_or_default();
-        let pcb_rel = pcb_file.file_name().unwrap_or_default().to_str().unwrap_or_default();
-        let sch_rel = sch_file.file_name().unwrap_or_default().to_str().unwrap_or_default();
+        let pro_rel = pro_file
+            .file_name()
+            .unwrap_or_default()
+            .to_str()
+            .unwrap_or_default();
+        let pcb_rel = pcb_file
+            .file_name()
+            .unwrap_or_default()
+            .to_str()
+            .unwrap_or_default();
+        let sch_rel = sch_file
+            .file_name()
+            .unwrap_or_default()
+            .to_str()
+            .unwrap_or_default();
         if hash::is_excluded(pro_rel, &excludes)
             || hash::is_excluded(pcb_rel, &excludes)
             || hash::is_excluded(sch_rel, &excludes)
@@ -244,7 +253,11 @@ pub async fn run() -> i32 {
             .map(|p| p.to_str().unwrap_or("."))
             .unwrap_or(".")
             .to_string();
-        let rel_dir = if rel_dir.is_empty() { ".".to_string() } else { rel_dir };
+        let rel_dir = if rel_dir.is_empty() {
+            ".".to_string()
+        } else {
+            rel_dir
+        };
 
         let rel_pro_path = pro_file
             .strip_prefix(&gh.workspace)
@@ -274,7 +287,10 @@ pub async fn run() -> i32 {
         let tree_hash = match hash::compute_tree_hash(&vp.project_dir, &vp.excludes) {
             Ok(h) => h,
             Err(e) => {
-                summary::warning(&format!("Failed to compute tree hash for {}: {e}", vp.rel_dir));
+                summary::warning(&format!(
+                    "Failed to compute tree hash for {}: {e}",
+                    vp.rel_dir
+                ));
                 continue;
             }
         };
@@ -375,9 +391,13 @@ pub async fn run() -> i32 {
 
     // 8. Write summary
     let _ = summary::write_job_summary(&results, &gh.summary_path);
-    let results_json = serde_json::to_string(&results.iter().map(|r| {
-        serde_json::json!({ "path": r.path, "status": r.status, "error": r.error })
-    }).collect::<Vec<_>>()).unwrap_or_default();
+    let results_json = serde_json::to_string(
+        &results
+            .iter()
+            .map(|r| serde_json::json!({ "path": r.path, "status": r.status, "error": r.error }))
+            .collect::<Vec<_>>(),
+    )
+    .unwrap_or_default();
     let _ = summary::set_output("result", &results_json, &gh.output_path);
 
     // 9. Return exit code
@@ -436,23 +456,37 @@ async fn process_project(
     match kicad.run_erc(&vp.sch_file, &erc_json).await {
         Ok(cmd_out) => {
             if cmd_out.exit_code == 0 || cmd_out.exit_code == 5 {
-                artifacts.push(serde_json::to_value(ArtifactEntry::available(
-                    "erc_report", "checks/erc.json", "application/json", &erc_json,
-                )).unwrap());
+                artifacts.push(
+                    serde_json::to_value(ArtifactEntry::available(
+                        "erc_report",
+                        "checks/erc.json",
+                        "application/json",
+                        &erc_json,
+                    ))
+                    .unwrap(),
+                );
                 if cmd_out.exit_code == 5 && inputs.fail_on_erc {
                     checks_failed = true;
                 }
             } else {
-                artifacts.push(serde_json::to_value(ArtifactEntry::failed(
-                    "erc_report", "ERC execution failed",
-                )).unwrap());
+                artifacts.push(
+                    serde_json::to_value(ArtifactEntry::failed(
+                        "erc_report",
+                        "ERC execution failed",
+                    ))
+                    .unwrap(),
+                );
             }
         }
         Err(e) => {
             warn!("ERC failed: {e}");
-            artifacts.push(serde_json::to_value(ArtifactEntry::failed(
-                "erc_report", &format!("ERC execution failed: {e}"),
-            )).unwrap());
+            artifacts.push(
+                serde_json::to_value(ArtifactEntry::failed(
+                    "erc_report",
+                    &format!("ERC execution failed: {e}"),
+                ))
+                .unwrap(),
+            );
         }
     }
 
@@ -461,93 +495,163 @@ async fn process_project(
     match kicad.run_drc(&vp.pcb_file, &drc_json).await {
         Ok(cmd_out) => {
             if cmd_out.exit_code == 0 || cmd_out.exit_code == 5 {
-                artifacts.push(serde_json::to_value(ArtifactEntry::available(
-                    "drc_report", "checks/drc.json", "application/json", &drc_json,
-                )).unwrap());
+                artifacts.push(
+                    serde_json::to_value(ArtifactEntry::available(
+                        "drc_report",
+                        "checks/drc.json",
+                        "application/json",
+                        &drc_json,
+                    ))
+                    .unwrap(),
+                );
                 if cmd_out.exit_code == 5 && inputs.fail_on_drc {
                     checks_failed = true;
                 }
             } else {
-                artifacts.push(serde_json::to_value(ArtifactEntry::failed(
-                    "drc_report", "DRC execution failed",
-                )).unwrap());
+                artifacts.push(
+                    serde_json::to_value(ArtifactEntry::failed(
+                        "drc_report",
+                        "DRC execution failed",
+                    ))
+                    .unwrap(),
+                );
             }
         }
         Err(e) => {
             warn!("DRC failed: {e}");
-            artifacts.push(serde_json::to_value(ArtifactEntry::failed(
-                "drc_report", &format!("DRC execution failed: {e}"),
-            )).unwrap());
+            artifacts.push(
+                serde_json::to_value(ArtifactEntry::failed(
+                    "drc_report",
+                    &format!("DRC execution failed: {e}"),
+                ))
+                .unwrap(),
+            );
         }
     }
 
     // Export PCB PDF
     let pdf_dir = output_path.join("pdf");
     fs::create_dir_all(&pdf_dir)?;
-    match kicad.export_pcb_pdf(&vp.pcb_file, &pdf_dir.join("pcb.pdf")).await {
+    match kicad
+        .export_pcb_pdf(&vp.pcb_file, &pdf_dir.join("pcb.pdf"))
+        .await
+    {
         Ok(_) => {
-            artifacts.push(serde_json::to_value(ArtifactEntry::available(
-                "pcb_pdf", "review/pcb.pdf", "application/pdf", &pdf_dir.join("pcb.pdf"),
-            )).unwrap());
+            artifacts.push(
+                serde_json::to_value(ArtifactEntry::available(
+                    "pcb_pdf",
+                    "review/pcb.pdf",
+                    "application/pdf",
+                    &pdf_dir.join("pcb.pdf"),
+                ))
+                .unwrap(),
+            );
         }
         Err(e) => {
             warn!("PCB PDF failed: {e}");
-            artifacts.push(serde_json::to_value(ArtifactEntry::failed(
-                "pcb_pdf", "PCB PDF export failed",
-            )).unwrap());
+            artifacts.push(
+                serde_json::to_value(ArtifactEntry::failed("pcb_pdf", "PCB PDF export failed"))
+                    .unwrap(),
+            );
         }
     }
 
     // Export Schematic PDF
-    match kicad.export_sch_pdf(&vp.sch_file, &pdf_dir.join("schematic.pdf")).await {
+    match kicad
+        .export_sch_pdf(&vp.sch_file, &pdf_dir.join("schematic.pdf"))
+        .await
+    {
         Ok(_) => {
-            artifacts.push(serde_json::to_value(ArtifactEntry::available(
-                "schematic_pdf", "review/schematic.pdf", "application/pdf", &pdf_dir.join("schematic.pdf"),
-            )).unwrap());
+            artifacts.push(
+                serde_json::to_value(ArtifactEntry::available(
+                    "schematic_pdf",
+                    "review/schematic.pdf",
+                    "application/pdf",
+                    &pdf_dir.join("schematic.pdf"),
+                ))
+                .unwrap(),
+            );
         }
         Err(e) => {
             warn!("Schematic PDF failed: {e}");
-            artifacts.push(serde_json::to_value(ArtifactEntry::failed(
-                "schematic_pdf", "Schematic PDF export failed",
-            )).unwrap());
+            artifacts.push(
+                serde_json::to_value(ArtifactEntry::failed(
+                    "schematic_pdf",
+                    "Schematic PDF export failed",
+                ))
+                .unwrap(),
+            );
         }
     }
 
     // Export SVG
     let svg_dir = output_path.join("svg");
     fs::create_dir_all(&svg_dir)?;
-    match kicad.export_pcb_svg(&vp.pcb_file, &svg_dir.join("pcb_top.svg"), PcbSide::Top).await {
+    match kicad
+        .export_pcb_svg(&vp.pcb_file, &svg_dir.join("pcb_top.svg"), PcbSide::Top)
+        .await
+    {
         Ok(_) => {
-            artifacts.push(serde_json::to_value(ArtifactEntry::available(
-                "pcb_top_svg", "review/pcb_top.svg", "image/svg+xml", &svg_dir.join("pcb_top.svg"),
-            )).unwrap());
+            artifacts.push(
+                serde_json::to_value(ArtifactEntry::available(
+                    "pcb_top_svg",
+                    "review/pcb_top.svg",
+                    "image/svg+xml",
+                    &svg_dir.join("pcb_top.svg"),
+                ))
+                .unwrap(),
+            );
         }
         Err(e) => {
             warn!("PCB top SVG failed: {e}");
-            artifacts.push(serde_json::to_value(ArtifactEntry::failed(
-                "pcb_top_svg", "PCB top SVG export failed",
-            )).unwrap());
+            artifacts.push(
+                serde_json::to_value(ArtifactEntry::failed(
+                    "pcb_top_svg",
+                    "PCB top SVG export failed",
+                ))
+                .unwrap(),
+            );
         }
     }
 
-    match kicad.export_pcb_svg(&vp.pcb_file, &svg_dir.join("pcb_bottom.svg"), PcbSide::Bottom).await {
+    match kicad
+        .export_pcb_svg(
+            &vp.pcb_file,
+            &svg_dir.join("pcb_bottom.svg"),
+            PcbSide::Bottom,
+        )
+        .await
+    {
         Ok(_) => {
-            artifacts.push(serde_json::to_value(ArtifactEntry::available(
-                "pcb_bottom_svg", "review/pcb_bottom.svg", "image/svg+xml", &svg_dir.join("pcb_bottom.svg"),
-            )).unwrap());
+            artifacts.push(
+                serde_json::to_value(ArtifactEntry::available(
+                    "pcb_bottom_svg",
+                    "review/pcb_bottom.svg",
+                    "image/svg+xml",
+                    &svg_dir.join("pcb_bottom.svg"),
+                ))
+                .unwrap(),
+            );
         }
         Err(e) => {
             warn!("PCB bottom SVG failed: {e}");
-            artifacts.push(serde_json::to_value(ArtifactEntry::failed(
-                "pcb_bottom_svg", "PCB bottom SVG export failed",
-            )).unwrap());
+            artifacts.push(
+                serde_json::to_value(ArtifactEntry::failed(
+                    "pcb_bottom_svg",
+                    "PCB bottom SVG export failed",
+                ))
+                .unwrap(),
+            );
         }
     }
 
     // Export Gerber
     let gerber_dir = output_path.join("gerber");
     fs::create_dir_all(&gerber_dir)?;
-    let gerber_ok = kicad.export_gerbers(&vp.pcb_file, &gerber_dir).await.is_ok();
+    let gerber_ok = kicad
+        .export_gerbers(&vp.pcb_file, &gerber_dir)
+        .await
+        .is_ok();
 
     // Export Drill
     let drill_dir = output_path.join("drill");
@@ -558,117 +662,206 @@ async fn process_project(
     let gerbers_zip = output_path.join("gerbers.zip");
     if gerber_ok {
         if bundle::create_bundle_zip(&gerber_dir, &gerbers_zip).is_ok() {
-            artifacts.push(serde_json::to_value(ArtifactEntry::available(
-                "gerber_zip", "fabrication/gerbers.zip", "application/zip", &gerbers_zip,
-            )).unwrap());
+            artifacts.push(
+                serde_json::to_value(ArtifactEntry::available(
+                    "gerber_zip",
+                    "fabrication/gerbers.zip",
+                    "application/zip",
+                    &gerbers_zip,
+                ))
+                .unwrap(),
+            );
         } else {
-            artifacts.push(serde_json::to_value(ArtifactEntry::failed(
-                "gerber_zip", "Gerber zip creation failed",
-            )).unwrap());
+            artifacts.push(
+                serde_json::to_value(ArtifactEntry::failed(
+                    "gerber_zip",
+                    "Gerber zip creation failed",
+                ))
+                .unwrap(),
+            );
         }
     } else {
-        artifacts.push(serde_json::to_value(ArtifactEntry::failed(
-            "gerber_zip", "Gerber export failed",
-        )).unwrap());
+        artifacts.push(
+            serde_json::to_value(ArtifactEntry::failed("gerber_zip", "Gerber export failed"))
+                .unwrap(),
+        );
     }
 
     let drill_zip = output_path.join("drill.zip");
     if drill_ok {
         if bundle::create_bundle_zip(&drill_dir, &drill_zip).is_ok() {
-            artifacts.push(serde_json::to_value(ArtifactEntry::available(
-                "drill_zip", "fabrication/drill.zip", "application/zip", &drill_zip,
-            )).unwrap());
+            artifacts.push(
+                serde_json::to_value(ArtifactEntry::available(
+                    "drill_zip",
+                    "fabrication/drill.zip",
+                    "application/zip",
+                    &drill_zip,
+                ))
+                .unwrap(),
+            );
         } else {
-            artifacts.push(serde_json::to_value(ArtifactEntry::failed(
-                "drill_zip", "Drill zip creation failed",
-            )).unwrap());
+            artifacts.push(
+                serde_json::to_value(ArtifactEntry::failed(
+                    "drill_zip",
+                    "Drill zip creation failed",
+                ))
+                .unwrap(),
+            );
         }
     } else {
-        artifacts.push(serde_json::to_value(ArtifactEntry::failed(
-            "drill_zip", "Drill export failed",
-        )).unwrap());
+        artifacts.push(
+            serde_json::to_value(ArtifactEntry::failed("drill_zip", "Drill export failed"))
+                .unwrap(),
+        );
     }
 
     // Fabrication zip (combined)
     let fab_zip = output_path.join("fabrication.zip");
     if gerber_ok || drill_ok {
         if bundle::create_fabrication_zip(&gerber_dir, &drill_dir, &fab_zip).is_ok() {
-            artifacts.push(serde_json::to_value(ArtifactEntry::available(
-                "fabrication_zip", "fabrication/fabrication.zip", "application/zip", &fab_zip,
-            )).unwrap());
+            artifacts.push(
+                serde_json::to_value(ArtifactEntry::available(
+                    "fabrication_zip",
+                    "fabrication/fabrication.zip",
+                    "application/zip",
+                    &fab_zip,
+                ))
+                .unwrap(),
+            );
         } else {
-            artifacts.push(serde_json::to_value(ArtifactEntry::failed(
-                "fabrication_zip", "Fabrication zip creation failed",
-            )).unwrap());
+            artifacts.push(
+                serde_json::to_value(ArtifactEntry::failed(
+                    "fabrication_zip",
+                    "Fabrication zip creation failed",
+                ))
+                .unwrap(),
+            );
         }
     } else {
-        artifacts.push(serde_json::to_value(ArtifactEntry::failed(
-            "fabrication_zip", "Fabrication zip creation failed",
-        )).unwrap());
+        artifacts.push(
+            serde_json::to_value(ArtifactEntry::failed(
+                "fabrication_zip",
+                "Fabrication zip creation failed",
+            ))
+            .unwrap(),
+        );
     }
 
     // Export BOM
     let bom_dir = output_path.join("bom");
     fs::create_dir_all(&bom_dir)?;
-    match kicad.export_bom(&vp.sch_file, &bom_dir.join("bom.csv")).await {
+    match kicad
+        .export_bom(&vp.sch_file, &bom_dir.join("bom.csv"))
+        .await
+    {
         Ok(_) => {
-            artifacts.push(serde_json::to_value(ArtifactEntry::available(
-                "bom_csv", "assembly/bom.csv", "text/csv", &bom_dir.join("bom.csv"),
-            )).unwrap());
+            artifacts.push(
+                serde_json::to_value(ArtifactEntry::available(
+                    "bom_csv",
+                    "assembly/bom.csv",
+                    "text/csv",
+                    &bom_dir.join("bom.csv"),
+                ))
+                .unwrap(),
+            );
         }
         Err(e) => {
             warn!("BOM export failed: {e}");
-            artifacts.push(serde_json::to_value(ArtifactEntry::failed(
-                "bom_csv", "BOM export failed",
-            )).unwrap());
+            artifacts.push(
+                serde_json::to_value(ArtifactEntry::failed("bom_csv", "BOM export failed"))
+                    .unwrap(),
+            );
         }
     }
 
     // Export Position
     let pos_dir = output_path.join("position");
     fs::create_dir_all(&pos_dir)?;
-    match kicad.export_position(&vp.pcb_file, &pos_dir.join("position.csv")).await {
+    match kicad
+        .export_position(&vp.pcb_file, &pos_dir.join("position.csv"))
+        .await
+    {
         Ok(_) => {
-            artifacts.push(serde_json::to_value(ArtifactEntry::available(
-                "position_csv", "assembly/position.csv", "text/csv", &pos_dir.join("position.csv"),
-            )).unwrap());
+            artifacts.push(
+                serde_json::to_value(ArtifactEntry::available(
+                    "position_csv",
+                    "assembly/position.csv",
+                    "text/csv",
+                    &pos_dir.join("position.csv"),
+                ))
+                .unwrap(),
+            );
         }
         Err(e) => {
             warn!("Position export failed: {e}");
-            artifacts.push(serde_json::to_value(ArtifactEntry::failed(
-                "position_csv", "Position export failed",
-            )).unwrap());
+            artifacts.push(
+                serde_json::to_value(ArtifactEntry::failed(
+                    "position_csv",
+                    "Position export failed",
+                ))
+                .unwrap(),
+            );
         }
     }
 
     // 3D Renders
     let render_dir = output_path.join("3d");
     fs::create_dir_all(&render_dir)?;
-    match kicad.render_3d(&vp.pcb_file, &render_dir.join("top.png"), PcbSide::Top).await {
+    match kicad
+        .render_3d(&vp.pcb_file, &render_dir.join("top.png"), PcbSide::Top)
+        .await
+    {
         Ok(_) => {
-            artifacts.push(serde_json::to_value(ArtifactEntry::available(
-                "render_top_png", "review/render_top.png", "image/png", &render_dir.join("top.png"),
-            )).unwrap());
+            artifacts.push(
+                serde_json::to_value(ArtifactEntry::available(
+                    "render_top_png",
+                    "review/render_top.png",
+                    "image/png",
+                    &render_dir.join("top.png"),
+                ))
+                .unwrap(),
+            );
         }
         Err(e) => {
             warn!("3D top render failed: {e}");
-            artifacts.push(serde_json::to_value(ArtifactEntry::failed(
-                "render_top_png", "3D top render failed",
-            )).unwrap());
+            artifacts.push(
+                serde_json::to_value(ArtifactEntry::failed(
+                    "render_top_png",
+                    "3D top render failed",
+                ))
+                .unwrap(),
+            );
         }
     }
 
-    match kicad.render_3d(&vp.pcb_file, &render_dir.join("bottom.png"), PcbSide::Bottom).await {
+    match kicad
+        .render_3d(
+            &vp.pcb_file,
+            &render_dir.join("bottom.png"),
+            PcbSide::Bottom,
+        )
+        .await
+    {
         Ok(_) => {
-            artifacts.push(serde_json::to_value(ArtifactEntry::available(
-                "render_bottom_png", "review/render_bottom.png", "image/png", &render_dir.join("bottom.png"),
-            )).unwrap());
+            artifacts.push(
+                serde_json::to_value(ArtifactEntry::available(
+                    "render_bottom_png",
+                    "review/render_bottom.png",
+                    "image/png",
+                    &render_dir.join("bottom.png"),
+                ))
+                .unwrap(),
+            );
         }
         Err(e) => {
             warn!("3D bottom render failed: {e}");
-            artifacts.push(serde_json::to_value(ArtifactEntry::failed(
-                "render_bottom_png", "3D bottom render failed",
-            )).unwrap());
+            artifacts.push(
+                serde_json::to_value(ArtifactEntry::failed(
+                    "render_bottom_png",
+                    "3D bottom render failed",
+                ))
+                .unwrap(),
+            );
         }
     }
 
@@ -682,15 +875,22 @@ async fn process_project(
             if html_path != dest {
                 let _ = fs::copy(&html_path, &dest);
             }
-            artifacts.push(serde_json::to_value(ArtifactEntry::available(
-                "ibom", "assembly/ibom.html", "text/html", &dest,
-            )).unwrap());
+            artifacts.push(
+                serde_json::to_value(ArtifactEntry::available(
+                    "ibom",
+                    "assembly/ibom.html",
+                    "text/html",
+                    &dest,
+                ))
+                .unwrap(),
+            );
         }
         Err(e) => {
             warn!("iBOM failed: {e}");
-            artifacts.push(serde_json::to_value(ArtifactEntry::failed(
-                "ibom", "iBOM generation failed",
-            )).unwrap());
+            artifacts.push(
+                serde_json::to_value(ArtifactEntry::failed("ibom", "iBOM generation failed"))
+                    .unwrap(),
+            );
         }
     }
 
@@ -739,7 +939,10 @@ async fn process_project(
 
             artifacts.push(
                 serde_json::to_value(ArtifactEntry::source(
-                    kicad_type, &staging_path, &source_path, &path,
+                    kicad_type,
+                    &staging_path,
+                    &source_path,
+                    &path,
                 ))
                 .unwrap(),
             );
@@ -749,10 +952,24 @@ async fn process_project(
     // Generate diff metadata
     let diff_dir = output_path.join("diff");
     fs::create_dir_all(&diff_dir)?;
-    let _ = bundle::generate_file_hashes_json(&vp.project_dir, &vp.excludes, &diff_dir.join("file_hashes.json"));
-    let _ = bundle::generate_bom_summary_json(&bom_dir.join("bom.csv"), &diff_dir.join("bom_summary.json"));
-    let _ = bundle::generate_checks_summary_json(&erc_json, &drc_json, &diff_dir.join("checks_summary.json"));
-    let _ = bundle::generate_artifacts_summary_json(&artifacts, &diff_dir.join("artifacts_summary.json"));
+    let _ = bundle::generate_file_hashes_json(
+        &vp.project_dir,
+        &vp.excludes,
+        &diff_dir.join("file_hashes.json"),
+    );
+    let _ = bundle::generate_bom_summary_json(
+        &bom_dir.join("bom.csv"),
+        &diff_dir.join("bom_summary.json"),
+    );
+    let _ = bundle::generate_checks_summary_json(
+        &erc_json,
+        &drc_json,
+        &diff_dir.join("checks_summary.json"),
+    );
+    let _ = bundle::generate_artifacts_summary_json(
+        &artifacts,
+        &diff_dir.join("artifacts_summary.json"),
+    );
     let _ = bundle::generate_previews_json(output_path, &diff_dir.join("previews.json"));
 
     // Build manifest checks from ERC/DRC reports
@@ -789,7 +1006,9 @@ async fn process_project(
     // Create bundle zip
     let bundle_path = output_path.join("bundle.zip");
     if let Err(e) = bundle::create_bundle_zip(&staging_dir, &bundle_path) {
-        let _ = api.fail(board_run_id, "Bundle creation failed", &e.to_string()).await;
+        let _ = api
+            .fail(board_run_id, "Bundle creation failed", &e.to_string())
+            .await;
         return Err(ActionError::Bundle(format!("Bundle creation failed: {e}")));
     }
 
@@ -797,7 +1016,9 @@ async fn process_project(
 
     // Upload bundle
     if let Err(e) = api.upload_bundle(upload_url, &bundle_path).await {
-        let _ = api.fail(board_run_id, "Upload failed", &e.to_string()).await;
+        let _ = api
+            .fail(board_run_id, "Upload failed", &e.to_string())
+            .await;
         return Err(e);
     }
 
@@ -810,7 +1031,9 @@ async fn process_project(
     });
 
     if let Err(e) = api.import(board_run_id, &import_payload).await {
-        let _ = api.fail(board_run_id, "Import failed", &e.to_string()).await;
+        let _ = api
+            .fail(board_run_id, "Import failed", &e.to_string())
+            .await;
         return Err(e);
     }
 
@@ -856,32 +1079,44 @@ fn build_manifest_checks(erc_path: &Path, drc_path: &Path) -> Vec<serde_json::Va
             match boardflow_kicad::report::ErcReport::parse(&content) {
                 Ok(report) => {
                     let violations = report.actionable_violations();
-                    let error_count = violations.iter().filter(|v| v.severity == "error").count() as i32;
-                    let warning_count = violations.iter().filter(|v| v.severity == "warning").count() as i32;
+                    let error_count =
+                        violations.iter().filter(|v| v.severity == "error").count() as i32;
+                    let warning_count = violations
+                        .iter()
+                        .filter(|v| v.severity == "warning")
+                        .count() as i32;
                     let status = if error_count > 0 { "failed" } else { "passed" };
 
-                    let findings: Vec<serde_json::Value> = report
-                        .sheets
-                        .iter()
-                        .flat_map(|sheet| {
-                            sheet.violations.iter().filter(|v| v.is_actionable()).map(move |v| {
-                                let pos_mm = v.items.first().and_then(|item| {
-                                    item.pos.as_ref().map(|p| serde_json::json!({"x": p.x, "y": p.y}))
-                                });
-                                let mut finding = serde_json::json!({
-                                    "severity": v.severity,
-                                    "rule_code": v.violation_type,
-                                    "title": v.description,
-                                    "subject_kind": "schematic",
-                                    "sheet_path": sheet.path,
-                                });
-                                if let Some(pos) = pos_mm {
-                                    finding.as_object_mut().unwrap().insert("pos_mm".to_string(), pos);
-                                }
-                                finding
+                    let findings: Vec<serde_json::Value> =
+                        report
+                            .sheets
+                            .iter()
+                            .flat_map(|sheet| {
+                                sheet.violations.iter().filter(|v| v.is_actionable()).map(
+                                    move |v| {
+                                        let pos_mm = v.items.first().and_then(|item| {
+                                            item.pos
+                                                .as_ref()
+                                                .map(|p| serde_json::json!({"x": p.x, "y": p.y}))
+                                        });
+                                        let mut finding = serde_json::json!({
+                                            "severity": v.severity,
+                                            "rule_code": v.violation_type,
+                                            "title": v.description,
+                                            "subject_kind": "schematic",
+                                            "sheet_path": sheet.path,
+                                        });
+                                        if let Some(pos) = pos_mm {
+                                            finding
+                                                .as_object_mut()
+                                                .unwrap()
+                                                .insert("pos_mm".to_string(), pos);
+                                        }
+                                        finding
+                                    },
+                                )
                             })
-                        })
-                        .collect();
+                            .collect();
 
                     serde_json::json!({
                         "kind": "erc",
@@ -930,8 +1165,12 @@ fn build_manifest_checks(erc_path: &Path, drc_path: &Path) -> Vec<serde_json::Va
             match boardflow_kicad::report::DrcReport::parse(&content) {
                 Ok(report) => {
                     let violations = report.actionable_violations();
-                    let error_count = violations.iter().filter(|v| v.severity == "error").count() as i32;
-                    let warning_count = violations.iter().filter(|v| v.severity == "warning").count() as i32;
+                    let error_count =
+                        violations.iter().filter(|v| v.severity == "error").count() as i32;
+                    let warning_count = violations
+                        .iter()
+                        .filter(|v| v.severity == "warning")
+                        .count() as i32;
                     let status = if error_count > 0 { "failed" } else { "passed" };
 
                     let findings: Vec<serde_json::Value> = report
@@ -940,7 +1179,9 @@ fn build_manifest_checks(erc_path: &Path, drc_path: &Path) -> Vec<serde_json::Va
                         .filter(|v| v.is_actionable())
                         .map(|v| {
                             let pos_mm = v.items.first().and_then(|item| {
-                                item.pos.as_ref().map(|p| serde_json::json!({"x": p.x, "y": p.y}))
+                                item.pos
+                                    .as_ref()
+                                    .map(|p| serde_json::json!({"x": p.x, "y": p.y}))
                             });
                             let mut finding = serde_json::json!({
                                 "severity": v.severity,
@@ -949,7 +1190,10 @@ fn build_manifest_checks(erc_path: &Path, drc_path: &Path) -> Vec<serde_json::Va
                                 "subject_kind": "pcb",
                             });
                             if let Some(pos) = pos_mm {
-                                finding.as_object_mut().unwrap().insert("pos_mm".to_string(), pos);
+                                finding
+                                    .as_object_mut()
+                                    .unwrap()
+                                    .insert("pos_mm".to_string(), pos);
                             }
                             finding
                         })

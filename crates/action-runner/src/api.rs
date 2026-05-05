@@ -86,8 +86,7 @@ impl ApiClient {
                         )));
                     }
                     // 5xx → retry
-                    last_error =
-                        Some(ActionError::Api(format!("HTTP {status} from {endpoint}")));
+                    last_error = Some(ActionError::Api(format!("HTTP {status} from {endpoint}")));
                 }
                 Err(e) => {
                     if e.is_timeout() || e.is_connect() {
@@ -128,11 +127,7 @@ impl ApiClient {
 
     pub async fn create_board_run(&self, payload: &Value) -> Result<CreateBoardRunResponse> {
         let resp = self
-            .request(
-                reqwest::Method::POST,
-                "/api/v1/board-runs",
-                Some(payload),
-            )
+            .request(reqwest::Method::POST, "/api/v1/board-runs", Some(payload))
             .await?;
 
         let response: CreateBoardRunResponse = serde_json::from_value(resp)

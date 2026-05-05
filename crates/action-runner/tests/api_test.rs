@@ -1,11 +1,11 @@
 use std::time::Duration;
-use wiremock::matchers::{method, path, header};
+use wiremock::matchers::{header, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
-#[path = "../src/error.rs"]
-mod error;
 #[path = "../src/api.rs"]
 mod api;
+#[path = "../src/error.rs"]
+mod error;
 
 use api::ApiClient;
 
@@ -119,7 +119,10 @@ async fn test_create_board_run() {
     let payload = serde_json::json!({"board_project_id": "proj-1"});
     let resp = client.create_board_run(&payload).await.unwrap();
     assert_eq!(resp.board_run_id, "run-123");
-    assert_eq!(resp.artifact_bundle.upload_url, "https://s3.example.com/upload");
+    assert_eq!(
+        resp.artifact_bundle.upload_url,
+        "https://s3.example.com/upload"
+    );
     assert_eq!(resp.artifact_bundle.object_key, "bundles/run-123.zip");
 }
 
@@ -151,7 +154,10 @@ async fn test_fail_api() {
         .await;
 
     let client = ApiClient::new(&mock_server.uri(), "tok");
-    client.fail("run-xyz", "error msg", "details here").await.unwrap();
+    client
+        .fail("run-xyz", "error msg", "details here")
+        .await
+        .unwrap();
 }
 
 #[tokio::test]
@@ -162,17 +168,20 @@ async fn test_retries_on_timeout() {
     // First request times out (delay > client timeout of 60s), second succeeds
     Mock::given(method("POST"))
         .and(path("/api/v1/runs/plan"))
-        .respond_with(ResponseTemplate::new(200)
-            .set_body_json(serde_json::json!({"projects": []}))
-            .set_delay(Duration::from_secs(90)))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(serde_json::json!({"projects": []}))
+                .set_delay(Duration::from_secs(90)),
+        )
         .up_to_n_times(1)
         .mount(&mock_server)
         .await;
 
     Mock::given(method("POST"))
         .and(path("/api/v1/runs/plan"))
-        .respond_with(ResponseTemplate::new(200)
-            .set_body_json(serde_json::json!({"projects": [{"project_path": "x", "decision": "skip"}]})))
+        .respond_with(ResponseTemplate::new(200).set_body_json(
+            serde_json::json!({"projects": [{"project_path": "x", "decision": "skip"}]}),
+        ))
         .mount(&mock_server)
         .await;
 

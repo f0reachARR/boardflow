@@ -1158,3 +1158,65 @@ test result: ok. 6 passed (summary_test)
 
 - 現状の unit test は `checks` / `files` の追加自体は検知できるが、source artifact を含む実 bundle を import 側で受理できるかは保証していない。
 - report 生成失敗系では BoardRun が `completed` でも check status 未保存になり、UI / コメント生成の整合が崩れる可能性がある。
+
+## ドキュメント確認 (2026-05-05, Issue #73 Phase 2-4 docs review)
+
+### Issueまでの経緯
+
+- Issue #73 Phase 2-4 は `boardflow-action` の entrypoint を bash から Rust バイナリへ移行し、`action/Dockerfile` の multi-stage build 化、旧 shell script 削除、`crates/artifact` 側の取り込み整合まで進んだ。
+- 今回は review 済み実装に対して、関連ドキュメントと research 成果物が current 実装と矛盾していないかを docs 観点で最終確認する。
+
+### ユーザー要望
+
+- `docs/spec.md`、`docs/technology.md`、`docs/backend/api.md`、`docs/backend/summary.md`、`README.md`、`docs/logs/73/worklog.md`、`crates/action-runner/Cargo.toml`、および Phase 2-4 の外部調査メモを確認対象にする。
+- 実装内容とドキュメントの整合性、新規 crate metadata の妥当性、README 更新要否、spec との不整合有無を判定する。
+
+### 調査結果
+
+- `crates/action-runner/Cargo.toml` の `description = "GitHub Actions Docker Action entrypoint binary for BoardFlow"` は、新規 crate の責務を十分に表しており metadata 観点の不足は見当たらない。
+- `action/Dockerfile` は runtime image として `kicad/kicad:9.0` を使用している一方、`README.md` は依然として「対象とするKiCadバージョンは最新の10.x系 (`kicad/kicad:10.0.1`)」と記載しており、現行 Action 実装と矛盾している。
+- `docs/spec.md` は source artifact について「zip 内 path は `path`、元の repository 相対 path は `source_path`」という契約を記述しているが、現行実装では `crates/action-runner/src/bundle.rs` が manifest 生成時に `source_path` へ zip entry path を保存し、`crates/artifact/src/lib.rs` もその前提で `archive.by_name(source_path)` を行っている。さらに `crates/action-runner/tests/bundle_test.rs` でも `source_path` が zip entry path であることを固定しているため、spec / backend docs 側の記述が stale になっている。
+- `docs/external/rust-docker-multistage-kicad.md`、`docs/external/github-actions-rust-binary-entrypoint.md`、`docs/external/reqwest-retry-backoff.md`、`docs/external/zip-crate-bundle-creation.md` は、採用した実装方針とおおむね整合している。
+
+### 計画
+
+- README の KiCad バージョン表記と、spec / backend docs の source artifact 契約を current 実装に合わせて更新すれば、Phase 2-4 の docs blocker は解消できる。
+
+### 実装内容
+
+- docs review のためコード変更は行わず、現行実装・テスト・ドキュメントの整合確認のみ実施した。
+
+### テスト結果
+
+- ユーザー申告: `cargo test -p boardflow-action-runner`: 34 tests passed
+- ユーザー申告: `cargo test -p boardflow-artifact`: 25 tests passed
+- ユーザー申告: `cargo check --workspace`: clean
+
+### レビュー結果
+
+- `docs_ready: false`
+
+### 必須修正
+
+1. `README.md` の KiCad バージョン記述を、現行 Action 実装の `kicad/kicad:9.0` と一致する内容へ更新する必要がある。
+2. `docs/spec.md`、必要に応じて `docs/backend/api.md` / `docs/backend/summary.md` の source artifact 記述を、現行実装の `source_path = zip entry path` という契約へ更新するか、逆に実装を docs 契約へ戻すかを明示的に揃える必要がある。現状は docs とコード・テストが不一致。
+
+### 任意改善
+
+- `docs/logs/73/worklog.md` には過去時点の「ドキュメント不整合なし」判定が残っているため、履歴としては問題ないが、後続の読者が誤読しないよう今回の docs review 結果を参照する前提を PR 本文にも残した方がよい。
+
+### ドキュメント確認
+
+- `docs/technology.md` は上位方針のみで、今回の Phase 2-4 に伴う追加修正は不要。
+- `docs/external/` 配下の Phase 2-4 research メモは current 実装と整合している。
+- 不整合があるのは `README.md` と source artifact 契約を説明する `docs/spec.md` / backend docs。
+
+### PR/完了結果
+
+- ドキュメント観点ではこのままの PR 化は不可。
+- README と spec / backend docs の整合を取れば、docs 側の未解消事項はほぼ解消できる見込み。
+
+### 残リスク
+
+- source artifact 契約を docs だけ先に更新する場合、将来 spec 本来の `path` / `source_path` 分離へ戻す判断をしたときに再度ドキュメント差し替えが必要になる。
+- README の KiCad バージョンが古いままだと、利用者が 10.x 前提で Action の挙動を期待して調査・検証を進めてしまう可能性がある。

@@ -3,10 +3,10 @@ use std::io::Read;
 use std::path::Path;
 use tempfile::TempDir;
 
-#[path = "../src/error.rs"]
-mod error;
 #[path = "../src/bundle.rs"]
 mod bundle;
+#[path = "../src/error.rs"]
+mod error;
 
 #[test]
 fn test_create_bundle_zip_and_sha256() {
@@ -186,10 +186,16 @@ fn test_generate_previews_json() {
     let previews = parsed["previews"].as_array().unwrap();
     assert_eq!(previews.len(), 4);
 
-    let top_svg = previews.iter().find(|p| p["name"] == "pcb_top_svg").unwrap();
+    let top_svg = previews
+        .iter()
+        .find(|p| p["name"] == "pcb_top_svg")
+        .unwrap();
     assert_eq!(top_svg["available"].as_bool().unwrap(), true);
 
-    let bottom_svg = previews.iter().find(|p| p["name"] == "pcb_bottom_svg").unwrap();
+    let bottom_svg = previews
+        .iter()
+        .find(|p| p["name"] == "pcb_bottom_svg")
+        .unwrap();
     assert_eq!(bottom_svg["available"].as_bool().unwrap(), false);
 }
 
@@ -197,23 +203,25 @@ fn test_generate_previews_json() {
 fn test_create_manifest() {
     let dir = TempDir::new().unwrap();
     let checks_path = dir.path().join("checks_summary.json");
-    fs::write(&checks_path, r#"{"erc":{"available":true},"drc":{"available":false}}"#).unwrap();
+    fs::write(
+        &checks_path,
+        r#"{"erc":{"available":true},"drc":{"available":false}}"#,
+    )
+    .unwrap();
 
     let artifacts = vec![
         serde_json::json!({"type": "erc_report", "status": "available", "path": "checks/erc.json", "content_type": "application/json"}),
     ];
 
-    let checks = vec![
-        serde_json::json!({
-            "kind": "erc",
-            "status": "passed",
-            "error_count": 0,
-            "warning_count": 1,
-            "notice_count": 0,
-            "tool_name": "kicad-cli",
-            "findings": [{"severity": "warning", "rule_code": "W001", "title": "test warning"}]
-        }),
-    ];
+    let checks = vec![serde_json::json!({
+        "kind": "erc",
+        "status": "passed",
+        "error_count": 0,
+        "warning_count": 1,
+        "notice_count": 0,
+        "tool_name": "kicad-cli",
+        "findings": [{"severity": "warning", "rule_code": "W001", "title": "test warning"}]
+    })];
 
     let files = vec![
         serde_json::json!({"path": "board.kicad_pro", "sha256": "sha256:abc123"}),
@@ -230,17 +238,24 @@ fn test_create_manifest() {
         &checks,
         &files,
         &output,
-    ).unwrap();
+    )
+    .unwrap();
 
     let content = fs::read_to_string(&output).unwrap();
     let parsed: serde_json::Value = serde_json::from_str(&content).unwrap();
     assert_eq!(parsed["version"].as_u64().unwrap(), 1);
-    assert_eq!(parsed["project_path"].as_str().unwrap(), "board/board.kicad_pro");
+    assert_eq!(
+        parsed["project_path"].as_str().unwrap(),
+        "board/board.kicad_pro"
+    );
     assert_eq!(parsed["tree_hash"].as_str().unwrap(), "sha256:abcdef");
     assert_eq!(parsed["commit_sha"].as_str().unwrap(), "abc123");
     assert!(parsed["files"].is_array());
     assert_eq!(parsed["files"].as_array().unwrap().len(), 2);
-    assert_eq!(parsed["files"][0]["path"].as_str().unwrap(), "board.kicad_pro");
+    assert_eq!(
+        parsed["files"][0]["path"].as_str().unwrap(),
+        "board.kicad_pro"
+    );
     assert!(parsed["artifacts"].is_array());
     assert_eq!(parsed["artifacts"].as_array().unwrap().len(), 1);
     // Check artifact conversion to ManifestArtifact format
@@ -264,17 +279,15 @@ fn test_create_manifest_source_path_is_zip_entry() {
     fs::write(&checks_path, "{}").unwrap();
 
     // Source artifact has both "path" (zip entry) and "source_path" (repo-relative)
-    let artifacts = vec![
-        serde_json::json!({
-            "type": "kicad_pcb",
-            "status": "available",
-            "path": "kicad/board/board.kicad_pcb",
-            "source_path": "board/board.kicad_pcb",
-            "content_type": "application/octet-stream",
-            "sha256": "sha256:abc",
-            "size_bytes": 100
-        }),
-    ];
+    let artifacts = vec![serde_json::json!({
+        "type": "kicad_pcb",
+        "status": "available",
+        "path": "kicad/board/board.kicad_pcb",
+        "source_path": "board/board.kicad_pcb",
+        "content_type": "application/octet-stream",
+        "sha256": "sha256:abc",
+        "size_bytes": 100
+    })];
 
     let output = dir.path().join("manifest.json");
     bundle::create_manifest(
@@ -286,13 +299,17 @@ fn test_create_manifest_source_path_is_zip_entry() {
         &[],
         &[],
         &output,
-    ).unwrap();
+    )
+    .unwrap();
 
     let content = fs::read_to_string(&output).unwrap();
     let parsed: serde_json::Value = serde_json::from_str(&content).unwrap();
     let art = &parsed["artifacts"][0];
     // source_path in manifest must be the zip entry path, NOT the repo-relative path
-    assert_eq!(art["source_path"].as_str().unwrap(), "kicad/board/board.kicad_pcb");
+    assert_eq!(
+        art["source_path"].as_str().unwrap(),
+        "kicad/board/board.kicad_pcb"
+    );
 }
 
 #[test]
@@ -345,6 +362,7 @@ fn test_build_staging_dir_nested_project() {
     let manifest = output.join("manifest.json");
     fs::write(&manifest, r#"{}"#).unwrap();
 
-    let staging = bundle::build_staging_dir(&output, &project, "boards/myboard", &[], &manifest).unwrap();
+    let staging =
+        bundle::build_staging_dir(&output, &project, "boards/myboard", &[], &manifest).unwrap();
     assert!(staging.join("kicad/boards/myboard/hw.kicad_pro").exists());
 }

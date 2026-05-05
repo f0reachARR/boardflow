@@ -4,8 +4,8 @@ use std::path::{Path, PathBuf};
 
 use sha2::{Digest, Sha256};
 use walkdir::WalkDir;
-use zip::write::FileOptions;
 use zip::ZipWriter;
+use zip::write::FileOptions;
 
 use crate::error::{ActionError, Result};
 
@@ -13,8 +13,7 @@ use crate::error::{ActionError, Result};
 pub fn create_bundle_zip(staging_dir: &Path, bundle_path: &Path) -> Result<()> {
     let file = fs::File::create(bundle_path)?;
     let mut zip = ZipWriter::new(file);
-    let options = FileOptions::<()>::default()
-        .compression_method(zip::CompressionMethod::Deflated);
+    let options = FileOptions::<()>::default().compression_method(zip::CompressionMethod::Deflated);
 
     for entry in WalkDir::new(staging_dir)
         .follow_links(false)
@@ -76,15 +75,39 @@ pub fn build_staging_dir(
     fs::create_dir_all(staging.join("diff"))?;
 
     // review/
-    copy_if_exists(output_dir, "pdf/schematic.pdf", &staging.join("review/schematic.pdf"));
+    copy_if_exists(
+        output_dir,
+        "pdf/schematic.pdf",
+        &staging.join("review/schematic.pdf"),
+    );
     copy_if_exists(output_dir, "pdf/pcb.pdf", &staging.join("review/pcb.pdf"));
-    copy_if_exists(output_dir, "svg/pcb_top.svg", &staging.join("review/pcb_top.svg"));
-    copy_if_exists(output_dir, "svg/pcb_bottom.svg", &staging.join("review/pcb_bottom.svg"));
-    copy_if_exists(output_dir, "3d/top.png", &staging.join("review/render_top.png"));
-    copy_if_exists(output_dir, "3d/bottom.png", &staging.join("review/render_bottom.png"));
+    copy_if_exists(
+        output_dir,
+        "svg/pcb_top.svg",
+        &staging.join("review/pcb_top.svg"),
+    );
+    copy_if_exists(
+        output_dir,
+        "svg/pcb_bottom.svg",
+        &staging.join("review/pcb_bottom.svg"),
+    );
+    copy_if_exists(
+        output_dir,
+        "3d/top.png",
+        &staging.join("review/render_top.png"),
+    );
+    copy_if_exists(
+        output_dir,
+        "3d/bottom.png",
+        &staging.join("review/render_bottom.png"),
+    );
 
     // assembly/
-    copy_if_exists(output_dir, "ibom/ibom.html", &staging.join("assembly/ibom.html"));
+    copy_if_exists(
+        output_dir,
+        "ibom/ibom.html",
+        &staging.join("assembly/ibom.html"),
+    );
     // ibom might be named differently, find any .html
     if !staging.join("assembly/ibom.html").exists() {
         if let Ok(entries) = fs::read_dir(output_dir.join("ibom")) {
@@ -97,20 +120,44 @@ pub fn build_staging_dir(
         }
     }
     copy_if_exists(output_dir, "bom/bom.csv", &staging.join("assembly/bom.csv"));
-    copy_if_exists(output_dir, "position/position.csv", &staging.join("assembly/position.csv"));
+    copy_if_exists(
+        output_dir,
+        "position/position.csv",
+        &staging.join("assembly/position.csv"),
+    );
 
     // fabrication/
-    copy_if_exists(output_dir, "gerbers.zip", &staging.join("fabrication/gerbers.zip"));
-    copy_if_exists(output_dir, "drill.zip", &staging.join("fabrication/drill.zip"));
-    copy_if_exists(output_dir, "fabrication.zip", &staging.join("fabrication/fabrication.zip"));
+    copy_if_exists(
+        output_dir,
+        "gerbers.zip",
+        &staging.join("fabrication/gerbers.zip"),
+    );
+    copy_if_exists(
+        output_dir,
+        "drill.zip",
+        &staging.join("fabrication/drill.zip"),
+    );
+    copy_if_exists(
+        output_dir,
+        "fabrication.zip",
+        &staging.join("fabrication/fabrication.zip"),
+    );
 
     // checks/
     copy_if_exists(output_dir, "erc.json", &staging.join("checks/erc.json"));
     copy_if_exists(output_dir, "drc.json", &staging.join("checks/drc.json"));
 
     // diff/
-    copy_if_exists(output_dir, "diff/file_hashes.json", &staging.join("diff/file_hashes.json"));
-    copy_if_exists(output_dir, "diff/bom_summary.json", &staging.join("diff/bom_summary.json"));
+    copy_if_exists(
+        output_dir,
+        "diff/file_hashes.json",
+        &staging.join("diff/file_hashes.json"),
+    );
+    copy_if_exists(
+        output_dir,
+        "diff/bom_summary.json",
+        &staging.join("diff/bom_summary.json"),
+    );
     copy_if_exists(
         output_dir,
         "diff/checks_summary.json",
@@ -121,7 +168,11 @@ pub fn build_staging_dir(
         "diff/artifacts_summary.json",
         &staging.join("diff/artifacts_summary.json"),
     );
-    copy_if_exists(output_dir, "diff/previews.json", &staging.join("diff/previews.json"));
+    copy_if_exists(
+        output_dir,
+        "diff/previews.json",
+        &staging.join("diff/previews.json"),
+    );
 
     // kicad/ source files
     let kicad_staging = if rel_dir == "." {
@@ -157,11 +208,14 @@ pub fn build_staging_dir(
 }
 
 /// Create a zip of gerber and drill directories combined.
-pub fn create_fabrication_zip(gerber_dir: &Path, drill_dir: &Path, output_path: &Path) -> Result<()> {
+pub fn create_fabrication_zip(
+    gerber_dir: &Path,
+    drill_dir: &Path,
+    output_path: &Path,
+) -> Result<()> {
     let file = fs::File::create(output_path)?;
     let mut zip = ZipWriter::new(file);
-    let options = FileOptions::<()>::default()
-        .compression_method(zip::CompressionMethod::Deflated);
+    let options = FileOptions::<()>::default().compression_method(zip::CompressionMethod::Deflated);
 
     add_dir_to_zip(&mut zip, gerber_dir, "", options)?;
     add_dir_to_zip(&mut zip, drill_dir, "", options)?;
@@ -233,25 +287,26 @@ pub fn generate_bom_summary_json(bom_csv: &Path, output: &Path) -> Result<()> {
 }
 
 /// Generate checks_summary.json from ERC/DRC JSON files.
-pub fn generate_checks_summary_json(
-    erc_path: &Path,
-    drc_path: &Path,
-    output: &Path,
-) -> Result<()> {
+pub fn generate_checks_summary_json(erc_path: &Path, drc_path: &Path, output: &Path) -> Result<()> {
     let erc_summary = if erc_path.exists() {
         let content = fs::read_to_string(erc_path)?;
         match boardflow_kicad::report::ErcReport::parse(&content) {
             Ok(report) => {
                 let violations = report.all_violations();
                 let errors = violations.iter().filter(|v| v.severity == "error").count();
-                let warnings = violations.iter().filter(|v| v.severity == "warning").count();
+                let warnings = violations
+                    .iter()
+                    .filter(|v| v.severity == "warning")
+                    .count();
                 serde_json::json!({
                     "available": true,
                     "error_count": errors,
                     "warning_count": warnings,
                 })
             }
-            Err(_) => serde_json::json!({ "available": false, "error_count": 0, "warning_count": 0 }),
+            Err(_) => {
+                serde_json::json!({ "available": false, "error_count": 0, "warning_count": 0 })
+            }
         }
     } else {
         serde_json::json!({ "available": false, "error_count": 0, "warning_count": 0 })
@@ -263,14 +318,19 @@ pub fn generate_checks_summary_json(
             Ok(report) => {
                 let violations = report.all_violations();
                 let errors = violations.iter().filter(|v| v.severity == "error").count();
-                let warnings = violations.iter().filter(|v| v.severity == "warning").count();
+                let warnings = violations
+                    .iter()
+                    .filter(|v| v.severity == "warning")
+                    .count();
                 serde_json::json!({
                     "available": true,
                     "error_count": errors,
                     "warning_count": warnings,
                 })
             }
-            Err(_) => serde_json::json!({ "available": false, "error_count": 0, "warning_count": 0 }),
+            Err(_) => {
+                serde_json::json!({ "available": false, "error_count": 0, "warning_count": 0 })
+            }
         }
     } else {
         serde_json::json!({ "available": false, "error_count": 0, "warning_count": 0 })
@@ -394,7 +454,10 @@ pub fn create_manifest(
             if let Some(ct) = a.get("content_type") {
                 entry.insert("content_type".to_string(), ct.clone());
             } else {
-                entry.insert("content_type".to_string(), serde_json::json!("application/octet-stream"));
+                entry.insert(
+                    "content_type".to_string(),
+                    serde_json::json!("application/octet-stream"),
+                );
             }
 
             if let Some(sha) = a.get("sha256") {
