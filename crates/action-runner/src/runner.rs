@@ -4,9 +4,7 @@ use std::path::{Path, PathBuf};
 use serde::Serialize;
 use tracing::{error, info, warn};
 
-use boardflow_api_types::board_run::{
-    CreateBoardRunRequest, ImportArtifactBundleRequest,
-};
+use boardflow_api_types::board_run::{CreateBoardRunRequest, ImportArtifactBundleRequest};
 use boardflow_api_types::plan::{
     PlanActionInput, PlanDecision, PlanGitInput, PlanMode, PlanProjectFile, PlanProjectInput,
     PlanRepositoryInput, PlanRequest,
@@ -365,9 +363,7 @@ pub async fn run() -> i32 {
     let mut results: Vec<ProjectResult> = Vec::new();
 
     for vp in &valid_projects {
-        let decision = decisions
-            .iter()
-            .find(|d| d.project_path == vp.rel_pro_path);
+        let decision = decisions.iter().find(|d| d.project_path == vp.rel_pro_path);
 
         let is_build = decision
             .map(|d| matches!(d.decision, PlanDecision::Build))
