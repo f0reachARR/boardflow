@@ -61,7 +61,7 @@ globset = "0.4"
 walkdir = "2"
 tempfile = "3"
 anyhow = "1"
-insta = { version = "1", features = ["yaml"] }
+insta = { version = "1" }
 boardflow-api-types = { path = "crates/api-types" }
 
 [workspace.lints.clippy]

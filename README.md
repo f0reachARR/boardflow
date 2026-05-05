@@ -97,3 +97,19 @@ pnpm typecheck
 ```
 
 `schema.d.ts` は自動生成ファイルのため、手動編集しないでください。
+
+### OpenAPI スキーマのスナップショット更新
+
+バックエンドの API エンドポイントやリクエスト/レスポンス型を変更した場合、OpenAPI スナップショットテストが失敗します。意図的な変更であれば以下の手順でスナップショットを更新してください。
+
+```bash
+# 1. テスト実行（失敗を確認）
+mise exec -- cargo test -p boardflow-api --test openapi_schema_test
+
+# 2. スナップショットの差分を確認・承認
+mise exec -- cargo insta review
+
+# 3. 更新された .snap ファイルをコミット
+git add crates/api/tests/snapshots/
+git commit -m "update OpenAPI schema snapshot"
+```
