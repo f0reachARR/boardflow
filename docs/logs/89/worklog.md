@@ -313,3 +313,166 @@ boardflow-api-types = { workspace = true }
 ### 更新した作業ログパス
 
 `docs/logs/89/worklog.md`
+
+---
+
+## レビュー結果 (2026-05-05)
+
+### 総評
+
+- 共有 crate への型移動自体は概ね計画どおりで、`cfg_attr(feature = "openapi")` の適用、API 側の import 置換、action-runner 側の構造体リテラル化は要件に沿っている。
+- ただし、BoardRun 作成 API の idempotent レスポンスで `artifact_bundle: null` が返る正規ケースを action-runner が失敗扱いしており、API 契約と実装がずれている。このままでは再送・再実行時に誤って job を失敗させるため、PR ready にはできない。
+
+### PR判定
+
+- `pr_ready: false`
+
+### 重大度順の指摘
+
+1. **必須修正**: action-runner が `CreateBoardRunResponse.artifact_bundle == None` を常に API エラー扱いしている。
+   - 該当実装: `crates/action-runner/src/runner.rs` の `create_board_run` 直後。
+   - 現在の API 仕様では、既存 run が `importing` の場合は `artifact_bundle` を返さず、`completed` / `failed` / `timed_out` の場合は terminal 状態のみを返し、Action は追加 build / upload / import を行わない前提。
+   - にもかかわらず現在は `None` を即時エラーに変換しているため、正規の idempotent レスポンスで job 全体が失敗する。
+
+### 必須修正
+
+- `CreateBoardRunResponse.status` を見て分岐し、`artifact_bundle` がない `importing` / terminal 状態では build・upload・import を中止して、仕様に沿った skip / early-return にする。
+- このケースを `crates/action-runner/tests/api_test.rs` か runner のテストで追加し、`artifact_bundle: null` のレスポンスを回帰テスト化する。
+
+### 任意改善
+
+- `crates/api-types/src/lib.rs` は計画書の例と異なり `pub use plan::*; pub use board_run::*;` を持たない。現状の利用箇所では問題ないが、計画との差分として整理しておくとよい。
+- `docs/backend/summary.md` の crate 一覧に `crates/api-types` が未記載のままなので、共有契約 crate を構成図に追加した方が設計意図が伝わりやすい。
+
+### テスト不足
+
+- OpenAPI テストは `openapi.json` が返ることだけを確認しており、Issue 受け入れ条件の「スキーマ出力が変化しない」を検証していない。
+- `boardflow-api-types` 自体の feature 切り替え build は通るが、JSON ラウンドトリップや schema shape の unit test は未追加。
+- action-runner 側は `artifact_bundle: Some(...)` の成功系しか持たず、`None` を返す idempotency ケースをカバーしていない。
+
+### ドキュメント確認
+
+- `docs/external/rust-shared-api-types-crate.md` の調査方針と、`serde` + `utoipa(optional)` の feature 分離方針は実装と整合している。
+- 一方で `docs/backend/summary.md` のサービス構成には `crates/api-types` が反映されていない。
+
+### plan / research / docs との不整合
+
+- 計画にあった `docs/backend/summary.md` 更新が未実施。
+- 計画にあった OpenAPI スキーマ差分確認、`boardflow-api-types` のラウンドトリップ test 追加は未実施。
+- 依存最小化の観点では `boardflow-api-types` は実行時依存に `serde_json` を含む。これは `FailErrorInfo.details: Option<serde_json::Value>` を維持する限り妥当だが、「serde + utoipa(optional) のみ」というレビュー観点とは一致しないため、要件表現を明確化した方がよい。
+
+### テスト結果
+
+- `mise exec -- cargo test -p boardflow-api-types --no-default-features`: 成功
+- `mise exec -- cargo test -p boardflow-api-types --features openapi`: 成功
+- `mise exec -- cargo tree -p boardflow-api-types -e normal`: 実行時依存は `serde` と `serde_json`
+
+### 残リスク
+
+- 上記 idempotency ハンドリングを直さない限り、同一 attempt の再送や再実行で偽陽性の失敗が起こる。
+- OpenAPI 互換性はコード上は大きく崩れていないが、差分検証が未自動化のため将来の属性変更で気づきにくい。
+
+### PR/完了結果
+
+- `pr_ready: false`
+
+---
+
+## 再レビュー結果 (2026-05-05)
+
+### 総評
+
+- 前回指摘した 3 点のうち、Issue #89 のスコープに属する修正は確認できた。
+- `artifact_bundle: null` を返す idempotent レスポンスは action-runner 側でエラーではなく skip 扱いに変更されており、ドキュメント更新と API テスト追加も反映済み。
+- OpenAPI 互換性の自動検証不足は別 Issue #91 に切り出されているため、本 Issue の PR 判定を妨げる論点としては扱わない。
+
+### レビュー結果
+
+- 高: `artifact_bundle == None` 時のハンドリングは解消。
+   - [crates/action-runner/src/runner.rs](crates/action-runner/src/runner.rs#L477) で `artifact_bundle` がない場合に status をログして build を skip し、`Ok(false)` で早期 return している。
+   - API 側の idempotent 契約とも整合している。
+- 低: ドキュメント更新は解消。
+   - [docs/backend/summary.md](docs/backend/summary.md#L59) に `crates/api-types` の記載がある。
+- テスト: idempotency ケース追加は解消。
+   - [crates/action-runner/tests/api_test.rs](crates/action-runner/tests/api_test.rs#L204) に `test_create_board_run_idempotent_no_bundle` が追加され、`artifact_bundle: null` のレスポンスを受理できることを確認している。
+
+### テスト結果
+
+- `mise exec -- cargo test -p boardflow-action-runner --test api_test`: 成功（8 passed, 1 ignored）
+
+### 必須修正
+
+- なし
+
+### 任意改善
+
+- 現在の追加テストは API クライアントのデシリアライズ確認が中心で、runner 全体として skip 動作までを直接検証してはいない。将来の回帰検知を強めるなら runner レベルのテスト追加余地はある。
+
+### テスト不足
+
+- `artifact_bundle: null` のパースは担保されたが、`process_project` 全体で build/upload を実行しないことまでは自動テスト化されていない。
+
+### ドキュメント確認
+
+- `docs/backend/summary.md` 更新済み。
+- `docs/spec.md` との矛盾は今回確認範囲では見当たらない。
+
+### plan / research / docs との整合
+
+- 共有 crate 方式、`serde` ベースの共有、API/action-runner 両側からの利用という計画・調査方針と整合。
+- OpenAPI 互換性の厳密検証は未自動化だが、別 Issue #91 管轄として整理済み。
+
+### 残リスク
+
+- runner の skip 分岐は実装済みだが、将来の回帰を防ぐには runner レベルの挙動テストがあるとより堅い。
+
+### PR/完了結果
+
+- `pr_ready: true`
+
+---
+
+## ドキュメント確認結果 (2026-05-05)
+
+### 総評
+
+- Issue #89 のドキュメント確認対象 4 件を再確認した結果、現時点の実装との重大な不整合は見当たらない。
+- `docs/backend/summary.md` の `crates/api-types` 追記は現行実装と一致している。
+- `docs/backend/api.md` の Plan API / BoardRun API 契約は、共有型 crate に移した `PlanRequest` / `PlanResponse` / `CreateBoardRunRequest` / `CreateBoardRunResponse` / `ImportArtifactBundleRequest` / `ImportArtifactBundleResponse` の形状と整合している。
+- `docs/external/rust-shared-api-types-crate.md` の採用結論（共有 crate + `utoipa` の feature 分離）は実装に反映済み。
+
+### docs_ready
+
+- `docs_ready: true`
+
+### 必須修正
+
+- なし
+
+### 任意改善
+
+- 作業ログ内に過去の暫定レビュー結果（`pr_ready: false`、`summary.md` 未更新など）が残っているため、将来の読者向けには「後続の再レビューで解消済み」であることを冒頭要約にも反映すると追跡しやすい。
+
+### 不整合のあるドキュメント
+
+- なし
+
+### 不足しているドキュメント
+
+- なし
+
+### 外部調査メモに関する指摘
+
+- 調査メモは「共有型を独立 crate に切り出す」「`utoipa` は feature `openapi` で条件付きにする」「action-runner 側は手書き JSON ではなく共有型を使う」という結論を示しており、現実装はその方針どおり。
+- 調査メモのサンプルでは `src/lib.rs` に `pub use plan::*; pub use board_run::*;` も例示されているが、現実装は module 公開のみで利用側も `boardflow_api_types::plan::*` / `boardflow_api_types::board_run::*` を使っているため、ドキュメント上の本質的な不整合ではない。
+
+### レビュー結果
+
+- `docs/backend/summary.md`: 正確。サービス構成の一覧に `crates/api-types` が含まれている。
+- `docs/backend/api.md`: 正確。BoardRun 作成 API の idempotency 時に `artifact_bundle` が返らないケースの注記もあり、現在の action-runner 実装とも矛盾しない。
+- `docs/logs/89/worklog.md`: 履歴としては妥当。過去の暫定判断と最新判断が混在しているが、直近の再レビューと本節を見れば最終状態は追える。
+- `docs/external/rust-shared-api-types-crate.md`: 正確。採用・不採用判断は現実装と整合している。
+
+### 更新した作業ログパス
+
+- `docs/logs/89/worklog.md`

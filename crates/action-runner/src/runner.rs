@@ -467,9 +467,19 @@ async fn process_project(
 
     let create_resp = api.create_board_run(&create_payload).await?;
     let board_run_id = &create_resp.board_run_id;
-    let artifact_bundle = create_resp.artifact_bundle.as_ref().ok_or_else(|| {
-        ActionError::Api("CreateBoardRunResponse missing artifact_bundle".to_string())
-    })?;
+
+    // If artifact_bundle is None, the run already exists in a terminal or importing state.
+    // Skip processing — no upload or build needed.
+    let artifact_bundle = match &create_resp.artifact_bundle {
+        Some(bundle) => bundle,
+        None => {
+            info!(
+                "Board run {} already in status '{}', skipping build",
+                board_run_id, create_resp.status
+            );
+            return Ok(false);
+        }
+    };
     let upload_url = &artifact_bundle.upload_url;
     let staging_object_key = &artifact_bundle.object_key;
 

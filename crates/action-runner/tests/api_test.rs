@@ -199,3 +199,27 @@ async fn test_retries_on_timeout() {
     let decisions = client.plan(&payload).await.unwrap();
     assert_eq!(decisions.len(), 1);
 }
+
+#[tokio::test]
+async fn test_create_board_run_idempotent_no_bundle() {
+    let mock_server = MockServer::start().await;
+
+    // Simulate an already-completed board run: artifact_bundle is null
+    Mock::given(method("POST"))
+        .and(path("/api/v1/board-runs"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "board_run_id": "br_existing-run",
+            "status": "completed",
+            "artifact_bundle": null
+        })))
+        .expect(1)
+        .mount(&mock_server)
+        .await;
+
+    let client = ApiClient::new(&mock_server.uri(), "tok");
+    let payload = serde_json::json!({"board_project_id": "proj-1"});
+    let resp = client.create_board_run(&payload).await.unwrap();
+    assert_eq!(resp.board_run_id, "br_existing-run");
+    assert_eq!(resp.status, "completed");
+    assert!(resp.artifact_bundle.is_none());
+}
