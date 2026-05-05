@@ -403,10 +403,6 @@ pub fn create_manifest(
             if let Some(size) = a.get("size_bytes") {
                 entry.insert("size_bytes".to_string(), size.clone());
             }
-            if let Some(sp) = a.get("source_path") {
-                // For kicad source artifacts, source_path was already the zip path
-                entry.insert("source_path".to_string(), sp.clone());
-            }
             if let Some(err) = a.get("error_message") {
                 entry.insert("status_reason".to_string(), err.clone());
             }

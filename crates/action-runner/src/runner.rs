@@ -846,11 +846,12 @@ fn build_plan_files(project_dir: &Path, excludes: &[String]) -> Vec<PlanFile> {
 }
 
 /// Build ManifestCheck entries from ERC/DRC JSON report files.
+/// Always emits both erc and drc entries (skipped if report is missing/unparseable).
 fn build_manifest_checks(erc_path: &Path, drc_path: &Path) -> Vec<serde_json::Value> {
     let mut checks = Vec::new();
 
     // ERC check
-    if erc_path.exists() {
+    let erc_check = if erc_path.exists() {
         if let Ok(content) = fs::read_to_string(erc_path) {
             match boardflow_kicad::report::ErcReport::parse(&content) {
                 Ok(report) => {
@@ -882,7 +883,7 @@ fn build_manifest_checks(erc_path: &Path, drc_path: &Path) -> Vec<serde_json::Va
                         })
                         .collect();
 
-                    checks.push(serde_json::json!({
+                    serde_json::json!({
                         "kind": "erc",
                         "status": status,
                         "error_count": error_count,
@@ -890,23 +891,41 @@ fn build_manifest_checks(erc_path: &Path, drc_path: &Path) -> Vec<serde_json::Va
                         "notice_count": 0,
                         "tool_name": "kicad-cli",
                         "findings": findings,
-                    }));
+                    })
                 }
-                Err(_) => {
-                    checks.push(serde_json::json!({
-                        "kind": "erc",
-                        "status": "skipped",
-                        "error_count": 0,
-                        "warning_count": 0,
-                        "notice_count": 0,
-                    }));
-                }
+                Err(_) => serde_json::json!({
+                    "kind": "erc",
+                    "status": "skipped",
+                    "error_count": 0,
+                    "warning_count": 0,
+                    "notice_count": 0,
+                    "findings": [],
+                }),
             }
+        } else {
+            serde_json::json!({
+                "kind": "erc",
+                "status": "skipped",
+                "error_count": 0,
+                "warning_count": 0,
+                "notice_count": 0,
+                "findings": [],
+            })
         }
-    }
+    } else {
+        serde_json::json!({
+            "kind": "erc",
+            "status": "skipped",
+            "error_count": 0,
+            "warning_count": 0,
+            "notice_count": 0,
+            "findings": [],
+        })
+    };
+    checks.push(erc_check);
 
     // DRC check
-    if drc_path.exists() {
+    let drc_check = if drc_path.exists() {
         if let Ok(content) = fs::read_to_string(drc_path) {
             match boardflow_kicad::report::DrcReport::parse(&content) {
                 Ok(report) => {
@@ -936,7 +955,7 @@ fn build_manifest_checks(erc_path: &Path, drc_path: &Path) -> Vec<serde_json::Va
                         })
                         .collect();
 
-                    checks.push(serde_json::json!({
+                    serde_json::json!({
                         "kind": "drc",
                         "status": status,
                         "error_count": error_count,
@@ -944,20 +963,38 @@ fn build_manifest_checks(erc_path: &Path, drc_path: &Path) -> Vec<serde_json::Va
                         "notice_count": 0,
                         "tool_name": "kicad-cli",
                         "findings": findings,
-                    }));
+                    })
                 }
-                Err(_) => {
-                    checks.push(serde_json::json!({
-                        "kind": "drc",
-                        "status": "skipped",
-                        "error_count": 0,
-                        "warning_count": 0,
-                        "notice_count": 0,
-                    }));
-                }
+                Err(_) => serde_json::json!({
+                    "kind": "drc",
+                    "status": "skipped",
+                    "error_count": 0,
+                    "warning_count": 0,
+                    "notice_count": 0,
+                    "findings": [],
+                }),
             }
+        } else {
+            serde_json::json!({
+                "kind": "drc",
+                "status": "skipped",
+                "error_count": 0,
+                "warning_count": 0,
+                "notice_count": 0,
+                "findings": [],
+            })
         }
-    }
+    } else {
+        serde_json::json!({
+            "kind": "drc",
+            "status": "skipped",
+            "error_count": 0,
+            "warning_count": 0,
+            "notice_count": 0,
+            "findings": [],
+        })
+    };
+    checks.push(drc_check);
 
     checks
 }

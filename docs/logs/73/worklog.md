@@ -1081,3 +1081,80 @@ test result: ok. 6 passed (summary_test)
 
 - `checks_summary.json` と `diff/file_hashes.json` は作っていても、worker が completed 判定や snapshot 保存に使っているのは `manifest.checks` / `manifest.files` なので、manifest 本体を埋めない限り UI 側で整合しない可能性が高い。
 - 現状の unit test 群は module 単位では通るが、bundle 生成から import までの接続面の欠落を拾えていない。
+
+## 2026-05-05 Re-Review (Issue #73 Phase 2-4, manifest.checks/files 修正後)
+
+### Issueまでの経緯
+
+- 再レビュー対象は Issue #73 のうち、前回 Blocker 2件だった `manifest.checks` 空配列固定と `manifest.files` 空配列固定の修正。
+- ユーザー申告では `build_manifest_checks()` 追加、`build_plan_files()` の manifest.files 反映、`create_manifest()` 引数追加、`bundle_test.rs` 更新が実施済み。
+
+### ユーザー要望
+
+- `build_manifest_checks` が `crates/artifact/src/lib.rs` の `ManifestCheck` と互換か確認する。
+- `manifest.files` が `ManifestFile { path, sha256 }` と互換か確認する。
+- worker import handler がこの manifest を使って `run_checks`、findings、snapshot、board_run status を正しく処理できるか確認する。
+- 前回レビューの 2 Blocker が解消されたか判定する。
+
+### 調査結果
+
+- `crates/action-runner/src/runner.rs` では `build_manifest_checks(&erc_json, &drc_json)` の結果を manifest に渡し、`build_plan_files()` の結果を `path` + `sha256` 形式へ写して `manifest.files` に渡していることを確認。
+- `crates/action-runner/src/bundle.rs` の `create_manifest()` は top-level `version/project_path/tree_hash/commit_sha/files/artifacts/checks/diff_metadata` を出力しており、`crates/artifact/src/lib.rs` の `BundleManifest` / `ManifestCheck` / `ManifestFile` とは今回の `checks` と `files` に関して整合している。
+- `crates/worker/src/handlers/import.rs` は引き続き `manifest.checks` から `run_checks` / findings / `erc_status` / `drc_status` を作り、`manifest.files` を snapshot と diff summary に使っているため、前回指摘していた「空配列固定」による欠落は通常系では解消している。
+- 追加で確認したところ、source artifact の `source_path` 契約が action-runner と import 側で食い違っており、bundle import が runtime で失敗し得る。
+- `mise exec -- cargo test -p boardflow-action-runner --quiet`: pass (7 + 12 + 8 + 6 tests, 1 ignored)。
+- `mise exec -- cargo check --workspace`: pass。
+
+### 計画
+
+- 前回 2 Blocker の解消確認に加えて、manifest 生成値が import worker の実装前提と end-to-end で噛み合うかを再点検する。
+- 特に source artifact、check 欠落時の status、cross-crate test の有無を重点確認する。
+
+### 実装内容の確認
+
+- `build_manifest_checks()` 自体は `ManifestCheck` / `ManifestFinding` の required field を満たす JSON を返しており、ERC は `subject_kind: schematic` と `sheet_path`、DRC は `subject_kind: pcb` と `pos_mm` を埋めている。
+- `manifest.files` は `build_plan_files()` を再利用した `path` + `sha256` 配列になっており、`ManifestFile` と互換。
+- `bundle_test.rs` には `checks` と `files` が manifest に含まれることを検証する追加が入っている。
+
+### テスト結果
+
+- `mise exec -- cargo test -p boardflow-action-runner --quiet`: pass。
+- `mise exec -- cargo check --workspace`: pass。
+
+### レビュー結果
+
+- 前回 Blocker 2件は「manifest.checks / manifest.files が常に空だった」という観点では解消を確認した。
+- ただし Issue #73 Phase 2-4 全体としては、bundle import の source artifact path 契約不整合と、ERC/DRC report 不在時の skipped check 未保存が残っているため、`pr_ready: false` と判断する。
+
+### 重大度順の指摘
+
+1. Blocker: `crates/action-runner/src/bundle.rs` は artifact entry の `source_path` を zip 内 path として一度設定した後、source artifact だけ repository 相対 path で上書きしている。一方 `crates/artifact/src/lib.rs` の `extract_bundle()` は `source_path` をそのまま zip entry path とみなして `archive.by_name()` しているため、KiCad source artifact が 1件でも含まれる bundle は import 時に `artifact file not found in zip` で失敗する可能性が高い。spec は `path` を zip 内 path、`source_path` を repository 相対 path と定義しているので、action-runner 側と import 側のどちらかを揃える必要がある。
+2. Blocker: `build_manifest_checks()` は ERC/DRC report ファイルが存在する場合にしか check entry を生成しない。KiCad 実行失敗や report 未生成時は `manifest.checks` に `erc` / `drc` の `skipped` entry が入らず、worker import は `run_checks` 行も `board_runs.erc_status` / `drc_status` も保存しないまま `completed` に進めてしまう。spec の `skipped` 契約と completed 条件に未達。
+
+### 必須修正
+
+1. source artifact について、manifest では `path` を zip 内 path、`source_path` を repository 相対 path として保持しつつ、import 側が zip を引くための別フィールドまたは `path` 利用に揃えること。少なくとも action-runner と `boardflow-artifact::extract_bundle()` の解釈を一致させる必要がある。
+2. ERC/DRC report が無い場合でも `erc` / `drc` の `skipped` check を manifest に必ず入れ、理由を `raw_summary` 相当へ残すこと。
+
+### 任意改善
+
+- `build_manifest_checks()` と `create_manifest()` の接続を cross-crate test で固定し、manifest から import 完了までの接続面を回帰テストに含めた方がよい。
+
+### テスト不足
+
+- action-runner が生成した source artifact 付き bundle を `boardflow-artifact::extract_bundle()` に通す E2E / cross-crate test がない。
+- ERC/DRC report 不在時に `skipped` check が出力されることを確認する test がない。
+
+### ドキュメント確認
+
+- `docs/spec.md` の `source artifact は kicad/ 以下に閉じ込め、元の repository 相対pathを source_path としてmanifestに保存する` という契約と、現状 import 側の `source_path` 解釈は不整合。
+- `docs/spec.md` の `skipped` check 契約とも現状は不整合。
+
+### PR/完了結果
+
+- `pr_ready: false`
+
+### 残リスク
+
+- 現状の unit test は `checks` / `files` の追加自体は検知できるが、source artifact を含む実 bundle を import 側で受理できるかは保証していない。
+- report 生成失敗系では BoardRun が `completed` でも check status 未保存になり、UI / コメント生成の整合が崩れる可能性がある。

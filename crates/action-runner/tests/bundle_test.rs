@@ -258,6 +258,44 @@ fn test_create_manifest() {
 }
 
 #[test]
+fn test_create_manifest_source_path_is_zip_entry() {
+    let dir = TempDir::new().unwrap();
+    let checks_path = dir.path().join("checks_summary.json");
+    fs::write(&checks_path, "{}").unwrap();
+
+    // Source artifact has both "path" (zip entry) and "source_path" (repo-relative)
+    let artifacts = vec![
+        serde_json::json!({
+            "type": "kicad_pcb",
+            "status": "available",
+            "path": "kicad/board/board.kicad_pcb",
+            "source_path": "board/board.kicad_pcb",
+            "content_type": "application/octet-stream",
+            "sha256": "sha256:abc",
+            "size_bytes": 100
+        }),
+    ];
+
+    let output = dir.path().join("manifest.json");
+    bundle::create_manifest(
+        "board/board.kicad_pro",
+        "sha256:abcdef",
+        "abc123",
+        &checks_path,
+        &artifacts,
+        &[],
+        &[],
+        &output,
+    ).unwrap();
+
+    let content = fs::read_to_string(&output).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&content).unwrap();
+    let art = &parsed["artifacts"][0];
+    // source_path in manifest must be the zip entry path, NOT the repo-relative path
+    assert_eq!(art["source_path"].as_str().unwrap(), "kicad/board/board.kicad_pcb");
+}
+
+#[test]
 fn test_build_staging_dir() {
     let dir = TempDir::new().unwrap();
     let output = dir.path().join("output");
