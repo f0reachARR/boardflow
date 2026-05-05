@@ -1,0 +1,71 @@
+name: Action Image
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/action-image.yml
+      - action/**
+      - crates/**
+      - Cargo.toml
+      - Cargo.lock
+  push:
+    branches:
+      - main
+    tags:
+      - v*
+    paths:
+      - .github/workflows/action-image.yml
+      - action/**
+      - crates/**
+      - Cargo.toml
+      - Cargo.lock
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: f0reacharr/boardflow-action
+  DOCKER_METADATA_SHORT_SHA_LENGTH: 12
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=tag
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=sha,prefix=sha-
+
+      - name: Build and publish action image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: action/Dockerfile
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

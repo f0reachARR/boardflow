@@ -33,4 +33,4 @@ outputs:
     description: 'JSON summary of processed projects'
 runs:
   using: 'docker'
-  image: 'Dockerfile'
+  image: 'docker://ghcr.io/f0reacharr/boardflow-action:main'
