@@ -5,11 +5,13 @@ use std::path::Path;
 use crate::error::Result;
 
 /// Emit a GitHub Actions error annotation.
+#[allow(dead_code)]
 pub fn error(msg: &str) {
     eprintln!("::error::{msg}");
 }
 
 /// Emit a GitHub Actions warning annotation.
+#[allow(dead_code)]
 pub fn warning(msg: &str) {
     eprintln!("::warning::{msg}");
 }

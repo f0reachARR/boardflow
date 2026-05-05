@@ -1,6 +1,4 @@
 use std::fs;
-use std::io::Read;
-use std::path::Path;
 use tempfile::TempDir;
 
 #[path = "../src/bundle.rs"]
@@ -110,7 +108,7 @@ fn test_generate_bom_summary_json_existing_csv() {
     let content = fs::read_to_string(&output).unwrap();
     let parsed: serde_json::Value = serde_json::from_str(&content).unwrap();
     assert_eq!(parsed["component_count"].as_u64().unwrap(), 2);
-    assert_eq!(parsed["available"].as_bool().unwrap(), true);
+    assert!(parsed["available"].as_bool().unwrap());
 }
 
 #[test]
@@ -123,7 +121,7 @@ fn test_generate_bom_summary_json_missing_csv() {
 
     let content = fs::read_to_string(&output).unwrap();
     let parsed: serde_json::Value = serde_json::from_str(&content).unwrap();
-    assert_eq!(parsed["available"].as_bool().unwrap(), false);
+    assert!(!parsed["available"].as_bool().unwrap());
 }
 
 #[test]
@@ -190,13 +188,13 @@ fn test_generate_previews_json() {
         .iter()
         .find(|p| p["name"] == "pcb_top_svg")
         .unwrap();
-    assert_eq!(top_svg["available"].as_bool().unwrap(), true);
+    assert!(top_svg["available"].as_bool().unwrap());
 
     let bottom_svg = previews
         .iter()
         .find(|p| p["name"] == "pcb_bottom_svg")
         .unwrap();
-    assert_eq!(bottom_svg["available"].as_bool().unwrap(), false);
+    assert!(!bottom_svg["available"].as_bool().unwrap());
 }
 
 #[test]

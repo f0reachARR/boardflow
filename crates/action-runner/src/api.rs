@@ -157,6 +157,7 @@ impl ApiClient {
         Ok(())
     }
 
+    #[allow(dead_code)]
     pub async fn upload_bundle(&self, upload_url: &str, bundle_path: &Path) -> Result<()> {
         let data = tokio::fs::read(bundle_path)
             .await
@@ -189,6 +190,7 @@ impl ApiClient {
 }
 
 #[derive(Serialize)]
+#[allow(dead_code)]
 pub struct PlanProject {
     pub project_path: String,
     pub config_path: String,
@@ -198,6 +200,7 @@ pub struct PlanProject {
 }
 
 #[derive(Serialize)]
+#[allow(dead_code)]
 pub struct PlanFile {
     pub path: String,
     pub sha256: String,
