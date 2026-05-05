@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use tokio::process::Command;
+use tracing::warn;
 
 use crate::{KicadError, Result};
 
@@ -27,6 +28,7 @@ impl PcbSide {
     }
 }
 
+#[derive(Debug)]
 pub struct CommandOutput {
     pub exit_code: i32,
     pub stdout: String,
@@ -56,13 +58,13 @@ impl KicadCli {
     pub async fn run_erc(&self, sch_file: &Path, output_json: &Path) -> Result<CommandOutput> {
         let args = Self::build_erc_args(sch_file, output_json);
         let args_ref: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
-        self.exec_erc_drc(&args_ref).await
+        self.exec_erc_drc(&args_ref, output_json).await
     }
 
     pub async fn run_drc(&self, pcb_file: &Path, output_json: &Path) -> Result<CommandOutput> {
         let args = Self::build_drc_args(pcb_file, output_json);
         let args_ref: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
-        self.exec_erc_drc(&args_ref).await
+        self.exec_erc_drc(&args_ref, output_json).await
     }
 
     pub async fn export_pcb_pdf(
@@ -72,7 +74,7 @@ impl KicadCli {
     ) -> Result<CommandOutput> {
         let args = Self::build_pcb_pdf_args(pcb_file, output_pdf);
         let args_ref: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
-        self.exec(&args_ref).await
+        self.exec(&args_ref, Some(output_pdf)).await
     }
 
     pub async fn export_sch_pdf(
@@ -82,7 +84,7 @@ impl KicadCli {
     ) -> Result<CommandOutput> {
         let args = Self::build_sch_pdf_args(sch_file, output_pdf);
         let args_ref: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
-        self.exec(&args_ref).await
+        self.exec(&args_ref, Some(output_pdf)).await
     }
 
     pub async fn export_pcb_svg(
@@ -93,7 +95,7 @@ impl KicadCli {
     ) -> Result<CommandOutput> {
         let args = Self::build_pcb_svg_args(pcb_file, output_svg, side);
         let args_ref: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
-        self.exec(&args_ref).await
+        self.exec(&args_ref, Some(output_svg)).await
     }
 
     pub async fn export_gerbers(
@@ -103,19 +105,19 @@ impl KicadCli {
     ) -> Result<CommandOutput> {
         let args = Self::build_gerbers_args(pcb_file, output_dir);
         let args_ref: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
-        self.exec(&args_ref).await
+        self.exec(&args_ref, None).await
     }
 
     pub async fn export_drill(&self, pcb_file: &Path, output_dir: &Path) -> Result<CommandOutput> {
         let args = Self::build_drill_args(pcb_file, output_dir);
         let args_ref: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
-        self.exec(&args_ref).await
+        self.exec(&args_ref, None).await
     }
 
     pub async fn export_bom(&self, sch_file: &Path, output_csv: &Path) -> Result<CommandOutput> {
         let args = Self::build_bom_args(sch_file, output_csv);
         let args_ref: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
-        self.exec(&args_ref).await
+        self.exec(&args_ref, Some(output_csv)).await
     }
 
     pub async fn export_position(
@@ -125,7 +127,7 @@ impl KicadCli {
     ) -> Result<CommandOutput> {
         let args = Self::build_position_args(pcb_file, output_csv);
         let args_ref: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
-        self.exec(&args_ref).await
+        self.exec(&args_ref, Some(output_csv)).await
     }
 
     pub async fn render_3d(
@@ -136,7 +138,7 @@ impl KicadCli {
     ) -> Result<CommandOutput> {
         let args = Self::build_render_3d_args(pcb_file, output_png, side);
         let args_ref: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
-        self.exec(&args_ref).await
+        self.exec(&args_ref, Some(output_png)).await
     }
 
     // --- Argument builders (pub for testing) ---
@@ -278,7 +280,7 @@ impl KicadCli {
         ]
     }
 
-    async fn exec(&self, args: &[&str]) -> Result<CommandOutput> {
+    async fn exec(&self, args: &[&str], output_path: Option<&Path>) -> Result<CommandOutput> {
         let child = Command::new(&self.bin_path)
             .args(args)
             .kill_on_drop(true)
@@ -298,6 +300,9 @@ impl KicadCli {
                         stderr: String::from_utf8_lossy(&output.stderr).to_string(),
                     });
                 }
+                if let Some(path) = output_path {
+                    Self::ensure_nonempty_output_file(&command_str, path)?;
+                }
                 Ok(CommandOutput {
                     exit_code,
                     stdout: String::from_utf8_lossy(&output.stdout).to_string(),
@@ -312,7 +317,7 @@ impl KicadCli {
         }
     }
 
-    async fn exec_erc_drc(&self, args: &[&str]) -> Result<CommandOutput> {
+    async fn exec_erc_drc(&self, args: &[&str], output_path: &Path) -> Result<CommandOutput> {
         let child = Command::new(&self.bin_path)
             .args(args)
             .kill_on_drop(true)
@@ -333,6 +338,7 @@ impl KicadCli {
                         stderr: String::from_utf8_lossy(&output.stderr).to_string(),
                     });
                 }
+                Self::ensure_nonempty_output_file(&command_str, output_path)?;
                 Ok(CommandOutput {
                     exit_code,
                     stdout: String::from_utf8_lossy(&output.stdout).to_string(),
@@ -345,6 +351,44 @@ impl KicadCli {
                 timeout_secs: self.timeout.as_secs(),
             }),
         }
+    }
+
+    fn ensure_nonempty_output_file(command: &str, output_path: &Path) -> Result<()> {
+        let metadata = std::fs::metadata(output_path).map_err(|err| {
+            if err.kind() == std::io::ErrorKind::NotFound {
+                warn!(
+                    "path = {}, error = {}, \"Expected output file not found\"",
+                    output_path.display(),
+                    err
+                );
+                KicadError::OutputMissing {
+                    command: command.to_string(),
+                    path: output_path.to_path_buf(),
+                }
+            } else {
+                KicadError::Io(err)
+            }
+        })?;
+
+        if !metadata.is_file() {
+            return Err(KicadError::OutputMissing {
+                command: command.to_string(),
+                path: output_path.to_path_buf(),
+            });
+        }
+
+        if metadata.len() == 0 {
+            warn!(
+                "path = {}, \"Expected output file is empty\"",
+                output_path.display()
+            );
+            return Err(KicadError::OutputEmpty {
+                command: command.to_string(),
+                path: output_path.to_path_buf(),
+            });
+        }
+
+        Ok(())
     }
 }
 

@@ -13,6 +13,12 @@ pub enum KicadError {
     #[error("KiCad CLI command timed out after {timeout_secs}s: {command}")]
     Timeout { command: String, timeout_secs: u64 },
 
+    #[error("KiCad CLI command did not produce expected output file {path}: {command}")]
+    OutputMissing { command: String, path: PathBuf },
+
+    #[error("KiCad CLI command produced empty output file {path}: {command}")]
+    OutputEmpty { command: String, path: PathBuf },
+
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
 

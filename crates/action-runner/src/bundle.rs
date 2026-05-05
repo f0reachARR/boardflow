@@ -3,6 +3,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use sha2::{Digest, Sha256};
+use tracing::warn;
 use walkdir::WalkDir;
 use zip::ZipWriter;
 use zip::write::FileOptions;
@@ -532,6 +533,8 @@ fn copy_if_exists(base: &Path, rel: &str, dest: &Path) {
     let src = base.join(rel);
     if src.exists() {
         let _ = fs::copy(src, dest);
+    } else {
+        warn!("Expected file {rel} does not exist in output, skipping copy to staging");
     }
 }
 
