@@ -374,3 +374,63 @@ git push origin feature/79-tanstack-form
 ### 更新した作業ログパス
 
 `docs/logs/79/worklog.md`
+
+---
+
+## 実装結果（2026-05-05 impl agent）
+
+### 実装内容
+
+ブランチ `feature/79-tanstack-form` で CreateTokenDialog を TanStack Form + zod に移行した。
+
+**変更ファイル:**
+
+| ファイル | 変更内容 |
+|---|---|
+| `boardflow/package.json` | `@tanstack/react-form` v1.29.1, `zod` v4.4.3 追加 |
+| `boardflow/pnpm-lock.yaml` | ロックファイル更新 |
+| `boardflow/src/components/tokens/create-token-dialog.tsx` | TanStack Form + zod リファクタリング |
+
+**主な変更点:**
+
+1. `useState(name)`, `useState(error)` を削除 → `useForm` + `form.Field` に置き換え
+2. `useState(serverError)` を追加（APIエラー専用）
+3. `mutate` → `mutateAsync`、`onSuccess`/`onError` コールバック → `onSubmit` 内 try/catch
+4. zod スキーマ `createTokenSchema` でクライアントバリデーション（`validators.onChange`）
+5. `form.Field` render props → JSX children 構文（biome `noChildrenProp` 対応）
+6. `form.Subscribe` で `canSubmit`/`isSubmitting` を監視してボタン制御
+7. `form.reset()` でダイアログ close 時のリセット
+8. `form.state.isSubmitting` で `closeOnInteractOutside`/`closeOnEscape`/`CloseTrigger` 制御
+
+**実装時の発見・対処:**
+
+- **zod v4**: `pnpm add zod` で v4.4.3 がインストールされた（計画時は v3.24+ を想定）。Standard Schema サポートは互換で問題なし
+- **`field.state.meta.errors` の型**: 要素が `undefined` になりうる（`ValidationError[]` の要素型）。`typeof e === 'string' ? e : (e as { message?: string })?.message ?? String(e)` で安全に処理
+- **biome `noChildrenProp`**: `children` prop パターンは lint エラー。JSX children 構文 `{(field) => (...)}` に変換して解消
+- **Dialog.Footer の配置**: `<form>` タグ内にフッターを含める必要があるため、フォーム表示時は `form` 内に `Dialog.Footer` を配置し、トークン作成後のフッターは `Dialog.Body` の外に別途配置
+
+### テスト結果
+
+| チェック | 結果 |
+|---|---|
+| `pnpm typecheck` | パス |
+| `pnpm lint --write --unsafe` | パス（biome 0 errors） |
+| `pnpm build` | パス（Next.js 16.2.4 Turbopack） |
+
+**注**: 本プロジェクトにはフロントエンドのユニットテスト（Jest/Vitest 等）が未導入のため、TDD の red-green は typecheck + lint + build で代替。
+
+### ドキュメント確認
+
+- `docs/external/tanstack-form-chakra-integration.md` — research agent が作成済み、変更不要
+- `docs/technology.md` — TanStack Form / zod の追記は今回スコープ外（既存にフロントエンドライブラリの詳細列挙なし）
+- `RevokeTokenDialog` — 変更なし（確認済み）
+
+### 残リスク
+
+1. **フロントエンド E2E / ユニットテスト未整備**: CreateTokenDialog の動作は手動確認が必要。将来的に Vitest + Testing Library の導入を推奨
+2. **zod v4 と TanStack Form の長期互換性**: zod v4 は Standard Schema 対応だが、TanStack Form 側の公式テストが zod v3 ベースの可能性あり。問題があれば `pnpm add zod@3` でダウングレード可能
+3. **サーバーエラーの型安全性**: `catch (err: unknown)` → `as { error?: { message?: string } }` のキャストは型安全ではない。openapi-react-query のエラー型定義が改善されれば型ガードに置き換え可能
+
+### 更新した作業ログパス
+
+`docs/logs/79/worklog.md`
