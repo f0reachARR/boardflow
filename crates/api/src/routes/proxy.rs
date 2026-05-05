@@ -7,7 +7,7 @@ use serde::Deserialize;
 use sqlx::PgPool;
 use uuid::Uuid;
 
-use boardflow_domain::models::artifact::ArtifactStatus;
+use boardflow_domain::models::artifact::{ArtifactStatus, ArtifactType};
 
 use crate::artifact_token::verify_artifact_token;
 use crate::error::{AppError, ErrorCode, RequestId};
@@ -109,7 +109,7 @@ pub async fn get_artifact(
     // Build response headers using the helper
     let headers = build_response_headers(
         content_type,
-        &artifact.r#type,
+        artifact.r#type,
         &app_domain.0,
         artifact.size_bytes,
         artifact.filename.as_deref(),
@@ -134,7 +134,7 @@ pub async fn get_artifact(
 /// Extracted for unit testability without S3 dependency.
 pub fn build_response_headers(
     content_type: &str,
-    artifact_type: &str,
+    artifact_type: ArtifactType,
     app_domain: &str,
     size_bytes: Option<i64>,
     filename: Option<&str>,
@@ -158,7 +158,7 @@ pub fn build_response_headers(
     // from the app domain only. X-Frame-Options is omitted for iframe artifacts because
     // ALLOW-FROM is deprecated; CSP frame-ancestors is the standard mechanism.
     // For non-iframe artifacts, X-Frame-Options: DENY prevents any framing.
-    let is_iframe_artifact = artifact_type == "ibom";
+    let is_iframe_artifact = artifact_type.is_iframe_artifact();
     let csp = if is_iframe_artifact {
         // sandbox allow-scripts: treats content as unique origin (blocks same-origin access,
         // form submissions, popups, navigation) while allowing script execution (needed for iBOM).
@@ -198,11 +198,10 @@ pub fn build_response_headers(
 
     // Add Content-Disposition for downloadable types
     if let Some(filename) = filename {
-        let disposition = match artifact_type {
-            "ibom" | "schematic_svg" | "pcb_svg" | "schematic_pdf" | "pcb_pdf" => {
-                format!("inline; filename=\"{filename}\"")
-            }
-            _ => format!("attachment; filename=\"{filename}\""),
+        let disposition = if artifact_type.is_inline_display() {
+            format!("inline; filename=\"{filename}\"")
+        } else {
+            format!("attachment; filename=\"{filename}\"")
         };
         if let Ok(val) = HeaderValue::from_str(&disposition) {
             headers.insert(header::CONTENT_DISPOSITION, val);

@@ -1,4 +1,4 @@
-use boardflow_domain::models::artifact::Artifact;
+use boardflow_domain::models::artifact::{Artifact, ArtifactType};
 use uuid::Uuid;
 
 pub async fn find_by_id(
@@ -27,7 +27,7 @@ pub async fn insert(
     executor: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
     id: Uuid,
     board_run_id: Uuid,
-    artifact_type: &str,
+    artifact_type: ArtifactType,
     status: &str,
     filename: Option<&str>,
     source_path: Option<&str>,

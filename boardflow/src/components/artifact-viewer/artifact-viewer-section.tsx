@@ -190,9 +190,7 @@ function renderViewerContent(
       const kicanvasViewer = allViewers.kicanvas;
       const kicanvasPcbSources =
         kicanvasViewer?.status !== 'missing'
-          ? (kicanvasViewer.sources?.filter(
-              (s) => s.kind === 'board',
-            ) ?? [])
+          ? (kicanvasViewer.sources?.filter((s) => s.kind === 'board') ?? [])
           : [];
       const hasKicanvas = kicanvasPcbSources.some((s: ViewerSource) => s.kind === 'board');
 

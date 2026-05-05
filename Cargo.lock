@@ -710,6 +710,7 @@ version = "0.0.1"
 dependencies = [
  "anyhow",
  "boardflow-api-types",
+ "boardflow-domain",
  "boardflow-kicad",
  "chrono",
  "hex",
@@ -781,6 +782,7 @@ version = "0.0.1"
 dependencies = [
  "aws-config",
  "aws-sdk-s3",
+ "boardflow-domain",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -823,6 +825,7 @@ dependencies = [
  "serde_json",
  "sqlx",
  "thiserror",
+ "utoipa",
  "uuid",
 ]
 

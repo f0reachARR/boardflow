@@ -1,4 +1,5 @@
 use aws_sdk_s3::Client as S3Client;
+use boardflow_domain::models::artifact::ArtifactType;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::io::{Cursor, Read};
@@ -48,7 +49,7 @@ pub struct ManifestFile {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ManifestArtifact {
-    pub r#type: String,
+    pub r#type: ArtifactType,
     pub filename: String,
     pub content_type: String,
     pub status: String,

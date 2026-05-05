@@ -382,7 +382,7 @@ export interface components {
       source_path?: string | null;
       status: string;
       status_reason?: string | null;
-      type: string;
+      type: components['schemas']['ArtifactType'];
     };
     ArtifactListResponse: {
       items: components['schemas']['ArtifactListItem'][];
@@ -397,6 +397,26 @@ export interface components {
       /** Format: int64 */
       skipped: number;
     };
+    /** @enum {string} */
+    ArtifactType:
+      | 'kicad_pro'
+      | 'kicad_sch'
+      | 'kicad_pcb'
+      | 'kicad_wks'
+      | 'schematic_pdf'
+      | 'pcb_pdf'
+      | 'pcb_top_svg'
+      | 'pcb_bottom_svg'
+      | 'render_top_png'
+      | 'render_bottom_png'
+      | 'ibom'
+      | 'bom_csv'
+      | 'position_csv'
+      | 'gerber_zip'
+      | 'drill_zip'
+      | 'fabrication_zip'
+      | 'erc_report'
+      | 'drc_report';
     BoardProjectDetailResponse: {
       board_project_id: string;
       created_at: string;
@@ -687,7 +707,7 @@ export interface components {
       | 'invalid_tree_hash'
       | 'invalid_config_path';
     PlanRepositoryInput: {
-      github_repository_id: string;
+      github_repository_id?: string;
       name: string;
       owner: string;
     };
@@ -735,7 +755,7 @@ export interface components {
     };
     ViewerDownload: {
       artifact_id?: string | null;
-      artifact_type: string;
+      artifact_type: components['schemas']['ArtifactType'];
       status: string;
       status_reason?: string | null;
       url?: string | null;
@@ -750,7 +770,7 @@ export interface components {
     };
     ViewerSource: {
       artifact_id?: string | null;
-      artifact_type?: string | null;
+      artifact_type?: null | components['schemas']['ArtifactType'];
       kind?: string | null;
       name?: string | null;
       source_path?: string | null;
