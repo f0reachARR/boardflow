@@ -1,0 +1,19 @@
+[package]
+name = "boardflow-api-types"
+version = "0.0.1"
+edition = "2024"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[dependencies.utoipa]
+workspace = true
+optional = true
+
+[features]
+default = []
+openapi = ["utoipa"]
+
+[lints]
+workspace = true

@@ -709,6 +709,7 @@ name = "boardflow-action-runner"
 version = "0.0.1"
 dependencies = [
  "anyhow",
+ "boardflow-api-types",
  "boardflow-kicad",
  "chrono",
  "hex",
@@ -737,6 +738,7 @@ dependencies = [
  "aws-sdk-s3",
  "axum",
  "base64",
+ "boardflow-api-types",
  "boardflow-config",
  "boardflow-db",
  "boardflow-domain",
@@ -761,6 +763,15 @@ dependencies = [
  "utoipa-axum",
  "uuid",
  "wiremock",
+]
+
+[[package]]
+name = "boardflow-api-types"
+version = "0.0.1"
+dependencies = [
+ "serde",
+ "serde_json",
+ "utoipa",
 ]
 
 [[package]]

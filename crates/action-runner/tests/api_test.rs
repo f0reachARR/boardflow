@@ -18,8 +18,8 @@ async fn test_plan_api_success() {
         .and(header("Authorization", "Bearer test-token"))
         .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
             "projects": [
-                {"project_path": "board/board.kicad_pro", "decision": "build", "board_project_id": "proj-1"},
-                {"project_path": "other/other.kicad_pro", "decision": "skip"}
+                {"project_path": "board/board.kicad_pro", "decision": "build", "board_project_id": "proj-1", "reason": "new_project"},
+                {"project_path": "other/other.kicad_pro", "decision": "skip", "board_project_id": "", "reason": "unchanged"}
             ]
         })))
         .expect(1)
@@ -32,9 +32,15 @@ async fn test_plan_api_success() {
 
     assert_eq!(decisions.len(), 2);
     assert_eq!(decisions[0].project_path, "board/board.kicad_pro");
-    assert_eq!(decisions[0].decision, "build");
-    assert_eq!(decisions[0].board_project_id.as_deref(), Some("proj-1"));
-    assert_eq!(decisions[1].decision, "skip");
+    assert!(matches!(
+        decisions[0].decision,
+        boardflow_api_types::plan::PlanDecision::Build
+    ));
+    assert_eq!(decisions[0].board_project_id, "proj-1");
+    assert!(matches!(
+        decisions[1].decision,
+        boardflow_api_types::plan::PlanDecision::Skip
+    ));
 }
 
 #[tokio::test]
@@ -52,7 +58,7 @@ async fn test_api_retries_on_5xx() {
     Mock::given(method("POST"))
         .and(path("/api/v1/runs/plan"))
         .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-            "projects": [{"project_path": "x.kicad_pro", "decision": "build"}]
+            "projects": [{"project_path": "x.kicad_pro", "decision": "build", "board_project_id": "", "reason": "new_project"}]
         })))
         .mount(&mock_server)
         .await;
@@ -107,9 +113,13 @@ async fn test_create_board_run() {
         .and(path("/api/v1/board-runs"))
         .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
             "board_run_id": "run-123",
+            "status": "pending",
             "artifact_bundle": {
+                "upload_mode": "staging_s3",
                 "upload_url": "https://s3.example.com/upload",
-                "object_key": "bundles/run-123.zip"
+                "object_key": "bundles/run-123.zip",
+                "method": "PUT",
+                "expires_at": "2026-01-01T00:00:00Z"
             }
         })))
         .mount(&mock_server)
@@ -119,11 +129,10 @@ async fn test_create_board_run() {
     let payload = serde_json::json!({"board_project_id": "proj-1"});
     let resp = client.create_board_run(&payload).await.unwrap();
     assert_eq!(resp.board_run_id, "run-123");
-    assert_eq!(
-        resp.artifact_bundle.upload_url,
-        "https://s3.example.com/upload"
-    );
-    assert_eq!(resp.artifact_bundle.object_key, "bundles/run-123.zip");
+    assert_eq!(resp.status, "pending");
+    let bundle = resp.artifact_bundle.unwrap();
+    assert_eq!(bundle.upload_url, "https://s3.example.com/upload");
+    assert_eq!(bundle.object_key, "bundles/run-123.zip");
 }
 
 #[tokio::test]
@@ -180,7 +189,7 @@ async fn test_retries_on_timeout() {
     Mock::given(method("POST"))
         .and(path("/api/v1/runs/plan"))
         .respond_with(ResponseTemplate::new(200).set_body_json(
-            serde_json::json!({"projects": [{"project_path": "x", "decision": "skip"}]}),
+            serde_json::json!({"projects": [{"project_path": "x", "decision": "skip", "board_project_id": "", "reason": "unchanged"}]}),
         ))
         .mount(&mock_server)
         .await;

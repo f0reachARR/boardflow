@@ -1,11 +1,10 @@
 use axum::extract::rejection::JsonRejection;
 use axum::extract::{Path, State};
 use axum::{Extension, Json};
-use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
-use utoipa::ToSchema;
 use uuid::Uuid;
 
+use boardflow_api_types::board_run::*;
 use boardflow_domain::models::artifact_bundle::ArtifactBundleStatus;
 use boardflow_domain::models::board_run::BoardRunStatus;
 
@@ -38,71 +37,6 @@ fn bundle_status_str(status: ArtifactBundleStatus) -> &'static str {
         ArtifactBundleStatus::Completed => "completed",
         ArtifactBundleStatus::Failed => "failed",
     }
-}
-
-// ─── Request/Response types ──────────────────────────────────────────────────
-
-#[derive(Debug, Deserialize, ToSchema)]
-pub struct CreateBoardRunRequest {
-    pub board_project_id: String,
-    pub project_path: String,
-    pub tree_hash: String,
-    pub commit_sha: String,
-    pub branch: String,
-    #[serde(rename = "ref")]
-    pub ref_: String,
-    pub github_run_id: String,
-    pub github_run_attempt: String,
-}
-
-#[derive(Debug, Serialize, ToSchema)]
-pub struct CreateBoardRunResponse {
-    pub board_run_id: String,
-    pub status: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub artifact_bundle: Option<ArtifactBundleInfo>,
-}
-
-#[derive(Debug, Serialize, ToSchema)]
-pub struct ArtifactBundleInfo {
-    pub upload_mode: String,
-    pub object_key: String,
-    pub upload_url: String,
-    pub method: String,
-    pub expires_at: String,
-}
-
-#[derive(Debug, Deserialize, ToSchema)]
-pub struct FailBoardRunRequest {
-    pub status: String,
-    pub error: FailErrorInfo,
-}
-
-#[derive(Debug, Deserialize, ToSchema)]
-pub struct FailErrorInfo {
-    pub message: String,
-    #[serde(default)]
-    pub details: Option<serde_json::Value>,
-}
-
-#[derive(Debug, Serialize, ToSchema)]
-pub struct FailBoardRunResponse {
-    pub board_run_id: String,
-    pub status: String,
-    pub failed_at: String,
-}
-
-#[derive(Debug, Deserialize, ToSchema)]
-pub struct ImportArtifactBundleRequest {
-    pub staging_object_key: String,
-    pub bundle_sha256: String,
-    pub bundle_size_bytes: i64,
-}
-
-#[derive(Debug, Serialize, ToSchema)]
-pub struct ImportArtifactBundleResponse {
-    pub bundle_id: String,
-    pub status: String,
 }
 
 // ─── Presigned URL generation ────────────────────────────────────────────────
