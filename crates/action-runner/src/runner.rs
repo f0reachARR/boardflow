@@ -4,12 +4,17 @@ use std::path::{Path, PathBuf};
 use serde::Serialize;
 use tracing::{error, info, warn};
 
+use boardflow_api_types::board_run::{CreateBoardRunRequest, ImportArtifactBundleRequest};
+use boardflow_api_types::plan::{
+    PlanActionInput, PlanDecision, PlanGitInput, PlanMode, PlanProjectFile, PlanProjectInput,
+    PlanRepositoryInput, PlanRequest,
+};
 use boardflow_kicad::cli::{KicadCli, PcbSide};
 use boardflow_kicad::config::{self, BoardflowConfig};
 use boardflow_kicad::detect;
 use boardflow_kicad::hash;
 
-use crate::api::{ApiClient, PlanFile, PlanProject};
+use crate::api::ApiClient;
 use crate::bundle;
 use crate::error::ActionError;
 use crate::inputs::{self, ActionInputs, GitHubContext};
@@ -302,7 +307,7 @@ pub async fn run() -> i32 {
             format!("{}/.boardflow.yml", vp.rel_dir)
         };
 
-        plan_projects.push(PlanProject {
+        plan_projects.push(PlanProjectInput {
             project_path: vp.rel_pro_path.clone(),
             config_path: yml_rel,
             project_dir: vp.rel_dir.clone(),
@@ -311,22 +316,36 @@ pub async fn run() -> i32 {
         });
     }
 
-    let plan_payload = serde_json::json!({
-        "repository": { "owner": gh.owner, "name": gh.repo_name },
-        "git": {
-            "ref": gh.git_ref,
-            "branch": gh.ref_name,
-            "commit_sha": gh.sha,
-            "event_name": gh.event_name,
+    let mode = match action_inputs.mode.as_str() {
+        "all" => PlanMode::All,
+        _ => PlanMode::Auto,
+    };
+
+    let github_repository_id = std::env::var("GITHUB_REPOSITORY_ID").unwrap_or_default();
+
+    let plan_request = PlanRequest {
+        repository: PlanRepositoryInput {
+            github_repository_id,
+            owner: gh.owner.clone(),
+            name: gh.repo_name.clone(),
         },
-        "action": {
-            "workflow": "BoardFlow",
-            "run_id": gh.run_id,
-            "run_attempt": gh.run_attempt,
+        git: PlanGitInput {
+            ref_: gh.git_ref.clone(),
+            branch: gh.ref_name.clone(),
+            commit_sha: gh.sha.clone(),
+            event_name: gh.event_name.clone(),
         },
-        "mode": action_inputs.mode,
-        "projects": plan_projects,
-    });
+        action: PlanActionInput {
+            workflow: "BoardFlow".to_string(),
+            run_id: gh.run_id.clone(),
+            run_attempt: gh.run_attempt.clone(),
+        },
+        mode,
+        projects: plan_projects,
+    };
+
+    let plan_payload =
+        serde_json::to_value(&plan_request).expect("failed to serialize plan request");
 
     // 6. Call plan API
     let api = ApiClient::new(&action_inputs.api_url, &action_inputs.token);
@@ -344,13 +363,13 @@ pub async fn run() -> i32 {
     let mut results: Vec<ProjectResult> = Vec::new();
 
     for vp in &valid_projects {
-        let decision = decisions
-            .iter()
-            .find(|d| d.project_path == vp.rel_pro_path)
-            .map(|d| d.decision.as_str())
-            .unwrap_or("skip");
+        let decision = decisions.iter().find(|d| d.project_path == vp.rel_pro_path);
 
-        if decision != "build" {
+        let is_build = decision
+            .map(|d| matches!(d.decision, PlanDecision::Build))
+            .unwrap_or(false);
+
+        if !is_build {
             results.push(ProjectResult {
                 path: vp.rel_pro_path.clone(),
                 status: "skipped".to_string(),
@@ -359,10 +378,8 @@ pub async fn run() -> i32 {
             continue;
         }
 
-        let board_project_id = decisions
-            .iter()
-            .find(|d| d.project_path == vp.rel_pro_path)
-            .and_then(|d| d.board_project_id.clone())
+        let board_project_id = decision
+            .map(|d| d.board_project_id.clone())
             .unwrap_or_default();
 
         match process_project(&kicad, &api, vp, &gh, &action_inputs, &board_project_id).await {
@@ -432,21 +449,35 @@ async fn process_project(
     let tree_hash = hash::compute_tree_hash(&vp.project_dir, &vp.excludes)
         .map_err(|e| ActionError::Bundle(format!("tree hash: {e}")))?;
 
-    let create_payload = serde_json::json!({
-        "board_project_id": board_project_id,
-        "project_path": vp.rel_pro_path,
-        "tree_hash": format!("sha256:{tree_hash}"),
-        "commit_sha": gh.sha,
-        "branch": gh.ref_name,
-        "ref": gh.git_ref,
-        "github_run_id": gh.run_id,
-        "github_run_attempt": gh.run_attempt,
-    });
+    let create_payload = serde_json::to_value(&CreateBoardRunRequest {
+        board_project_id: board_project_id.to_string(),
+        project_path: vp.rel_pro_path.clone(),
+        tree_hash: format!("sha256:{tree_hash}"),
+        commit_sha: gh.sha.clone(),
+        branch: gh.ref_name.clone(),
+        ref_: gh.git_ref.clone(),
+        github_run_id: gh.run_id.clone(),
+        github_run_attempt: gh.run_attempt.clone(),
+    })
+    .expect("failed to serialize create_board_run request");
 
     let create_resp = api.create_board_run(&create_payload).await?;
     let board_run_id = &create_resp.board_run_id;
-    let upload_url = &create_resp.artifact_bundle.upload_url;
-    let staging_object_key = &create_resp.artifact_bundle.object_key;
+
+    // If artifact_bundle is None, the run already exists in a terminal or importing state.
+    // Skip processing — no upload or build needed.
+    let artifact_bundle = match &create_resp.artifact_bundle {
+        Some(bundle) => bundle,
+        None => {
+            info!(
+                "Board run {} already in status '{}', skipping build",
+                board_run_id, create_resp.status
+            );
+            return Ok(false);
+        }
+    };
+    let upload_url = &artifact_bundle.upload_url;
+    let staging_object_key = &artifact_bundle.object_key;
 
     let mut artifacts: Vec<serde_json::Value> = Vec::new();
     let mut checks_failed = false;
@@ -1024,11 +1055,12 @@ async fn process_project(
 
     // Import
     let bundle_size = fs::metadata(&bundle_path)?.len();
-    let import_payload = serde_json::json!({
-        "staging_object_key": staging_object_key,
-        "bundle_sha256": format!("sha256:{bundle_sha256}"),
-        "bundle_size_bytes": bundle_size,
-    });
+    let import_payload = serde_json::to_value(&ImportArtifactBundleRequest {
+        staging_object_key: staging_object_key.clone(),
+        bundle_sha256: format!("sha256:{bundle_sha256}"),
+        bundle_size_bytes: bundle_size as i64,
+    })
+    .expect("failed to serialize import request");
 
     if let Err(e) = api.import(board_run_id, &import_payload).await {
         let _ = api
@@ -1041,7 +1073,7 @@ async fn process_project(
     Ok(checks_failed)
 }
 
-fn build_plan_files(project_dir: &Path, excludes: &[String]) -> Vec<PlanFile> {
+fn build_plan_files(project_dir: &Path, excludes: &[String]) -> Vec<PlanProjectFile> {
     let files = match hash::list_project_files(project_dir, excludes) {
         Ok(f) => f,
         Err(_) => return Vec::new(),
@@ -1060,7 +1092,7 @@ fn build_plan_files(project_dir: &Path, excludes: &[String]) -> Vec<PlanFile> {
         .into_iter()
         .filter_map(|(rel_path, abs_path)| {
             let file_hash = hash::compute_file_sha256(&abs_path).ok()?;
-            Some(PlanFile {
+            Some(PlanProjectFile {
                 path: rel_path,
                 sha256: format!("sha256:{file_hash}"),
             })

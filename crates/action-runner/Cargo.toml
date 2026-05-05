@@ -9,6 +9,7 @@ name = "boardflow-action-runner"
 path = "src/main.rs"
 
 [dependencies]
+boardflow-api-types = { workspace = true }
 boardflow-kicad = { path = "../kicad" }
 tokio = { workspace = true }
 reqwest = { workspace = true, features = ["rustls-tls"] }

@@ -56,6 +56,7 @@ MVP で重要な API 群:
 
 ```text
 crates/api
+crates/api-types
 crates/worker
 crates/config
 crates/domain

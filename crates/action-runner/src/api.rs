@@ -2,8 +2,10 @@ use std::path::Path;
 use std::time::Duration;
 
 use reqwest::Client;
-use serde::Serialize;
 use serde_json::Value;
+
+use boardflow_api_types::board_run::CreateBoardRunResponse;
+use boardflow_api_types::plan::PlanProjectOutput;
 
 use crate::error::{ActionError, Result};
 
@@ -11,26 +13,6 @@ pub struct ApiClient {
     client: Client,
     base_url: String,
     token: String,
-}
-
-#[derive(Debug, Clone, serde::Deserialize)]
-pub struct ProjectDecision {
-    pub project_path: String,
-    pub decision: String,
-    #[serde(default)]
-    pub board_project_id: Option<String>,
-}
-
-#[derive(Debug, Clone, serde::Deserialize)]
-pub struct CreateBoardRunResponse {
-    pub board_run_id: String,
-    pub artifact_bundle: ArtifactBundleInfo,
-}
-
-#[derive(Debug, Clone, serde::Deserialize)]
-pub struct ArtifactBundleInfo {
-    pub upload_url: String,
-    pub object_key: String,
 }
 
 impl ApiClient {
@@ -110,7 +92,7 @@ impl ApiClient {
         Err(last_error.unwrap_or_else(|| ActionError::Api("Unknown error".to_string())))
     }
 
-    pub async fn plan(&self, payload: &Value) -> Result<Vec<ProjectDecision>> {
+    pub async fn plan(&self, payload: &Value) -> Result<Vec<PlanProjectOutput>> {
         let resp = self
             .request(reqwest::Method::POST, "/api/v1/runs/plan", Some(payload))
             .await?;
@@ -119,7 +101,7 @@ impl ApiClient {
             .get("projects")
             .ok_or_else(|| ActionError::Api("Plan response missing 'projects' field".into()))?;
 
-        let decisions: Vec<ProjectDecision> = serde_json::from_value(projects.clone())
+        let decisions: Vec<PlanProjectOutput> = serde_json::from_value(projects.clone())
             .map_err(|e| ActionError::Api(format!("Failed to parse plan decisions: {e}")))?;
 
         Ok(decisions)
@@ -145,13 +127,14 @@ impl ApiClient {
 
     pub async fn fail(&self, board_run_id: &str, message: &str, details: &str) -> Result<()> {
         let endpoint = format!("/api/v1/board-runs/{board_run_id}/fail");
-        let payload = serde_json::json!({
-            "status": "failed",
-            "error": {
-                "message": message,
-                "details": details,
-            }
-        });
+        let req = boardflow_api_types::board_run::FailBoardRunRequest {
+            status: "failed".to_string(),
+            error: boardflow_api_types::board_run::FailErrorInfo {
+                message: message.to_string(),
+                details: Some(serde_json::Value::String(details.to_string())),
+            },
+        };
+        let payload = serde_json::to_value(&req).expect("failed to serialize fail request");
         self.request(reqwest::Method::POST, &endpoint, Some(&payload))
             .await?;
         Ok(())
@@ -187,21 +170,4 @@ impl ApiClient {
 
         Ok(())
     }
-}
-
-#[derive(Serialize)]
-#[allow(dead_code)]
-pub struct PlanProject {
-    pub project_path: String,
-    pub config_path: String,
-    pub project_dir: String,
-    pub tree_hash: String,
-    pub files: Vec<PlanFile>,
-}
-
-#[derive(Serialize)]
-#[allow(dead_code)]
-pub struct PlanFile {
-    pub path: String,
-    pub sha256: String,
 }
