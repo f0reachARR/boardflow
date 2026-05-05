@@ -158,7 +158,7 @@ pub fn build_response_headers(
     // from the app domain only. X-Frame-Options is omitted for iframe artifacts because
     // ALLOW-FROM is deprecated; CSP frame-ancestors is the standard mechanism.
     // For non-iframe artifacts, X-Frame-Options: DENY prevents any framing.
-    let is_iframe_artifact = artifact_type == "ibom_html";
+    let is_iframe_artifact = artifact_type == "ibom";
     let csp = if is_iframe_artifact {
         // sandbox allow-scripts: treats content as unique origin (blocks same-origin access,
         // form submissions, popups, navigation) while allowing script execution (needed for iBOM).
@@ -199,7 +199,7 @@ pub fn build_response_headers(
     // Add Content-Disposition for downloadable types
     if let Some(filename) = filename {
         let disposition = match artifact_type {
-            "ibom_html" | "schematic_svg" | "pcb_svg" | "schematic_pdf" | "pcb_pdf" => {
+            "ibom" | "schematic_svg" | "pcb_svg" | "schematic_pdf" | "pcb_pdf" => {
                 format!("inline; filename=\"{filename}\"")
             }
             _ => format!("attachment; filename=\"{filename}\""),

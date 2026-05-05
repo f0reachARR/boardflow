@@ -530,7 +530,7 @@ use boardflow_api::routes::proxy::build_response_headers;
 fn test_headers_ibom_html_has_sandbox_csp() {
     let headers = build_response_headers(
         "text/html",
-        "ibom_html",
+        "ibom",
         "https://app.boardflow.example.com",
         Some(4096),
         Some("ibom.html"),
@@ -558,7 +558,7 @@ fn test_headers_ibom_html_has_sandbox_csp() {
 fn test_headers_ibom_html_no_x_frame_options() {
     let headers = build_response_headers(
         "text/html",
-        "ibom_html",
+        "ibom",
         "https://app.boardflow.example.com",
         None,
         None,
@@ -664,7 +664,7 @@ fn test_headers_content_length_absent_when_none() {
 #[test]
 fn test_headers_content_disposition_inline() {
     for artifact_type in &[
-        "ibom_html",
+        "ibom",
         "schematic_svg",
         "pcb_svg",
         "schematic_pdf",

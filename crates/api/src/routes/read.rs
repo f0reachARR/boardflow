@@ -1219,9 +1219,9 @@ pub async fn get_viewer_sources(
         }
     };
 
-    // iBOM viewer: needs ibom_html
+    // iBOM viewer: needs ibom
     let ibom = {
-        let html = find_artifact("ibom_html");
+        let html = find_artifact("ibom");
         let status = match html {
             Some(a) if a.status == ArtifactStatus::Available => "available",
             Some(a) if a.status == ArtifactStatus::Failed => "failed",

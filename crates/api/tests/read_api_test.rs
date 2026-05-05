@@ -1069,7 +1069,7 @@ async fn test_get_viewer_sources_all_available() {
     create_test_artifact(&pool, br_id, "schematic_pdf", "available").await;
     create_test_artifact(&pool, br_id, "pcb_top_svg", "available").await;
     create_test_artifact(&pool, br_id, "pcb_bottom_svg", "available").await;
-    create_test_artifact(&pool, br_id, "ibom_html", "available").await;
+    create_test_artifact(&pool, br_id, "ibom", "available").await;
     create_test_artifact(&pool, br_id, "bom_csv", "available").await;
     create_test_artifact(&pool, br_id, "gerber_zip", "available").await;
     create_test_artifact(&pool, br_id, "drill_zip", "available").await;

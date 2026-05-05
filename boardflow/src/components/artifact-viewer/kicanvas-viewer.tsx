@@ -108,8 +108,6 @@ export function KiCanvasViewer({ sources }: KiCanvasViewerProps) {
           <kicanvas-source
             key={`${source.type}:${source.name}`}
             src={source.url}
-            type={source.type}
-            name={source.name}
           />
         ))}
       </kicanvas-embed>

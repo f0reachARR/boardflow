@@ -163,7 +163,7 @@ function renderViewerContent(
     case 'schematic': {
       const kicanvasViewer = allViewers.kicanvas;
       const kicanvasSchSources =
-        kicanvasViewer?.status === 'available'
+        kicanvasViewer?.status !== 'missing'
           ? (kicanvasViewer.sources?.filter(
               (s: ViewerSource) => s.kind === 'schematic' || s.kind === 'project',
             ) ?? [])
@@ -189,12 +189,14 @@ function renderViewerContent(
     case 'pcb_preview': {
       const kicanvasViewer = allViewers.kicanvas;
       const kicanvasPcbSources =
-        kicanvasViewer?.status === 'available'
+        kicanvasViewer?.status !== 'missing'
           ? (kicanvasViewer.sources?.filter(
-              (s: ViewerSource) => s.kind === 'board' || s.kind === 'project',
+              (s) => s.kind === 'board',
             ) ?? [])
           : [];
       const hasKicanvas = kicanvasPcbSources.some((s: ViewerSource) => s.kind === 'board');
+
+      console.log('kicanvasPcbSources', kicanvasPcbSources);
 
       // static viewer が missing/failed でも KiCanvas があれば表示
       if (!hasKicanvas && (viewer.status === 'missing' || viewer.status === 'failed')) {
