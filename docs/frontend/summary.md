@@ -116,11 +116,14 @@ frontend は backend の OpenAPI 契約に追従する。
 
 OpenAPI から TypeScript 型を生成して、画面側の props と API response をなるべく一致させる。
 
-データ取得基盤は `openapi-fetch` を低レベル client とし、その上に TanStack Query v5 + `openapi-react-query` を重ねる。
+データ取得基盤は `openapi-fetch` を低レベル client とし、その上に TanStack Query v5 + `openapi-react-query` を重ねる。Issue #78 で認証配下の対象 9 ページはこの構成へ統一済みで、Server Prefetch + HydrationBoundary + Client Query のパターンを標準化した。
 
-- Server Component は認証 cookie を forward できる `createServerClient()` で prefetch を行い、`HydrationBoundary` 経由で Client Component に渡す
-- Client Component は `$api.useQuery()` を基本形とし、Suspense が必要な箇所では `$api.useSuspenseQuery()` を使用する。queryKey は手動設計しない
-- Repository 一覧のような read 画面は、Server Component で `prefetchQuery`（await なし）し、Client Component で `useSuspenseQuery` + `<Suspense>` boundary で Streaming SSR を実現する
+- Server Component は認証 cookie を forward できる `createServerClient()` を使い、主要リソースは `fetchQuery` を `await` して存在確認や分岐を行う
+- 主要リソース取得で `not_found` を受けた場合は `notFound()` を返し、それ以外の例外は Error Boundary またはページ内エラー表示へ委譲する
+- セカンダリリソースは `prefetchQuery` を await せずに仕込み、`HydrationBoundary` 経由で Client Component に渡して Streaming SSR を維持する
+- Client Component は read 系を `$api.useSuspenseQuery()` で取得し、queryKey は `$api` 生成値に揃えて手動設計しない
+- checks と diff は例外パターンとして、主要リソースを `fetchQuery` で先に判定しつつ、`not_found` は `notFound()`、それ以外はページ内のインラインエラー表示を維持する
+- Mutation は `$api.useMutation()` を使い、成功後は `queryClient.invalidateQueries()` で関連一覧を再取得する。トークン作成・失効で `router.refresh()` は使わない
 - 各ルートに `loading.tsx` を配置し、ページナビゲーション時に即座にスケルトンUIを表示する
 - エラー処理は `error.tsx` + `useQueryErrorResetBoundary` で Query のエラー状態もリセットする
 - presigned URL の更新が必要な viewer 系は、通常の API query と分けて `useQuery` + `refetchInterval` で短命 URL を更新する

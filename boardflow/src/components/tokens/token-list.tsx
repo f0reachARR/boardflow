@@ -1,50 +1,43 @@
 'use client';
 
 import { Badge, Box, Button, HStack, Table, Text } from '@chakra-ui/react';
-import { useRouter } from 'next/navigation';
 import { useState } from 'react';
-import type { ApiToken } from '@/lib/api/schema-types';
+import { $api } from '@/lib/api/react-query';
 import { CreateTokenDialog } from './create-token-dialog';
 import { RevokeTokenDialog } from './revoke-token-dialog';
 
 interface Props {
-  items: ApiToken[];
   repositoryId: string;
-  hasMore: boolean;
-  nextCursor: string | null;
-  fetchError?: string;
 }
 
-export function TokenList({ items, repositoryId, fetchError }: Props) {
-  const router = useRouter();
+export function TokenList({ repositoryId }: Props) {
+  const { data } = $api.useSuspenseQuery(
+    'get',
+    '/api/v1/repositories/{github_repository_id}/api-tokens',
+    {
+      params: {
+        path: { github_repository_id: Number(repositoryId) },
+        query: { limit: 50 },
+      },
+    },
+  );
+  const items = data?.items ?? [];
+
   const [createOpen, setCreateOpen] = useState(false);
-  const [revokeTarget, setRevokeTarget] = useState<ApiToken | null>(null);
-
-  const handleCreated = () => {
-    router.refresh();
-  };
-
-  const handleRevoked = () => {
-    router.refresh();
-  };
+  const [revokeTarget, setRevokeTarget] = useState<(typeof items)[number] | null>(null);
 
   return (
     <Box>
       <HStack justify='space-between' mb={4}>
-        {!fetchError && (
-          <Text fontSize='sm' color='gray.600'>
-            {items.length} tokens
-          </Text>
-        )}
-        {fetchError && <Box />}
+        <Text fontSize='sm' color='gray.600'>
+          {items.length} tokens
+        </Text>
         <Button colorPalette='blue' size='sm' onClick={() => setCreateOpen(true)}>
           新しいトークンを作成
         </Button>
       </HStack>
 
-      {fetchError ? (
-        <Text color='red.500'>{fetchError}</Text>
-      ) : items.length === 0 ? (
+      {items.length === 0 ? (
         <Text color='gray.500'>APIトークンはまだありません。</Text>
       ) : (
         <Table.Root size='sm' variant='outline'>
@@ -100,7 +93,6 @@ export function TokenList({ items, repositoryId, fetchError }: Props) {
         repositoryId={repositoryId}
         open={createOpen}
         onOpenChange={setCreateOpen}
-        onCreated={handleCreated}
       />
 
       {revokeTarget && (
@@ -112,7 +104,6 @@ export function TokenList({ items, repositoryId, fetchError }: Props) {
           onOpenChange={(open) => {
             if (!open) setRevokeTarget(null);
           }}
-          onRevoked={handleRevoked}
         />
       )}
     </Box>
