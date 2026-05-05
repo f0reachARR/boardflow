@@ -10,6 +10,7 @@ members = [
     "crates/artifact",
     "crates/config",
     "crates/kicad",
+    "crates/action-runner",
 ]
 
 [workspace.dependencies]
@@ -58,6 +59,7 @@ serde_yaml = "0.9"
 globset = "0.4"
 walkdir = "2"
 tempfile = "3"
+anyhow = "1"
 
 [workspace.lints.clippy]
 collapsible_if = "allow"

@@ -264,6 +264,34 @@ pub fn extract_bundle(
             allowed_paths.insert(sp.as_str());
         }
     }
+    // Allow diff_metadata paths
+    if let Some(ref dm) = manifest.diff_metadata {
+        if let Some(ref fh) = dm.file_hashes {
+            if let Some(p) = fh.get("path").and_then(|v| v.as_str()) {
+                allowed_paths.insert(p);
+            }
+        }
+        if let Some(ref bs) = dm.bom_summary {
+            if let Some(p) = bs.get("path").and_then(|v| v.as_str()) {
+                allowed_paths.insert(p);
+            }
+        }
+        if let Some(ref cs) = dm.checks_summary {
+            if let Some(p) = cs.get("path").and_then(|v| v.as_str()) {
+                allowed_paths.insert(p);
+            }
+        }
+        if let Some(ref as_) = dm.artifacts_summary {
+            if let Some(p) = as_.get("path").and_then(|v| v.as_str()) {
+                allowed_paths.insert(p);
+            }
+        }
+        if let Some(ref pv) = dm.previews {
+            if let Some(p) = pv.get("path").and_then(|v| v.as_str()) {
+                allowed_paths.insert(p);
+            }
+        }
+    }
 
     for i in 0..archive.len() {
         let file = archive.by_index(i)?;
