@@ -14,6 +14,7 @@ pub struct ActionInputs {
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct GitHubContext {
     pub event_name: String,
     pub repository: String,

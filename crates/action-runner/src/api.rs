@@ -191,37 +191,6 @@ impl ApiClient {
 }
 
 #[derive(Serialize)]
-pub struct PlanPayload<'a> {
-    pub repository: RepositoryInfo<'a>,
-    pub git: GitInfo<'a>,
-    pub action: ActionInfo<'a>,
-    pub mode: &'a str,
-    pub projects: Vec<PlanProject>,
-}
-
-#[derive(Serialize)]
-pub struct RepositoryInfo<'a> {
-    pub owner: &'a str,
-    pub name: &'a str,
-}
-
-#[derive(Serialize)]
-pub struct GitInfo<'a> {
-    #[serde(rename = "ref")]
-    pub git_ref: &'a str,
-    pub branch: &'a str,
-    pub commit_sha: &'a str,
-    pub event_name: &'a str,
-}
-
-#[derive(Serialize)]
-pub struct ActionInfo<'a> {
-    pub workflow: &'a str,
-    pub run_id: &'a str,
-    pub run_attempt: &'a str,
-}
-
-#[derive(Serialize)]
 pub struct PlanProject {
     pub project_path: String,
     pub config_path: String,
