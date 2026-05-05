@@ -180,4 +180,16 @@
 - review: pr_ready: true
 - docs: docs_ready: true（README追記済み）
 - 未使用yaml feature: 修正済み（`insta = "1"` に変更）
-- PR作成: 次ステップ
+- PR作成: 完了
+
+## PR/完了結果 (2026-05-05, PR作成)
+
+- PR URL: https://github.com/f0reachARR/boardflow/pull/93
+- タイトル: `feat(api): add OpenAPI schema snapshot test for CI type consistency`
+- ベースブランチ: main
+- Closes #91
+
+## 残リスク (最終)
+
+- API全体スナップショットのため、action-runner契約と無関係なAPI変更でもCIが落ちる（シグナルがやや広い）
+- 将来的にスナップショット対象をaction-runner関連パスに絞るかは別Issueで整理
