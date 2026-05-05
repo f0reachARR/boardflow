@@ -10,6 +10,7 @@ path = "src/main.rs"
 
 [dependencies]
 boardflow-api-types = { workspace = true }
+boardflow-domain = { path = "../domain" }
 boardflow-kicad = { path = "../kicad" }
 tokio = { workspace = true }
 reqwest = { workspace = true, features = ["rustls-tls"] }

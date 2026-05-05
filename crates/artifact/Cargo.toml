@@ -4,6 +4,7 @@ version = "0.0.1"
 edition = "2024"
 
 [dependencies]
+boardflow-domain = { path = "../domain" }
 aws-config = { workspace = true }
 aws-sdk-s3 = { workspace = true }
 serde = { workspace = true }

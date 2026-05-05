@@ -1,5 +1,6 @@
 ---
 source: crates/api/tests/openapi_schema_test.rs
+assertion_line: 9
 expression: json
 ---
 {
@@ -1515,7 +1516,7 @@ expression: json
             ]
           },
           "type": {
-            "type": "string"
+            "$ref": "#/components/schemas/ArtifactType"
           }
         }
       },
@@ -1559,6 +1560,29 @@ expression: json
             "format": "int64"
           }
         }
+      },
+      "ArtifactType": {
+        "type": "string",
+        "enum": [
+          "kicad_pro",
+          "kicad_sch",
+          "kicad_pcb",
+          "kicad_wks",
+          "schematic_pdf",
+          "pcb_pdf",
+          "pcb_top_svg",
+          "pcb_bottom_svg",
+          "render_top_png",
+          "render_bottom_png",
+          "ibom",
+          "bom_csv",
+          "position_csv",
+          "gerber_zip",
+          "drill_zip",
+          "fabrication_zip",
+          "erc_report",
+          "drc_report"
+        ]
       },
       "BoardProjectDetailResponse": {
         "type": "object",
@@ -2898,7 +2922,7 @@ expression: json
             ]
           },
           "artifact_type": {
-            "type": "string"
+            "$ref": "#/components/schemas/ArtifactType"
           },
           "status": {
             "type": "string"
@@ -2958,9 +2982,13 @@ expression: json
             ]
           },
           "artifact_type": {
-            "type": [
-              "string",
-              "null"
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ArtifactType"
+              }
             ]
           },
           "kind": {

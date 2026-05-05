@@ -2,6 +2,7 @@ use boardflow_artifact::{
     ArtifactError, BundleManifest, CoordinateMm, MAX_BUNDLE_SIZE, ManifestArtifact, ManifestCheck,
     ManifestFile, ManifestFinding, extract_bundle, verify_sha256,
 };
+use boardflow_domain::models::artifact::ArtifactType;
 use sha2::{Digest, Sha256};
 use std::io::Write;
 use zip::ZipWriter;
@@ -51,7 +52,7 @@ fn create_test_zip(manifest: &BundleManifest, files: &[(&str, &[u8])]) -> Vec<u8
 fn test_extract_bundle_valid() {
     let artifact_data = b"fake gerber content";
     let manifest = make_manifest(vec![ManifestArtifact {
-        r#type: "gerber".to_string(),
+        r#type: ArtifactType::GerberZip,
         filename: "output.gbr".to_string(),
         content_type: "application/octet-stream".to_string(),
         status: "available".to_string(),
@@ -76,7 +77,7 @@ fn test_extract_bundle_valid() {
 #[test]
 fn test_extract_bundle_skips_non_available_artifacts() {
     let manifest = make_manifest(vec![ManifestArtifact {
-        r#type: "gerber".to_string(),
+        r#type: ArtifactType::GerberZip,
         filename: "output.gbr".to_string(),
         content_type: "application/octet-stream".to_string(),
         status: "missing".to_string(),
@@ -137,6 +138,48 @@ fn test_extract_bundle_invalid_manifest_json() {
 }
 
 #[test]
+fn test_extract_bundle_rejects_unknown_artifact_type() {
+    let manifest = serde_json::json!({
+        "version": 1,
+        "project_path": "hardware/test",
+        "tree_hash": "abc123",
+        "commit_sha": "def456",
+        "files": [{
+            "path": "test.kicad_pcb",
+            "sha256": "sha256:0000"
+        }],
+        "artifacts": [{
+            "type": "unknown_artifact",
+            "filename": "mystery.bin",
+            "content_type": "application/octet-stream",
+            "status": "available",
+            "source_path": "artifacts/mystery.bin"
+        }]
+    });
+
+    let mut buf = Vec::new();
+    {
+        let mut zip = ZipWriter::new(std::io::Cursor::new(&mut buf));
+        let options = SimpleFileOptions::default();
+        zip.start_file("manifest.json", options).unwrap();
+        zip.write_all(&serde_json::to_vec(&manifest).unwrap())
+            .unwrap();
+        zip.start_file("artifacts/mystery.bin", options).unwrap();
+        zip.write_all(b"mystery").unwrap();
+        zip.finish().unwrap();
+    }
+
+    let result = extract_bundle(&buf);
+    assert!(result.is_err());
+    match result.unwrap_err() {
+        ArtifactError::Manifest(msg) => {
+            assert!(msg.contains("unknown_artifact"));
+        }
+        other => panic!("unexpected error: {other:?}"),
+    }
+}
+
+#[test]
 fn test_extract_bundle_unsupported_version() {
     let manifest = BundleManifest {
         version: 99,
@@ -164,7 +207,7 @@ fn test_extract_bundle_unsupported_version() {
 #[test]
 fn test_extract_bundle_path_traversal_dotdot() {
     let manifest = make_manifest(vec![ManifestArtifact {
-        r#type: "gerber".to_string(),
+        r#type: ArtifactType::GerberZip,
         filename: "output.gbr".to_string(),
         content_type: "application/octet-stream".to_string(),
         status: "available".to_string(),
@@ -190,7 +233,7 @@ fn test_extract_bundle_path_traversal_dotdot() {
 #[test]
 fn test_extract_bundle_path_traversal_absolute() {
     let manifest = make_manifest(vec![ManifestArtifact {
-        r#type: "gerber".to_string(),
+        r#type: ArtifactType::GerberZip,
         filename: "output.gbr".to_string(),
         content_type: "application/octet-stream".to_string(),
         status: "available".to_string(),
@@ -224,7 +267,7 @@ fn test_extract_bundle_too_large() {
 #[test]
 fn test_extract_bundle_artifact_not_found_in_zip() {
     let manifest = make_manifest(vec![ManifestArtifact {
-        r#type: "gerber".to_string(),
+        r#type: ArtifactType::GerberZip,
         filename: "output.gbr".to_string(),
         content_type: "application/octet-stream".to_string(),
         status: "available".to_string(),
@@ -279,7 +322,7 @@ fn test_verify_sha256_mismatch() {
 fn test_extract_bundle_multiple_artifacts() {
     let manifest = make_manifest(vec![
         ManifestArtifact {
-            r#type: "gerber".to_string(),
+            r#type: ArtifactType::GerberZip,
             filename: "front.gbr".to_string(),
             content_type: "application/octet-stream".to_string(),
             status: "available".to_string(),
@@ -290,7 +333,7 @@ fn test_extract_bundle_multiple_artifacts() {
             size_bytes: None,
         },
         ManifestArtifact {
-            r#type: "gerber".to_string(),
+            r#type: ArtifactType::GerberZip,
             filename: "back.gbr".to_string(),
             content_type: "application/octet-stream".to_string(),
             status: "available".to_string(),
@@ -301,7 +344,7 @@ fn test_extract_bundle_multiple_artifacts() {
             size_bytes: None,
         },
         ManifestArtifact {
-            r#type: "bom".to_string(),
+            r#type: ArtifactType::BomCsv,
             filename: "bom.csv".to_string(),
             content_type: "text/csv".to_string(),
             status: "skipped".to_string(),
@@ -431,7 +474,7 @@ fn test_coordinate_mm_to_um_conversion() {
 #[test]
 fn test_extract_bundle_available_artifact_no_source_path() {
     let manifest = make_manifest(vec![ManifestArtifact {
-        r#type: "gerber".to_string(),
+        r#type: ArtifactType::GerberZip,
         filename: "output.gbr".to_string(),
         content_type: "application/octet-stream".to_string(),
         status: "available".to_string(),
@@ -462,7 +505,7 @@ fn test_extract_bundle_sha256_verification_pass() {
     let expected_sha256 = format!("sha256:{:x}", hasher.finalize());
 
     let manifest = make_manifest(vec![ManifestArtifact {
-        r#type: "gerber".to_string(),
+        r#type: ArtifactType::GerberZip,
         filename: "output.gbr".to_string(),
         content_type: "application/octet-stream".to_string(),
         status: "available".to_string(),
@@ -482,7 +525,7 @@ fn test_extract_bundle_sha256_verification_pass() {
 fn test_extract_bundle_sha256_verification_fail() {
     let artifact_data = b"test content";
     let manifest = make_manifest(vec![ManifestArtifact {
-        r#type: "gerber".to_string(),
+        r#type: ArtifactType::GerberZip,
         filename: "output.gbr".to_string(),
         content_type: "application/octet-stream".to_string(),
         status: "available".to_string(),
@@ -508,7 +551,7 @@ fn test_extract_bundle_sha256_verification_fail() {
 fn test_extract_bundle_size_verification_pass() {
     let artifact_data = b"exact size content";
     let manifest = make_manifest(vec![ManifestArtifact {
-        r#type: "gerber".to_string(),
+        r#type: ArtifactType::GerberZip,
         filename: "output.gbr".to_string(),
         content_type: "application/octet-stream".to_string(),
         status: "available".to_string(),
@@ -528,7 +571,7 @@ fn test_extract_bundle_size_verification_pass() {
 fn test_extract_bundle_size_verification_fail() {
     let artifact_data = b"short";
     let manifest = make_manifest(vec![ManifestArtifact {
-        r#type: "gerber".to_string(),
+        r#type: ArtifactType::GerberZip,
         filename: "output.gbr".to_string(),
         content_type: "application/octet-stream".to_string(),
         status: "available".to_string(),
@@ -554,7 +597,7 @@ fn test_extract_bundle_size_verification_fail() {
 fn test_extract_bundle_rejects_unlisted_entry() {
     let artifact_data = b"fake gerber content";
     let manifest = make_manifest(vec![ManifestArtifact {
-        r#type: "gerber".to_string(),
+        r#type: ArtifactType::GerberZip,
         filename: "output.gbr".to_string(),
         content_type: "application/octet-stream".to_string(),
         status: "available".to_string(),

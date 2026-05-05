@@ -8,6 +8,7 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use boardflow_api::artifact_token::generate_artifact_token;
 use boardflow_api::create_app_with_config;
 use boardflow_api::github_access::{AllowAllGithubAccessChecker, DynGithubAccessChecker};
+use boardflow_domain::models::artifact::ArtifactType;
 use hmac::{Hmac, Mac};
 use http_body_util::BodyExt;
 use sha2::Sha256;
@@ -134,7 +135,7 @@ async fn create_test_artifact(
     pool: &PgPool,
     board_run_id: Uuid,
     status: &str,
-    artifact_type: &str,
+    artifact_type: ArtifactType,
 ) -> Uuid {
     let id = Uuid::now_v7();
     sqlx::query(
@@ -145,7 +146,11 @@ async fn create_test_artifact(
     .bind(board_run_id)
     .bind(artifact_type)
     .bind(status)
-    .bind(if status == "available" { Some(format!("{artifact_type}.file")) } else { None })
+    .bind(if status == "available" {
+        Some(format!("{}.file", artifact_type))
+    } else {
+        None
+    })
     .bind(if status == "available" { Some("application/octet-stream") } else { None })
     .bind(if status == "available" { Some(format!("final/{id}")) } else { None })
     .bind(if status == "available" { Some("sha256:abc123") } else { None })
@@ -303,7 +308,8 @@ async fn test_proxy_artifact_not_available_returns_404() {
     let repo_id = create_test_repository(&pool).await;
     let project_id = create_test_board_project(&pool, repo_id).await;
     let run_id = create_test_board_run(&pool, project_id).await;
-    let artifact_id = create_test_artifact(&pool, run_id, "failed", "schematic_pdf").await;
+    let artifact_id =
+        create_test_artifact(&pool, run_id, "failed", ArtifactType::SchematicPdf).await;
 
     let token = generate_artifact_token(artifact_id, user_id, TEST_SECRET);
 
@@ -334,7 +340,8 @@ async fn test_proxy_no_s3_client_returns_500() {
     let repo_id = create_test_repository(&pool).await;
     let project_id = create_test_board_project(&pool, repo_id).await;
     let run_id = create_test_board_run(&pool, project_id).await;
-    let artifact_id = create_test_artifact(&pool, run_id, "available", "schematic_pdf").await;
+    let artifact_id =
+        create_test_artifact(&pool, run_id, "available", ArtifactType::SchematicPdf).await;
 
     let token = generate_artifact_token(artifact_id, user_id, TEST_SECRET);
 
@@ -497,7 +504,8 @@ async fn test_proxy_viewer_sources_url_format() {
     let repo_id = create_test_repository(&pool).await;
     let project_id = create_test_board_project(&pool, repo_id).await;
     let run_id = create_test_board_run(&pool, project_id).await;
-    let artifact_id = create_test_artifact(&pool, run_id, "available", "schematic_pdf").await;
+    let artifact_id =
+        create_test_artifact(&pool, run_id, "available", ArtifactType::SchematicPdf).await;
 
     // Generate token exactly as viewer-sources would
     let token = generate_artifact_token(artifact_id, user_id, TEST_SECRET);
@@ -530,7 +538,7 @@ use boardflow_api::routes::proxy::build_response_headers;
 fn test_headers_ibom_html_has_sandbox_csp() {
     let headers = build_response_headers(
         "text/html",
-        "ibom_html",
+        ArtifactType::Ibom,
         "https://app.boardflow.example.com",
         Some(4096),
         Some("ibom.html"),
@@ -558,7 +566,7 @@ fn test_headers_ibom_html_has_sandbox_csp() {
 fn test_headers_ibom_html_no_x_frame_options() {
     let headers = build_response_headers(
         "text/html",
-        "ibom_html",
+        ArtifactType::Ibom,
         "https://app.boardflow.example.com",
         None,
         None,
@@ -576,7 +584,7 @@ fn test_headers_ibom_html_no_x_frame_options() {
 fn test_headers_non_iframe_has_x_frame_options_deny() {
     let headers = build_response_headers(
         "application/pdf",
-        "schematic_pdf",
+        ArtifactType::SchematicPdf,
         "https://app.boardflow.example.com",
         Some(2048),
         Some("schematic.pdf"),
@@ -592,7 +600,7 @@ fn test_headers_non_iframe_has_x_frame_options_deny() {
 fn test_headers_non_iframe_csp_no_sandbox() {
     let headers = build_response_headers(
         "image/svg+xml",
-        "schematic_svg",
+        ArtifactType::PcbTopSvg,
         "https://app.boardflow.example.com",
         None,
         None,
@@ -613,7 +621,7 @@ fn test_headers_non_iframe_csp_no_sandbox() {
 fn test_headers_common_security_headers() {
     let headers = build_response_headers(
         "application/pdf",
-        "schematic_pdf",
+        ArtifactType::SchematicPdf,
         "https://app.boardflow.example.com",
         None,
         None,
@@ -635,7 +643,7 @@ fn test_headers_common_security_headers() {
 fn test_headers_content_length_set() {
     let headers = build_response_headers(
         "application/pdf",
-        "schematic_pdf",
+        ArtifactType::SchematicPdf,
         "https://app.boardflow.example.com",
         Some(12345),
         None,
@@ -650,7 +658,7 @@ fn test_headers_content_length_set() {
 fn test_headers_content_length_absent_when_none() {
     let headers = build_response_headers(
         "application/pdf",
-        "schematic_pdf",
+        ArtifactType::SchematicPdf,
         "https://app.boardflow.example.com",
         None,
         None,
@@ -664,15 +672,15 @@ fn test_headers_content_length_absent_when_none() {
 #[test]
 fn test_headers_content_disposition_inline() {
     for artifact_type in &[
-        "ibom_html",
-        "schematic_svg",
-        "pcb_svg",
-        "schematic_pdf",
-        "pcb_pdf",
+        ArtifactType::Ibom,
+        ArtifactType::PcbTopSvg,
+        ArtifactType::PcbBottomSvg,
+        ArtifactType::SchematicPdf,
+        ArtifactType::PcbPdf,
     ] {
         let headers = build_response_headers(
             "application/pdf",
-            artifact_type,
+            *artifact_type,
             "https://app.boardflow.example.com",
             None,
             Some("test.file"),
@@ -697,7 +705,7 @@ fn test_headers_content_disposition_inline() {
 fn test_headers_content_disposition_attachment() {
     let headers = build_response_headers(
         "application/zip",
-        "gerber_zip",
+        ArtifactType::GerberZip,
         "https://app.boardflow.example.com",
         None,
         Some("gerbers.zip"),
@@ -721,7 +729,7 @@ fn test_headers_content_disposition_attachment() {
 fn test_headers_content_disposition_absent_when_no_filename() {
     let headers = build_response_headers(
         "application/pdf",
-        "schematic_pdf",
+        ArtifactType::SchematicPdf,
         "https://app.boardflow.example.com",
         None,
         None,
@@ -736,7 +744,7 @@ fn test_headers_content_disposition_absent_when_no_filename() {
 fn test_headers_content_type_passthrough() {
     let headers = build_response_headers(
         "image/svg+xml",
-        "schematic_svg",
+        ArtifactType::PcbTopSvg,
         "https://app.boardflow.example.com",
         None,
         None,

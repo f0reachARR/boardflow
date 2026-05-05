@@ -8,7 +8,7 @@ use sqlx::PgPool;
 use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
 
-use boardflow_domain::models::artifact::ArtifactStatus;
+use boardflow_domain::models::artifact::{Artifact, ArtifactStatus, ArtifactType};
 use boardflow_domain::models::run_check::{FindingSeverity, SubjectKind};
 
 use crate::error::{AppError, RequestId};
@@ -128,6 +128,21 @@ fn access_error_to_app_error(err: &AccessError, request_id: &str) -> AppError {
             tracing::error!("GitHub API error: {detail}");
             AppError::internal_error("upstream error", request_id)
         }
+    }
+}
+
+fn find_artifact(artifacts: &[Artifact], artifact_type: ArtifactType) -> Option<&Artifact> {
+    artifacts
+        .iter()
+        .find(|artifact| artifact.r#type == artifact_type)
+}
+
+fn single_viewer_status(artifact: Option<&Artifact>) -> &'static str {
+    match artifact {
+        Some(a) if a.status == ArtifactStatus::Available => "available",
+        Some(a) if a.status == ArtifactStatus::Failed => "failed",
+        Some(a) if a.status == ArtifactStatus::Skipped => "skipped",
+        _ => "missing",
     }
 }
 
@@ -298,7 +313,7 @@ pub struct ArtifactSummary {
 pub struct ArtifactListItem {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub artifact_id: Option<String>,
-    pub r#type: String,
+    pub r#type: ArtifactType,
     pub status: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub filename: Option<String>,
@@ -380,7 +395,7 @@ pub struct ViewerSource {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub artifact_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub artifact_type: Option<String>,
+    pub artifact_type: Option<ArtifactType>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub kind: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -395,7 +410,7 @@ pub struct ViewerSource {
 pub struct ViewerDownload {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub artifact_id: Option<String>,
-    pub artifact_type: String,
+    pub artifact_type: ArtifactType,
     pub status: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
@@ -981,7 +996,7 @@ pub async fn list_artifacts(
                 } else {
                     None
                 },
-                r#type: a.r#type.clone(),
+                r#type: a.r#type,
                 status: format!("{:?}", a.status).to_lowercase(),
                 filename: if is_available {
                     a.filename.clone()
@@ -1068,15 +1083,9 @@ pub async fn get_viewer_sources(
 
     let expires_at = Utc::now() + chrono::Duration::hours(1);
 
-    // Helper: find artifact by type
-    let find_artifact =
-        |artifact_type: &str| -> Option<&boardflow_domain::models::artifact::Artifact> {
-            artifacts.iter().find(|a| a.r#type == artifact_type)
-        };
-
     let user_id = session.user.id;
     let secret = &artifact_secret.0;
-    let proxy_url = |a: &boardflow_domain::models::artifact::Artifact| -> String {
+    let proxy_url = |a: &Artifact| -> String {
         let token = crate::artifact_token::generate_artifact_token(a.id, user_id, secret);
         format!(
             "{}/proxy/artifacts/{}?token={}",
@@ -1088,9 +1097,9 @@ pub async fn get_viewer_sources(
 
     // KiCanvas viewer: needs kicad_pro, kicad_sch, kicad_pcb
     let kicanvas = {
-        let pro = find_artifact("kicad_pro");
-        let sch = find_artifact("kicad_sch");
-        let pcb = find_artifact("kicad_pcb");
+        let pro = find_artifact(&artifacts, ArtifactType::KicadPro);
+        let sch = find_artifact(&artifacts, ArtifactType::KicadSch);
+        let pcb = find_artifact(&artifacts, ArtifactType::KicadPcb);
         let all = [pro, sch, pcb];
         let available_count = all
             .iter()
@@ -1147,17 +1156,13 @@ pub async fn get_viewer_sources(
 
     // Schematic viewer: needs schematic_pdf
     let schematic = {
-        let pdf = find_artifact("schematic_pdf");
-        let status = match pdf {
-            Some(a) if a.status == ArtifactStatus::Available => "available",
-            Some(a) if a.status == ArtifactStatus::Failed => "failed",
-            _ => "missing",
-        };
+        let pdf = find_artifact(&artifacts, ArtifactType::SchematicPdf);
+        let status = single_viewer_status(pdf);
         let primary = pdf
             .filter(|a| a.status == ArtifactStatus::Available)
             .map(|a| ViewerSource {
                 artifact_id: Some(format_artifact_id(a.id)),
-                artifact_type: Some("schematic_pdf".to_string()),
+                artifact_type: Some(ArtifactType::SchematicPdf),
                 kind: None,
                 name: None,
                 source_path: None,
@@ -1174,8 +1179,8 @@ pub async fn get_viewer_sources(
 
     // PCB Preview: needs pcb_top_svg, pcb_bottom_svg
     let pcb_preview = {
-        let top = find_artifact("pcb_top_svg");
-        let bottom = find_artifact("pcb_bottom_svg");
+        let top = find_artifact(&artifacts, ArtifactType::PcbTopSvg);
+        let bottom = find_artifact(&artifacts, ArtifactType::PcbBottomSvg);
         let all = [top, bottom];
         let available_count = all
             .iter()
@@ -1188,7 +1193,7 @@ pub async fn get_viewer_sources(
             if let Some(a) = top.filter(|a| a.status == ArtifactStatus::Available) {
                 srcs.push(ViewerSource {
                     artifact_id: Some(format_artifact_id(a.id)),
-                    artifact_type: Some("pcb_top_svg".to_string()),
+                    artifact_type: Some(ArtifactType::PcbTopSvg),
                     kind: None,
                     name: None,
                     source_path: None,
@@ -1198,7 +1203,7 @@ pub async fn get_viewer_sources(
             if let Some(a) = bottom.filter(|a| a.status == ArtifactStatus::Available) {
                 srcs.push(ViewerSource {
                     artifact_id: Some(format_artifact_id(a.id)),
-                    artifact_type: Some("pcb_bottom_svg".to_string()),
+                    artifact_type: Some(ArtifactType::PcbBottomSvg),
                     kind: None,
                     name: None,
                     source_path: None,
@@ -1219,14 +1224,10 @@ pub async fn get_viewer_sources(
         }
     };
 
-    // iBOM viewer: needs ibom_html
+    // iBOM viewer: needs ibom
     let ibom = {
-        let html = find_artifact("ibom_html");
-        let status = match html {
-            Some(a) if a.status == ArtifactStatus::Available => "available",
-            Some(a) if a.status == ArtifactStatus::Failed => "failed",
-            _ => "missing",
-        };
+        let html = find_artifact(&artifacts, ArtifactType::Ibom);
+        let status = single_viewer_status(html);
         let iframe_url = html
             .filter(|a| a.status == ArtifactStatus::Available)
             .map(proxy_url);
@@ -1241,18 +1242,14 @@ pub async fn get_viewer_sources(
 
     // BOM viewer: needs bom_csv
     let bom = {
-        let csv = find_artifact("bom_csv");
-        let status = match csv {
-            Some(a) if a.status == ArtifactStatus::Available => "available",
-            Some(a) if a.status == ArtifactStatus::Failed => "failed",
-            _ => "missing",
-        };
+        let csv = find_artifact(&artifacts, ArtifactType::BomCsv);
+        let status = single_viewer_status(csv);
         let downloads = csv
             .filter(|a| a.status == ArtifactStatus::Available)
             .map(|a| {
                 vec![ViewerDownload {
                     artifact_id: Some(format_artifact_id(a.id)),
-                    artifact_type: "bom_csv".to_string(),
+                    artifact_type: ArtifactType::BomCsv,
                     status: "available".to_string(),
                     url: Some(proxy_url(a)),
                     status_reason: None,
@@ -1269,8 +1266,8 @@ pub async fn get_viewer_sources(
 
     // Fabrication viewer: needs gerber_zip, drill_zip
     let fabrication = {
-        let gerber = find_artifact("gerber_zip");
-        let drill = find_artifact("drill_zip");
+        let gerber = find_artifact(&artifacts, ArtifactType::GerberZip);
+        let drill = find_artifact(&artifacts, ArtifactType::DrillZip);
         let all = [gerber, drill];
         let available_count = all
             .iter()
@@ -1283,7 +1280,7 @@ pub async fn get_viewer_sources(
             Some(a) if a.status == ArtifactStatus::Available => {
                 downloads.push(ViewerDownload {
                     artifact_id: Some(format_artifact_id(a.id)),
-                    artifact_type: "gerber_zip".to_string(),
+                    artifact_type: ArtifactType::GerberZip,
                     status: "available".to_string(),
                     url: Some(proxy_url(a)),
                     status_reason: None,
@@ -1292,7 +1289,7 @@ pub async fn get_viewer_sources(
             Some(a) => {
                 downloads.push(ViewerDownload {
                     artifact_id: None,
-                    artifact_type: "gerber_zip".to_string(),
+                    artifact_type: ArtifactType::GerberZip,
                     status: format!("{:?}", a.status).to_lowercase(),
                     url: None,
                     status_reason: a.status_reason.clone(),
@@ -1301,7 +1298,7 @@ pub async fn get_viewer_sources(
             None => {
                 downloads.push(ViewerDownload {
                     artifact_id: None,
-                    artifact_type: "gerber_zip".to_string(),
+                    artifact_type: ArtifactType::GerberZip,
                     status: "missing".to_string(),
                     url: None,
                     status_reason: None,
@@ -1312,7 +1309,7 @@ pub async fn get_viewer_sources(
             Some(a) if a.status == ArtifactStatus::Available => {
                 downloads.push(ViewerDownload {
                     artifact_id: Some(format_artifact_id(a.id)),
-                    artifact_type: "drill_zip".to_string(),
+                    artifact_type: ArtifactType::DrillZip,
                     status: "available".to_string(),
                     url: Some(proxy_url(a)),
                     status_reason: None,
@@ -1321,7 +1318,7 @@ pub async fn get_viewer_sources(
             Some(a) => {
                 downloads.push(ViewerDownload {
                     artifact_id: None,
-                    artifact_type: "drill_zip".to_string(),
+                    artifact_type: ArtifactType::DrillZip,
                     status: format!("{:?}", a.status).to_lowercase(),
                     url: None,
                     status_reason: a.status_reason.clone(),
@@ -1330,7 +1327,7 @@ pub async fn get_viewer_sources(
             None => {
                 downloads.push(ViewerDownload {
                     artifact_id: None,
-                    artifact_type: "drill_zip".to_string(),
+                    artifact_type: ArtifactType::DrillZip,
                     status: "missing".to_string(),
                     url: None,
                     status_reason: None,
@@ -1366,7 +1363,7 @@ pub async fn get_viewer_sources(
 fn viewer_status(
     available_count: usize,
     required_count: usize,
-    artifacts: &[Option<&boardflow_domain::models::artifact::Artifact>],
+    artifacts: &[Option<&Artifact>],
 ) -> String {
     if available_count == required_count {
         "available".to_string()

@@ -61,13 +61,13 @@ docs以下の仕様に基づいてアプリケーションを一通り実装す�
 
 ### 参照URL
 
-- https://docs.rs/axum/latest/axum/body/struct.Body.html
-- https://docs.rs/aws-smithy-types/latest/aws_smithy_types/byte_stream/struct.ByteStream.html
-- https://docs.rs/aws-smithy-types/latest/aws_smithy_types/body/struct.SdkBody.html
-- https://github.com/awslabs/aws-sdk-rust/discussions/989
-- https://github.com/awslabs/aws-sdk-rust/issues/1046
-- https://github.com/awslabs/aws-sdk-rust/issues/1243
-- https://github.com/awslabs/aws-sdk-rust/issues/977
+- <https://docs.rs/axum/latest/axum/body/struct.Body.html>
+- <https://docs.rs/aws-smithy-types/latest/aws_smithy_types/byte_stream/struct.ByteStream.html>
+- <https://docs.rs/aws-smithy-types/latest/aws_smithy_types/body/struct.SdkBody.html>
+- <https://github.com/awslabs/aws-sdk-rust/discussions/989>
+- <https://github.com/awslabs/aws-sdk-rust/issues/1046>
+- <https://github.com/awslabs/aws-sdk-rust/issues/1243>
+- <https://github.com/awslabs/aws-sdk-rust/issues/977>
 
 ## 結論ステータス
 
@@ -91,7 +91,7 @@ docs以下の仕様に基づいてアプリケーションを一通り実装す�
 pub struct Artifact {
     pub id: Uuid,
     pub board_run_id: Uuid,
-    pub r#type: String,           // "kicad_pro", "kicad_sch", "ibom_html", "gerber_zip" 等
+    pub r#type: String,           // "kicad_pro", "kicad_sch", "ibom", "gerber_zip" 等
     pub status: ArtifactStatus,   // Available | Missing | Failed | Skipped
     pub filename: Option<String>,
     pub source_path: Option<String>,
@@ -239,6 +239,7 @@ pub async fn find_by_id(
 #### Step 2: テスト作成（proxy_test.rs）
 
 テストケース:
+
 1. `test_proxy_missing_token_returns_401` — token パラメータなしで 401
 2. `test_proxy_invalid_token_returns_401` — 不正 token で 401
 3. `test_proxy_artifact_id_mismatch_returns_401` — token 内の artifact_id と URL 不一致で 401
@@ -251,6 +252,7 @@ pub async fn find_by_id(
 #### Step 3: proxy handler 実装
 
 `crates/api/src/routes/proxy.rs`:
+
 - `parse_artifact_id(s: &str) -> Option<Uuid>` ヘルパー
 - `csp_for_artifact(artifact_type: &str) -> &'static str` ヘルパー
 - `content_disposition_for_artifact(artifact_type: &str, filename: Option<&str>) -> String` ヘルパー
@@ -437,11 +439,11 @@ Issue #18 「Artifact Proxy API実装」について、absolute proxy URL 対応
 ### 4回目テスト結果
 
 - `mise exec -- cargo test -p boardflow-api --test proxy_test -- --nocapture`
-    - 23 tests passed
-    - DB 前提ケースは `DATABASE_URL not set` のため一部スキップ
+  - 23 tests passed
+  - DB 前提ケースは `DATABASE_URL not set` のため一部スキップ
 - `mise exec -- cargo test -p boardflow-api --test read_api_test -- --nocapture`
-    - 41 tests passed
-    - 同様に DB 前提ケースは一部スキップ
+  - 41 tests passed
+  - 同様に DB 前提ケースは一部スキップ
 
 ### 4回目レビュー結果
 
@@ -641,8 +643,9 @@ Issue #18 「Artifact Proxy API実装」について、absolute proxy URL 対応
 ### 更新した作業ログパス
 
 - `docs/logs/18/worklog.md`
+
 4. token には `user_id` が含まれるが、handler 側ではコメントで未使用化されており、実際の認可条件は `artifact_id` と有効期限だけになっている。
-5. `cargo test --workspace -- --nocapture` は nightly で完走し、現行コードはコンパイルできた。ただし `DATABASE_URL` 未設定のため DB 依存テストの多くは early return で実質未実行だった。
+2. `cargo test --workspace -- --nocapture` は nightly で完走し、現行コードはコンパイルできた。ただし `DATABASE_URL` 未設定のため DB 依存テストの多くは early return で実質未実行だった。
 
 ### レビュー結果
 
@@ -998,16 +1001,19 @@ test result: ok. 41 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
 `crates/api/src/routes/proxy.rs` の ibom_html 向け CSP を修正:
 
 **修正前:**
+
 ```
 default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; frame-ancestors <app_domain>
 ```
 
 **修正後:**
+
 ```
 sandbox allow-scripts; default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; frame-ancestors <app_domain>
 ```
 
 `sandbox allow-scripts` の効果:
+
 - コンテンツを unique origin として扱い same-origin アクセスをブロック
 - フォーム送信、ポップアップ、ナビゲーション等をブロック
 - scripts の実行は許可（iBOM に必要）
@@ -1023,11 +1029,13 @@ sandbox allow-scripts; default-src 'none'; script-src 'unsafe-inline'; style-src
 #### 3. docs/backend/api.md の token 仕様更新
 
 **修正前:**
+
 ```
 - token は短命で、artifact、user/session、expiry に紐づく。
 ```
 
 **修正後:**
+
 ```
 - token は短命(1時間)で、artifact_id、user_id、expiry を含む HMAC 署名済みトークン。viewer-sources API が認証済みユーザーにのみ発行する。proxy 側では token の署名検証と expiry チェックのみ行い、追加の session 検証は不要（bearer token 設計）。
 ```
@@ -1196,7 +1204,7 @@ Cross-origin 前提では、viewer-sources API が返す proxy URL は絶対 URL
 
 ### PR/完了結果
 
-- PR 作成: **https://github.com/f0reachARR/boardflow/pull/38**
+- PR 作成: **<https://github.com/f0reachARR/boardflow/pull/38>**
 - タイトル: `feat: implement Artifact Proxy API (#18)`
 - ブランチ: `feat/18-artifact-proxy-api` → `main`
 - Closes #18

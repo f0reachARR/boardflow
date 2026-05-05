@@ -1,6 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use boardflow_domain::models::artifact::ArtifactType;
 use serde::Serialize;
 use tracing::{error, info, warn};
 
@@ -35,7 +36,7 @@ struct ValidProject {
 #[derive(Serialize)]
 struct ArtifactEntry {
     #[serde(rename = "type")]
-    artifact_type: String,
+    artifact_type: ArtifactType,
     status: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     path: Option<String>,
@@ -52,11 +53,16 @@ struct ArtifactEntry {
 }
 
 impl ArtifactEntry {
-    fn available(artifact_type: &str, path: &str, content_type: &str, file_path: &Path) -> Self {
+    fn available(
+        artifact_type: ArtifactType,
+        path: &str,
+        content_type: &str,
+        file_path: &Path,
+    ) -> Self {
         let sha256 = hash::compute_file_sha256(file_path).ok();
         let size_bytes = fs::metadata(file_path).ok().map(|m| m.len());
         Self {
-            artifact_type: artifact_type.to_string(),
+            artifact_type,
             status: "available".to_string(),
             path: Some(path.to_string()),
             source_path: None,
@@ -67,9 +73,9 @@ impl ArtifactEntry {
         }
     }
 
-    fn failed(artifact_type: &str, message: &str) -> Self {
+    fn failed(artifact_type: ArtifactType, message: &str) -> Self {
         Self {
-            artifact_type: artifact_type.to_string(),
+            artifact_type,
             status: "failed".to_string(),
             path: None,
             source_path: None,
@@ -81,7 +87,7 @@ impl ArtifactEntry {
     }
 
     fn source(
-        artifact_type: &str,
+        artifact_type: ArtifactType,
         staging_path: &str,
         source_path: &str,
         file_path: &Path,
@@ -89,7 +95,7 @@ impl ArtifactEntry {
         let sha256 = hash::compute_file_sha256(file_path).ok();
         let size_bytes = fs::metadata(file_path).ok().map(|m| m.len());
         Self {
-            artifact_type: artifact_type.to_string(),
+            artifact_type,
             status: "available".to_string(),
             path: Some(staging_path.to_string()),
             source_path: Some(source_path.to_string()),
@@ -489,7 +495,7 @@ async fn process_project(
             if cmd_out.exit_code == 0 || cmd_out.exit_code == 5 {
                 artifacts.push(
                     serde_json::to_value(ArtifactEntry::available(
-                        "erc_report",
+                        ArtifactType::ErcReport,
                         "checks/erc.json",
                         "application/json",
                         &erc_json,
@@ -502,7 +508,7 @@ async fn process_project(
             } else {
                 artifacts.push(
                     serde_json::to_value(ArtifactEntry::failed(
-                        "erc_report",
+                        ArtifactType::ErcReport,
                         "ERC execution failed",
                     ))
                     .unwrap(),
@@ -513,7 +519,7 @@ async fn process_project(
             warn!("ERC failed: {e}");
             artifacts.push(
                 serde_json::to_value(ArtifactEntry::failed(
-                    "erc_report",
+                    ArtifactType::ErcReport,
                     &format!("ERC execution failed: {e}"),
                 ))
                 .unwrap(),
@@ -528,7 +534,7 @@ async fn process_project(
             if cmd_out.exit_code == 0 || cmd_out.exit_code == 5 {
                 artifacts.push(
                     serde_json::to_value(ArtifactEntry::available(
-                        "drc_report",
+                        ArtifactType::DrcReport,
                         "checks/drc.json",
                         "application/json",
                         &drc_json,
@@ -541,7 +547,7 @@ async fn process_project(
             } else {
                 artifacts.push(
                     serde_json::to_value(ArtifactEntry::failed(
-                        "drc_report",
+                        ArtifactType::DrcReport,
                         "DRC execution failed",
                     ))
                     .unwrap(),
@@ -552,7 +558,7 @@ async fn process_project(
             warn!("DRC failed: {e}");
             artifacts.push(
                 serde_json::to_value(ArtifactEntry::failed(
-                    "drc_report",
+                    ArtifactType::DrcReport,
                     &format!("DRC execution failed: {e}"),
                 ))
                 .unwrap(),
@@ -570,7 +576,7 @@ async fn process_project(
         Ok(_) => {
             artifacts.push(
                 serde_json::to_value(ArtifactEntry::available(
-                    "pcb_pdf",
+                    ArtifactType::PcbPdf,
                     "review/pcb.pdf",
                     "application/pdf",
                     &pdf_dir.join("pcb.pdf"),
@@ -581,8 +587,11 @@ async fn process_project(
         Err(e) => {
             warn!("PCB PDF failed: {e}");
             artifacts.push(
-                serde_json::to_value(ArtifactEntry::failed("pcb_pdf", "PCB PDF export failed"))
-                    .unwrap(),
+                serde_json::to_value(ArtifactEntry::failed(
+                    ArtifactType::PcbPdf,
+                    "PCB PDF export failed",
+                ))
+                .unwrap(),
             );
         }
     }
@@ -595,7 +604,7 @@ async fn process_project(
         Ok(_) => {
             artifacts.push(
                 serde_json::to_value(ArtifactEntry::available(
-                    "schematic_pdf",
+                    ArtifactType::SchematicPdf,
                     "review/schematic.pdf",
                     "application/pdf",
                     &pdf_dir.join("schematic.pdf"),
@@ -607,7 +616,7 @@ async fn process_project(
             warn!("Schematic PDF failed: {e}");
             artifacts.push(
                 serde_json::to_value(ArtifactEntry::failed(
-                    "schematic_pdf",
+                    ArtifactType::SchematicPdf,
                     "Schematic PDF export failed",
                 ))
                 .unwrap(),
@@ -625,7 +634,7 @@ async fn process_project(
         Ok(_) => {
             artifacts.push(
                 serde_json::to_value(ArtifactEntry::available(
-                    "pcb_top_svg",
+                    ArtifactType::PcbTopSvg,
                     "review/pcb_top.svg",
                     "image/svg+xml",
                     &svg_dir.join("pcb_top.svg"),
@@ -637,7 +646,7 @@ async fn process_project(
             warn!("PCB top SVG failed: {e}");
             artifacts.push(
                 serde_json::to_value(ArtifactEntry::failed(
-                    "pcb_top_svg",
+                    ArtifactType::PcbTopSvg,
                     "PCB top SVG export failed",
                 ))
                 .unwrap(),
@@ -656,7 +665,7 @@ async fn process_project(
         Ok(_) => {
             artifacts.push(
                 serde_json::to_value(ArtifactEntry::available(
-                    "pcb_bottom_svg",
+                    ArtifactType::PcbBottomSvg,
                     "review/pcb_bottom.svg",
                     "image/svg+xml",
                     &svg_dir.join("pcb_bottom.svg"),
@@ -668,7 +677,7 @@ async fn process_project(
             warn!("PCB bottom SVG failed: {e}");
             artifacts.push(
                 serde_json::to_value(ArtifactEntry::failed(
-                    "pcb_bottom_svg",
+                    ArtifactType::PcbBottomSvg,
                     "PCB bottom SVG export failed",
                 ))
                 .unwrap(),
@@ -695,7 +704,7 @@ async fn process_project(
         if bundle::create_bundle_zip(&gerber_dir, &gerbers_zip).is_ok() {
             artifacts.push(
                 serde_json::to_value(ArtifactEntry::available(
-                    "gerber_zip",
+                    ArtifactType::GerberZip,
                     "fabrication/gerbers.zip",
                     "application/zip",
                     &gerbers_zip,
@@ -705,7 +714,7 @@ async fn process_project(
         } else {
             artifacts.push(
                 serde_json::to_value(ArtifactEntry::failed(
-                    "gerber_zip",
+                    ArtifactType::GerberZip,
                     "Gerber zip creation failed",
                 ))
                 .unwrap(),
@@ -713,8 +722,11 @@ async fn process_project(
         }
     } else {
         artifacts.push(
-            serde_json::to_value(ArtifactEntry::failed("gerber_zip", "Gerber export failed"))
-                .unwrap(),
+            serde_json::to_value(ArtifactEntry::failed(
+                ArtifactType::GerberZip,
+                "Gerber export failed",
+            ))
+            .unwrap(),
         );
     }
 
@@ -723,7 +735,7 @@ async fn process_project(
         if bundle::create_bundle_zip(&drill_dir, &drill_zip).is_ok() {
             artifacts.push(
                 serde_json::to_value(ArtifactEntry::available(
-                    "drill_zip",
+                    ArtifactType::DrillZip,
                     "fabrication/drill.zip",
                     "application/zip",
                     &drill_zip,
@@ -733,7 +745,7 @@ async fn process_project(
         } else {
             artifacts.push(
                 serde_json::to_value(ArtifactEntry::failed(
-                    "drill_zip",
+                    ArtifactType::DrillZip,
                     "Drill zip creation failed",
                 ))
                 .unwrap(),
@@ -741,8 +753,11 @@ async fn process_project(
         }
     } else {
         artifacts.push(
-            serde_json::to_value(ArtifactEntry::failed("drill_zip", "Drill export failed"))
-                .unwrap(),
+            serde_json::to_value(ArtifactEntry::failed(
+                ArtifactType::DrillZip,
+                "Drill export failed",
+            ))
+            .unwrap(),
         );
     }
 
@@ -752,7 +767,7 @@ async fn process_project(
         if bundle::create_fabrication_zip(&gerber_dir, &drill_dir, &fab_zip).is_ok() {
             artifacts.push(
                 serde_json::to_value(ArtifactEntry::available(
-                    "fabrication_zip",
+                    ArtifactType::FabricationZip,
                     "fabrication/fabrication.zip",
                     "application/zip",
                     &fab_zip,
@@ -762,7 +777,7 @@ async fn process_project(
         } else {
             artifacts.push(
                 serde_json::to_value(ArtifactEntry::failed(
-                    "fabrication_zip",
+                    ArtifactType::FabricationZip,
                     "Fabrication zip creation failed",
                 ))
                 .unwrap(),
@@ -771,7 +786,7 @@ async fn process_project(
     } else {
         artifacts.push(
             serde_json::to_value(ArtifactEntry::failed(
-                "fabrication_zip",
+                ArtifactType::FabricationZip,
                 "Fabrication zip creation failed",
             ))
             .unwrap(),
@@ -788,7 +803,7 @@ async fn process_project(
         Ok(_) => {
             artifacts.push(
                 serde_json::to_value(ArtifactEntry::available(
-                    "bom_csv",
+                    ArtifactType::BomCsv,
                     "assembly/bom.csv",
                     "text/csv",
                     &bom_dir.join("bom.csv"),
@@ -799,8 +814,11 @@ async fn process_project(
         Err(e) => {
             warn!("BOM export failed: {e}");
             artifacts.push(
-                serde_json::to_value(ArtifactEntry::failed("bom_csv", "BOM export failed"))
-                    .unwrap(),
+                serde_json::to_value(ArtifactEntry::failed(
+                    ArtifactType::BomCsv,
+                    "BOM export failed",
+                ))
+                .unwrap(),
             );
         }
     }
@@ -815,7 +833,7 @@ async fn process_project(
         Ok(_) => {
             artifacts.push(
                 serde_json::to_value(ArtifactEntry::available(
-                    "position_csv",
+                    ArtifactType::PositionCsv,
                     "assembly/position.csv",
                     "text/csv",
                     &pos_dir.join("position.csv"),
@@ -827,7 +845,7 @@ async fn process_project(
             warn!("Position export failed: {e}");
             artifacts.push(
                 serde_json::to_value(ArtifactEntry::failed(
-                    "position_csv",
+                    ArtifactType::PositionCsv,
                     "Position export failed",
                 ))
                 .unwrap(),
@@ -845,7 +863,7 @@ async fn process_project(
         Ok(_) => {
             artifacts.push(
                 serde_json::to_value(ArtifactEntry::available(
-                    "render_top_png",
+                    ArtifactType::RenderTopPng,
                     "review/render_top.png",
                     "image/png",
                     &render_dir.join("top.png"),
@@ -857,7 +875,7 @@ async fn process_project(
             warn!("3D top render failed: {e}");
             artifacts.push(
                 serde_json::to_value(ArtifactEntry::failed(
-                    "render_top_png",
+                    ArtifactType::RenderTopPng,
                     "3D top render failed",
                 ))
                 .unwrap(),
@@ -876,7 +894,7 @@ async fn process_project(
         Ok(_) => {
             artifacts.push(
                 serde_json::to_value(ArtifactEntry::available(
-                    "render_bottom_png",
+                    ArtifactType::RenderBottomPng,
                     "review/render_bottom.png",
                     "image/png",
                     &render_dir.join("bottom.png"),
@@ -888,7 +906,7 @@ async fn process_project(
             warn!("3D bottom render failed: {e}");
             artifacts.push(
                 serde_json::to_value(ArtifactEntry::failed(
-                    "render_bottom_png",
+                    ArtifactType::RenderBottomPng,
                     "3D bottom render failed",
                 ))
                 .unwrap(),
@@ -908,7 +926,7 @@ async fn process_project(
             }
             artifacts.push(
                 serde_json::to_value(ArtifactEntry::available(
-                    "ibom",
+                    ArtifactType::Ibom,
                     "assembly/ibom.html",
                     "text/html",
                     &dest,
@@ -919,8 +937,11 @@ async fn process_project(
         Err(e) => {
             warn!("iBOM failed: {e}");
             artifacts.push(
-                serde_json::to_value(ArtifactEntry::failed("ibom", "iBOM generation failed"))
-                    .unwrap(),
+                serde_json::to_value(ArtifactEntry::failed(
+                    ArtifactType::Ibom,
+                    "iBOM generation failed",
+                ))
+                .unwrap(),
             );
         }
     }
@@ -952,10 +973,10 @@ async fn process_project(
             }
 
             let kicad_type = match path.extension().and_then(|e| e.to_str()) {
-                Some("kicad_pro") => "kicad_project",
-                Some("kicad_sch") => "kicad_schematic",
-                Some("kicad_pcb") => "kicad_pcb",
-                Some("kicad_wks") => "kicad_worksheet",
+                Some("kicad_pro") => ArtifactType::KicadPro,
+                Some("kicad_sch") => ArtifactType::KicadSch,
+                Some("kicad_pcb") => ArtifactType::KicadPcb,
+                Some("kicad_wks") => ArtifactType::KicadWks,
                 _ => continue,
             };
 

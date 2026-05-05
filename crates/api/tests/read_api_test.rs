@@ -8,6 +8,7 @@ use boardflow_api::github_access::{
     AllowAllGithubAccessChecker, DenyAllGithubAccessChecker, DynGithubAccessChecker,
     RateLimitedGithubAccessChecker, UpstreamErrorGithubAccessChecker,
 };
+use boardflow_domain::models::artifact::ArtifactType;
 use http_body_util::BodyExt;
 use sqlx::PgPool;
 use tower::ServiceExt;
@@ -176,7 +177,7 @@ async fn create_test_board_run(pool: &PgPool, board_project_id: Uuid, status: &s
 async fn create_test_artifact(
     pool: &PgPool,
     board_run_id: Uuid,
-    artifact_type: &str,
+    artifact_type: ArtifactType,
     status: &str,
 ) -> Uuid {
     let id = Uuid::now_v7();
@@ -188,7 +189,11 @@ async fn create_test_artifact(
     .bind(board_run_id)
     .bind(artifact_type)
     .bind(status)
-    .bind(if status == "available" { Some(format!("{artifact_type}.file")) } else { None })
+    .bind(if status == "available" {
+        Some(format!("{}.file", artifact_type))
+    } else {
+        None
+    })
     .bind(if status == "available" { Some("application/octet-stream") } else { None })
     .bind(if status == "available" { Some(format!("storage/{id}")) } else { None })
     .bind(if status == "available" { Some("sha256:abc123") } else { None })
@@ -865,8 +870,8 @@ async fn test_get_board_run_success() {
     create_test_run_check(&pool, br_id, "drc", "failed", 1, 4).await;
 
     // Add artifacts
-    create_test_artifact(&pool, br_id, "schematic_pdf", "available").await;
-    create_test_artifact(&pool, br_id, "drill_zip", "missing").await;
+    create_test_artifact(&pool, br_id, ArtifactType::SchematicPdf, "available").await;
+    create_test_artifact(&pool, br_id, ArtifactType::DrillZip, "missing").await;
 
     let app = create_test_app(pool);
     let response = app
@@ -976,8 +981,8 @@ async fn test_list_artifacts_success() {
     let bp_id = create_test_board_project(&pool, repo_id).await;
     let br_id = create_test_board_run(&pool, bp_id, "completed").await;
 
-    create_test_artifact(&pool, br_id, "schematic_pdf", "available").await;
-    create_test_artifact(&pool, br_id, "drill_zip", "missing").await;
+    create_test_artifact(&pool, br_id, ArtifactType::SchematicPdf, "available").await;
+    create_test_artifact(&pool, br_id, ArtifactType::DrillZip, "missing").await;
 
     let app = create_test_app(pool);
     let response = app
@@ -1063,16 +1068,16 @@ async fn test_get_viewer_sources_all_available() {
     let br_id = create_test_board_run(&pool, bp_id, "completed").await;
 
     // Create all required artifacts as available
-    create_test_artifact(&pool, br_id, "kicad_pro", "available").await;
-    create_test_artifact(&pool, br_id, "kicad_sch", "available").await;
-    create_test_artifact(&pool, br_id, "kicad_pcb", "available").await;
-    create_test_artifact(&pool, br_id, "schematic_pdf", "available").await;
-    create_test_artifact(&pool, br_id, "pcb_top_svg", "available").await;
-    create_test_artifact(&pool, br_id, "pcb_bottom_svg", "available").await;
-    create_test_artifact(&pool, br_id, "ibom_html", "available").await;
-    create_test_artifact(&pool, br_id, "bom_csv", "available").await;
-    create_test_artifact(&pool, br_id, "gerber_zip", "available").await;
-    create_test_artifact(&pool, br_id, "drill_zip", "available").await;
+    create_test_artifact(&pool, br_id, ArtifactType::KicadPro, "available").await;
+    create_test_artifact(&pool, br_id, ArtifactType::KicadSch, "available").await;
+    create_test_artifact(&pool, br_id, ArtifactType::KicadPcb, "available").await;
+    create_test_artifact(&pool, br_id, ArtifactType::SchematicPdf, "available").await;
+    create_test_artifact(&pool, br_id, ArtifactType::PcbTopSvg, "available").await;
+    create_test_artifact(&pool, br_id, ArtifactType::PcbBottomSvg, "available").await;
+    create_test_artifact(&pool, br_id, ArtifactType::Ibom, "available").await;
+    create_test_artifact(&pool, br_id, ArtifactType::BomCsv, "available").await;
+    create_test_artifact(&pool, br_id, ArtifactType::GerberZip, "available").await;
+    create_test_artifact(&pool, br_id, ArtifactType::DrillZip, "available").await;
 
     let app = create_test_app(pool);
     let response = app
@@ -1133,8 +1138,8 @@ async fn test_get_viewer_sources_partial() {
     let br_id = create_test_board_run(&pool, bp_id, "completed").await;
 
     // Only gerber available, drill missing
-    create_test_artifact(&pool, br_id, "gerber_zip", "available").await;
-    create_test_artifact(&pool, br_id, "drill_zip", "missing").await;
+    create_test_artifact(&pool, br_id, ArtifactType::GerberZip, "available").await;
+    create_test_artifact(&pool, br_id, ArtifactType::DrillZip, "missing").await;
 
     let app = create_test_app(pool);
     let response = app
@@ -1212,8 +1217,8 @@ async fn test_get_viewer_sources_skipped() {
     let br_id = create_test_board_run(&pool, bp_id, "completed").await;
 
     // All fabrication artifacts are skipped
-    create_test_artifact(&pool, br_id, "gerber_zip", "skipped").await;
-    create_test_artifact(&pool, br_id, "drill_zip", "skipped").await;
+    create_test_artifact(&pool, br_id, ArtifactType::GerberZip, "skipped").await;
+    create_test_artifact(&pool, br_id, ArtifactType::DrillZip, "skipped").await;
 
     let app = create_test_app(pool);
     let response = app
@@ -1280,9 +1285,9 @@ async fn test_get_viewer_sources_returns_absolute_url_with_custom_base() {
     let bp_id = create_test_board_project(&pool, repo_id).await;
     let br_id = create_test_board_run(&pool, bp_id, "completed").await;
 
-    create_test_artifact(&pool, br_id, "kicad_pro", "available").await;
-    create_test_artifact(&pool, br_id, "kicad_sch", "available").await;
-    create_test_artifact(&pool, br_id, "kicad_pcb", "available").await;
+    create_test_artifact(&pool, br_id, ArtifactType::KicadPro, "available").await;
+    create_test_artifact(&pool, br_id, ArtifactType::KicadSch, "available").await;
+    create_test_artifact(&pool, br_id, ArtifactType::KicadPcb, "available").await;
 
     let checker: DynGithubAccessChecker = Arc::new(AllowAllGithubAccessChecker);
     let app = create_app_with_config(
