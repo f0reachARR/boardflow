@@ -1,20 +1,25 @@
 # Issue #73: boardflow-action entrypointをRustバイナリへ移行
 
 ## 経緯
+
 - ユーザー要望5: シェルスクリプトベースのentrypointをRustバイナリに移行
 - 既存Issue #73 (OPEN) がそのまま要望に合致
 
 ## ユーザー要望
+
 - `action/entrypoint.sh` (bash ~530行) を Rust バイナリに移行
 
 ## Issue状態
+
 - 既存Issue #73 がOPENで、内容は十分に詳細（Phase 1-4のスコープ、設計方針あり）
 - 更新不要、そのまま処理対象とする
 
 ## 後続処理タイプ
+
 `implementation_required`
 
 ## 残リスク
+
 - Dockerfile内でのRustビルド時間
 - Docker imageサイズへの影響
 
@@ -23,6 +28,7 @@
 ## Phase 1 実装 (2026-05-04)
 
 ### 実装内容
+
 ブランチ: `feature/73-kicad-crate` (origin/mainから作成)
 
 `crates/kicad/` を新規作成。以下のモジュールを実装:
@@ -38,10 +44,12 @@
 | `ibom.rs` | `xvfb-run generate_interactive_bom` ラッパー |
 
 ### ワークスペース変更
+
 - `Cargo.toml`: `members` に `"crates/kicad"` 追加
 - `[workspace.dependencies]` に `serde_yaml`, `globset`, `walkdir`, `tempfile` 追加
 
 ### テスト結果
+
 ```
 cargo test -p boardflow-kicad
 51 tests passed (0 failed, 0 ignored)
@@ -52,9 +60,11 @@ cargo test -p boardflow-kicad
 ```
 
 ### 更新ドキュメント
+
 - `docs/logs/73/worklog.md` (本ファイル)
 
 ### 残リスク
+
 - CLIテスト（`cli.rs`）はKiCad未インストール環境のため `#[ignore]` 対象（今回テストファイルなし — Phase 2以降でinteg test追加予定）
 - `ibom.rs` も同様にxvfb環境が必要なためinteg testはPhase 2以降
 - `tokio::process::Child` の `wait_with_output` が ownership を取るため、timeout時の明示的kill は省略（tokio側でdrop時にkillされる仕様）
@@ -166,18 +176,18 @@ cargo test -p boardflow-kicad
 ### 再確認項目
 
 1. config schema厳格化
-	- `BoardflowConfig` / `OutputsConfig` に `#[serde(deny_unknown_fields)]` 追加を確認。
-	- `validate_schema_v1` で `outputs.preset` が `default` のみ許可されることを確認。
-	- `tests/config_test.rs` に未知フィールド拒否・非対応 preset 拒否の回帰テストを確認。
+ - `BoardflowConfig` / `OutputsConfig` に `#[serde(deny_unknown_fields)]` 追加を確認。
+ - `validate_schema_v1` で `outputs.preset` が `default` のみ許可されることを確認。
+ - `tests/config_test.rs` に未知フィールド拒否・非対応 preset 拒否の回帰テストを確認。
 2. detect fallback
-	- `.kicad_pcb` / `.kicad_sch` fallback が「ちょうど1件のみ成功」に修正され、複数候補時に `MultipleKicadPcb` / `MultipleKicadSch` を返すことを確認。
-	- `tests/detect_test.rs` に複数候補エラーの回帰テストを確認。
+ - `.kicad_pcb` / `.kicad_sch` fallback が「ちょうど1件のみ成功」に修正され、複数候補時に `MultipleKicadPcb` / `MultipleKicadSch` を返すことを確認。
+ - `tests/detect_test.rs` に複数候補エラーの回帰テストを確認。
 3. CLI オプション
-	- `action/lib/kicad.sh` と `crates/kicad/src/cli.rs` を照合し、ERC/DRC、PDF、SVG、Gerber、Drill、BOM、POS、3D render の各引数が一致することを確認。
-	- `tests/cli_test.rs` 13件で引数組み立ての回帰を確認。
+ - `action/lib/kicad.sh` と `crates/kicad/src/cli.rs` を照合し、ERC/DRC、PDF、SVG、Gerber、Drill、BOM、POS、3D render の各引数が一致することを確認。
+ - `tests/cli_test.rs` 13件で引数組み立ての回帰を確認。
 4. kill_on_drop
-	- `exec()` / `exec_erc_drc()` の `Command::new()` に `.kill_on_drop(true)` が追加されていることを確認。
-	- Tokio の `kill_on_drop` は strict な reap 保証ではないが、前回指摘していた「drop 既定で継続実行される」問題への修正としては妥当。
+ - `exec()` / `exec_erc_drc()` の `Command::new()` に `.kill_on_drop(true)` が追加されていることを確認。
+ - Tokio の `kill_on_drop` は strict な reap 保証ではないが、前回指摘していた「drop 既定で継続実行される」問題への修正としては妥当。
 
 ### テスト結果
 
@@ -413,7 +423,7 @@ cargo test -p boardflow-kicad
 ### PR情報
 
 - **PR番号**: #83
-- **URL**: https://github.com/f0reachARR/boardflow/pull/83
+- **URL**: <https://github.com/f0reachARR/boardflow/pull/83>
 - **タイトル**: `feat(kicad): add boardflow-kicad crate (Issue #73 Phase 1)`
 - **base**: `main` ← `feature/73-kicad-crate`
 - **Refs**: #73
@@ -524,14 +534,17 @@ cargo test -p boardflow-kicad
 ## Phase 2-4 実装計画 (2026-05-05)
 
 ### 目的
+
 `action/entrypoint.sh` + `action/lib/*.sh` (~1030行) を `crates/action-runner/` Rust バイナリに完全移行し、bash 依存を排除する。
 
 ### 非目的
+
 - API サーバー側のロジック変更
 - action.yml の inputs/outputs 仕様変更
 - 新機能の追加 (PR event対応など)
 
 ### 受け入れ条件
+
 1. `boardflow-action-runner` バイナリが entrypoint.sh と同一の処理フローを実行する
 2. 全 API 呼び出し (plan, create_board_run, import, fail) が同一 payload/retry 動作する
 3. GITHUB_OUTPUT / GITHUB_STEP_SUMMARY へ同等の出力を書き込む
@@ -738,6 +751,7 @@ ENTRYPOINT ["/usr/local/bin/boardflow-action-runner"]
 | Docker build | ビルド成功確認 | `docker build -t test .` |
 
 **削除対象:**
+
 - `action/entrypoint.sh`
 - `action/lib/api.sh`
 - `action/lib/bundle.sh`
@@ -753,6 +767,7 @@ ENTRYPOINT ["/usr/local/bin/boardflow-action-runner"]
 ---
 
 ### 影響範囲
+
 - `crates/action-runner/` (新規)
 - `Cargo.toml` (workspace members 追加)
 - `action/Dockerfile` (全面書き換え)
@@ -760,6 +775,7 @@ ENTRYPOINT ["/usr/local/bin/boardflow-action-runner"]
 - `action/lib/*.sh` (8ファイル削除)
 
 ### 設計方針
+
 1. **bash忠実移植**: 処理順序、エラーハンドリング、リトライ動作をbash実装に合わせる
 2. **最小依存**: reqwest-middleware は追加しない。手動リトライで忠実再現
 3. **boardflow-kicad 再利用**: detect, config, hash, cli, ibom, report は既存crateをそのまま利用
@@ -767,6 +783,7 @@ ENTRYPOINT ["/usr/local/bin/boardflow-action-runner"]
 5. **エラー伝播**: 個別プロジェクトの失敗は continue + fail API 呼び出し。全体のexit codeに反映
 
 ### テスト観点
+
 - inputs.rs: 必須入力欠落, デフォルト値, ハイフン→アンダースコア変換
 - api.rs: リトライ動作 (5xx→retry, 4xx→fail, timeout→retry, 3回超過→fail)
 - bundle.rs: staging dir構造の正確性, ZIP内パス, manifest JSON schema, fabrication zip
@@ -774,13 +791,16 @@ ENTRYPOINT ["/usr/local/bin/boardflow-action-runner"]
 - runner.rs: unsupported event skip, no projects error, partial failure handling, detection_errors
 
 ### ドキュメント更新対象
+
 - `docs/logs/73/worklog.md` (本ファイル)
 - `docs/backend/summary.md` に action-runner crate の記載追加
 
 ### 実装要否
+
 `implementation_required`
 
 ### 未解決の疑問
+
 - なし（research 調査で十分なコンテキストが確保されている）
 
 ---
@@ -819,6 +839,7 @@ ENTRYPOINT ["/usr/local/bin/boardflow-action-runner"]
 ### ファイル作成/編集リスト
 
 **新規作成:**
+
 - `crates/action-runner/Cargo.toml`
 - `crates/action-runner/src/main.rs`
 - `crates/action-runner/src/error.rs`
@@ -829,11 +850,13 @@ ENTRYPOINT ["/usr/local/bin/boardflow-action-runner"]
 - `crates/action-runner/src/runner.rs`
 
 **編集:**
+
 - `Cargo.toml` (workspace members に `"crates/action-runner"` 追加)
 - `action/Dockerfile` (全面書き換え)
 - `docs/backend/summary.md` (action-runner crate 記載追加)
 
 **削除 (Phase 4):**
+
 - `action/entrypoint.sh`
 - `action/lib/api.sh`
 - `action/lib/bundle.sh`
@@ -908,7 +931,7 @@ test result: ok. 6 passed (summary_test)
 ### 残リスク
 
 - `inputs_test.rs` は `env::set_var` (unsafe in edition 2024) を使用。テスト並列実行時にレース可能性あり → `--test-threads=1` 推奨
-- timeout統合テスト (`test_retries_on_timeout`) は60s+かかるため `#[ignore]` 
+- timeout統合テスト (`test_retries_on_timeout`) は60s+かかるため `#[ignore]`
 - Dockerビルドは未テスト (CI環境での確認が必要)
 - `PlanPayload`/`RepositoryInfo`/`GitInfo`/`ActionInfo` 構造体は未使用警告あり (runner.rsでは `serde_json::json!` マクロ直接使用のため)
 - cargo-chef のバージョンピン未指定 (Dockerfileで `--locked` は指定済み)
@@ -1220,3 +1243,30 @@ test result: ok. 6 passed (summary_test)
 
 - source artifact 契約を docs だけ先に更新する場合、将来 spec 本来の `path` / `source_path` 分離へ戻す判断をしたときに再度ドキュメント差し替えが必要になる。
 - README の KiCad バージョンが古いままだと、利用者が 10.x 前提で Action の挙動を期待して調査・検証を進めてしまう可能性がある。
+
+---
+
+## Clippy修正 (2026-05-05)
+
+### 問題
+
+`mise exec -- cargo clippy -p boardflow-action-runner` で2件の警告が発生。
+
+### 修正内容
+
+| ファイル | 警告 | 修正 |
+|---|---|---|
+| `crates/action-runner/src/bundle.rs:418` | `too_many_arguments` (8/7) | `#[allow(clippy::too_many_arguments)]` を `create_manifest` に追加 |
+| `crates/action-runner/src/runner.rs:428` | `redundant_closure` | `.map_err(\|e\| ActionError::Io(e))` → `.map_err(ActionError::Io)` |
+
+### テスト結果
+
+```
+mise exec -- cargo clippy -p boardflow-action-runner
+Finished `dev` profile [unoptimized + debuginfo] target(s) — 0 warnings
+```
+
+### コミット
+
+- `04e0da9` fix(action-runner): resolve clippy warnings (too_many_arguments, redundant_closure)
+- ブランチ `feature/73-action-runner` にプッシュ済み
