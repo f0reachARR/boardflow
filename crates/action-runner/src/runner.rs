@@ -425,7 +425,7 @@ async fn process_project(
     let output_dir = tempfile::Builder::new()
         .prefix(&format!("boardflow-{pro_stem}-"))
         .tempdir()
-        .map_err(|e| ActionError::Io(e))?;
+        .map_err(ActionError::Io)?;
     let output_path = output_dir.path();
 
     // Create board run

@@ -415,6 +415,7 @@ pub fn generate_previews_json(output_dir: &Path, output: &Path) -> Result<()> {
 }
 
 /// Create manifest.json compatible with crates/artifact BundleManifest struct.
+#[allow(clippy::too_many_arguments)]
 pub fn create_manifest(
     project_path: &str,
     tree_hash: &str,
