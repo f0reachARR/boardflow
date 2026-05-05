@@ -241,6 +241,58 @@ boardflow-api-types = { workspace = true }
 
 ---
 
+## 実装フェーズ (impl)
+
+### 実施内容
+
+1. **`crates/api-types/` 新規作成**
+   - `Cargo.toml`: serde, serde_json 依存 + utoipa optional feature
+   - `src/lib.rs`: `pub mod plan; pub mod board_run;`
+   - `src/plan.rs`: PlanRequest, PlanRepositoryInput, PlanGitInput, PlanActionInput, PlanMode, PlanProjectInput, PlanProjectFile, PlanResponse, PlanRepositoryOutput, PlanProjectOutput, PlanDecision, PlanReason
+   - `src/board_run.rs`: CreateBoardRunRequest, CreateBoardRunResponse, ArtifactBundleInfo, FailBoardRunRequest, FailErrorInfo, FailBoardRunResponse, ImportArtifactBundleRequest, ImportArtifactBundleResponse
+
+2. **workspace `Cargo.toml` 更新**
+   - members に `"crates/api-types"` 追加
+   - workspace.dependencies に `boardflow-api-types = { path = "crates/api-types" }` 追加
+
+3. **`crates/api/` リファクタリング**
+   - `Cargo.toml`: `boardflow-api-types = { workspace = true, features = ["openapi"] }` 追加
+   - `src/routes/plan.rs`: 型定義削除、`use boardflow_api_types::plan::*;` に置き換え
+   - `src/routes/board_run.rs`: 型定義削除、`use boardflow_api_types::board_run::*;` に置き換え
+
+4. **`crates/action-runner/` リファクタリング**
+   - `Cargo.toml`: `boardflow-api-types = { workspace = true }` 追加
+   - `src/api.rs`: `ProjectDecision`, `CreateBoardRunResponse`, `ArtifactBundleInfo`, `PlanProject`, `PlanFile` 削除。`PlanProjectOutput`, `CreateBoardRunResponse` をインポート。`plan()` 戻り値を `Vec<PlanProjectOutput>` に変更。`fail()` メソッドを型付き構造体で構築。
+   - `src/runner.rs`: plan_payload を `PlanRequest` 構造体リテラル + `serde_json::to_value()`、create_payload を `CreateBoardRunRequest`、import_payload を `ImportArtifactBundleRequest` に変更。decision 比較を `matches!(d.decision, PlanDecision::Build)` に変更。`Option<ArtifactBundleInfo>` のハンドリング追加。
+   - `tests/api_test.rs`: wiremock レスポンスに `status`, `reason`, `board_project_id`, `upload_mode`, `method`, `expires_at` フィールドを追加。アサーションを enum ベースに更新。
+
+### テスト結果
+
+- `cargo build --workspace`: 成功
+- `cargo test --workspace`: 全テスト成功（7+13+8+6+29+15+21+19=118テスト通過）
+  - 唯一の失敗: `test_app_config_from_env` (pre-existing issue: テスト環境にDATABASE_URLが設定されているため)
+- `cargo clippy --workspace --all-targets -- -D warnings`: 警告なし
+
+### 注意点・判断事項
+
+1. **`github_repository_id` の扱い**: `PlanRepositoryInput.github_repository_id` に `#[serde(default)]` を付与し、空文字をデフォルトとした。action-runner 側では `std::env::var("GITHUB_REPOSITORY_ID").unwrap_or_default()` で環境変数から取得。GitHub Actions 環境では自動的に設定される。
+2. **`CreateBoardRunResponse.artifact_bundle`**: `Option<ArtifactBundleInfo>` として定義し、action-runner 側で `.as_ref().ok_or_else(...)` でエラーハンドリング。
+3. **`PlanDecision`, `PlanReason` に `PartialEq, Eq` 追加**: action-runner でのパターンマッチに必要なため。Serialize/Deserialize の振る舞いには影響なし。
+4. **`FailBoardRunRequest.error.details`**: action-runner の `fail()` メソッドでは `Some(serde_json::Value::String(...))` として渡す。API 側は `Option<serde_json::Value>` として受け取るため互換。
+5. **テスト内の `#[path = "..."]` パターン**: action-runner テストは `#[path]` で直接ソースを include するパターンだが、`boardflow-api-types` が `[dependencies]` に含まれるため正常に解決される。
+
+### 更新ドキュメント
+
+- `docs/logs/89/worklog.md` (本ファイル)
+
+### 残リスク
+
+- `test_app_config_from_env` は環境依存の pre-existing failure（本Issue とは無関係）
+- OpenAPI スキーマの完全一致確認は手動で未実施（型のフィールド・serde属性は完全保持しているため実質互換）
+- `docs/backend/summary.md` への crate 一覧追記は未実施（本Issue のスコープ外として判断）
+
+---
+
 ### 実装要否
 
 `implementation_required`
