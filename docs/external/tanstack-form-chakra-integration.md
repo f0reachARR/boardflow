@@ -321,25 +321,26 @@ const form = useForm({
 - 手動バリデーション（trim + 長さチェック）
 - `mutate` を `handleCreate` 内で呼び出し
 
-**移行後（提案）:**
+**移行後（実装済み）:**
 ```tsx
 'use client';
 
 import { useForm } from '@tanstack/react-form';
 import { z } from 'zod';
-import { Field, Input, Button, Dialog, /* ... */ } from '@chakra-ui/react';
+import { Field, Input, Button, Dialog, HStack, /* ... */ } from '@chakra-ui/react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { $api } from '@/lib/api/react-query';
 
+// trim() は使わない — Standard Schema では transform 扱いのため onSubmit で明示的に trim する
 const createTokenSchema = z.object({
   name: z.string()
-    .trim()
     .min(1, '名前は1文字以上で入力してください')
     .max(100, '名前は100文字以内で入力してください'),
 });
 
 export function CreateTokenDialog({ repositoryId, open, onOpenChange }: Props) {
+  const [serverError, setServerError] = useState('');
   const [createdToken, setCreatedToken] = useState<string | null>(null);
   const queryClient = useQueryClient();
 
@@ -354,23 +355,31 @@ export function CreateTokenDialog({ repositoryId, open, onOpenChange }: Props) {
       onChange: createTokenSchema,
     },
     onSubmit: async ({ value }) => {
-      const data = await mutateAsync({
-        params: { path: { github_repository_id: Number(repositoryId) } },
-        body: { name: value.name },
-      });
-      if (!data?.token) {
-        throw new Error('トークンの作成に失敗しました');
+      setServerError('');
+      try {
+        const data = await mutateAsync({
+          params: { path: { github_repository_id: Number(repositoryId) } },
+          body: { name: value.name.trim() }, // 明示的に trim
+        });
+        if (!data?.token) {
+          setServerError('トークンの作成に失敗しました');
+          return;
+        }
+        setCreatedToken(data.token);
+        queryClient.invalidateQueries({
+          queryKey: ['get', '/api/v1/repositories/{github_repository_id}/api-tokens'],
+        });
+      } catch (err: unknown) {
+        const apiErr = err as { error?: { message?: string } };
+        setServerError(apiErr.error?.message ?? 'トークンの作成に失敗しました');
       }
-      setCreatedToken(data.token);
-      queryClient.invalidateQueries({
-        queryKey: ['get', '/api/v1/repositories/{github_repository_id}/api-tokens'],
-      });
     },
   });
 
   const handleClose = (open: boolean) => {
     if (!open) {
       form.reset();
+      setServerError('');
       setCreatedToken(null);
     }
     onOpenChange(open);
@@ -383,17 +392,21 @@ export function CreateTokenDialog({ repositoryId, open, onOpenChange }: Props) {
         {createdToken ? (
           /* トークン表示部分 — 変更なし */
         ) : (
+          {/* form に id を付与し、Dialog.Footer の submit ボタンから form 属性で関連付ける */}
           <form
+            id="create-token-form"
             onSubmit={(e) => {
               e.preventDefault();
               e.stopPropagation();
               form.handleSubmit();
             }}
           >
-            <form.Field
-              name="name"
-              children={(field) => (
-                <Field.Root invalid={!field.state.meta.isValid && field.state.meta.isTouched}>
+            <form.Field name="name">
+              {(field) => (
+                <Field.Root invalid={
+                  (field.state.meta.isTouched && field.state.meta.errors.length > 0) ||
+                  !!serverError
+                }>
                   <Field.Label>トークン名</Field.Label>
                   <Input
                     placeholder="例: CI用トークン"
@@ -402,31 +415,42 @@ export function CreateTokenDialog({ repositoryId, open, onOpenChange }: Props) {
                     onBlur={field.handleBlur}
                     maxLength={100}
                   />
-                  {field.state.meta.isTouched && !field.state.meta.isValid && (
+                  {field.state.meta.isTouched && field.state.meta.errors.length > 0 && (
                     <Field.ErrorText>
-                      {field.state.meta.errors.join(', ')}
+                      {field.state.meta.errors
+                        .map((e) => typeof e === 'string' ? e : (e?.message ?? String(e)))
+                        .join(', ')}
                     </Field.ErrorText>
                   )}
+                  {serverError && <Field.ErrorText>{serverError}</Field.ErrorText>}
                 </Field.Root>
               )}
-            />
+            </form.Field>
           </form>
         )}
       </Dialog.Body>
+      {/* Dialog.Footer は Dialog.Content 直下に配置。submit ボタンは form 属性で紐付け */}
       <Dialog.Footer>
         <form.Subscribe
-          selector={(state) => [state.canSubmit, state.isSubmitting]}
-          children={([canSubmit, isSubmitting]) => (
-            <Button
-              colorPalette="blue"
-              onClick={() => form.handleSubmit()}
-              loading={isSubmitting}
-              disabled={!canSubmit}
-            >
-              作成
-            </Button>
+          selector={(state) => [state.canSubmit, state.isSubmitting] as const}
+        >
+          {([canSubmit, isSubmitting]) => (
+            <HStack>
+              <Button variant="outline" onClick={() => handleClose(false)} disabled={isSubmitting}>
+                キャンセル
+              </Button>
+              <Button
+                type="submit"
+                form="create-token-form"
+                colorPalette="blue"
+                loading={isSubmitting}
+                disabled={!canSubmit}
+              >
+                作成
+              </Button>
+            </HStack>
           )}
-        />
+        </form.Subscribe>
       </Dialog.Footer>
     </Dialog.Root>
   );
@@ -435,8 +459,9 @@ export function CreateTokenDialog({ repositoryId, open, onOpenChange }: Props) {
 
 **削減される useState:**
 - `name` → `form.Field` が管理
-- `error` → `field.state.meta.errors` + `form.Subscribe` で管理
+- `error` → `field.state.meta.errors` + `serverError` useState で管理
 - `createdToken` → そのまま `useState` で維持（フォームのフィールドではないため）
+- `serverError` → `useState` で管理（API エラー専用。TanStack Form にサーバーエラー反映の公式パターンがないため）
 
 ### 10. BoardFlow 固有: RevokeTokenDialog について
 
@@ -446,7 +471,7 @@ RevokeTokenDialog は確認ダイアログであり、ユーザー入力フィ�
 
 ## BoardFlow への示唆
 
-1. **CreateTokenDialog** は TanStack Form への移行対象。useState 3個 → 1個（createdToken のみ）に削減
+1. **CreateTokenDialog** は TanStack Form への移行対象。useState 3個 → 2個（createdToken + serverError）に削減
 2. **RevokeTokenDialog** はフォームフィールドがないため移行対象外
 3. zod スキーマを `src/lib/schemas/` などに切り出すと、バリデーションロジックの共有が容易
 4. `form.Field` と Chakra UI `Field` の名前衝突は `form.Field` を使えば問題なし

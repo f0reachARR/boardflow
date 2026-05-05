@@ -377,6 +377,138 @@ git push origin feature/79-tanstack-form
 
 ---
 
+## ドキュメント確認結果（2026-05-05 docs agent）
+
+### 総評
+
+- Issue #79 の実装本体は [boardflow/src/components/tokens/create-token-dialog.tsx](boardflow/src/components/tokens/create-token-dialog.tsx#L34) と [boardflow/src/components/tokens/create-token-dialog.tsx](boardflow/src/components/tokens/create-token-dialog.tsx#L53) を見る限り、TanStack Form + zod への移行内容と整合している。
+- ただし、research 成果物の [docs/external/tanstack-form-chakra-integration.md](docs/external/tanstack-form-chakra-integration.md#L317) と作業ログの既存レビュー/実装記録には、現実装と食い違う記述が残っている。
+- [docs/technology.md](docs/technology.md#L52) は repo 全体の粗い技術方針の粒度で書かれており、今回の変更だけでは必須更新とは言い切れない。一方で frontend の採用スタック表である [docs/frontend/summary.md](docs/frontend/summary.md#L17) には、必要なら Form/Validation の行を追加する余地がある。
+
+### PR 判定
+
+- `docs_ready: false`
+
+### 必須修正
+
+1. [docs/external/tanstack-form-chakra-integration.md](docs/external/tanstack-form-chakra-integration.md#L317) の BoardFlow 固有サンプルを現実装に合わせる。
+  - [docs/external/tanstack-form-chakra-integration.md](docs/external/tanstack-form-chakra-integration.md#L359) では `z.string().trim()` を使ったスキーマに対して submit 側で `value.name` をそのまま送っており、同ファイル内の transform 注意書き [docs/external/tanstack-form-chakra-integration.md](docs/external/tanstack-form-chakra-integration.md#L470) と矛盾している。
+  - 実装は [boardflow/src/components/tokens/create-token-dialog.tsx](boardflow/src/components/tokens/create-token-dialog.tsx#L53) の通り `value.name.trim()` を送っているため、research メモ側のサンプルもそれに合わせる必要がある。
+  - 同サンプルの `Dialog.Footer` 構成も、実装の [boardflow/src/components/tokens/create-token-dialog.tsx](boardflow/src/components/tokens/create-token-dialog.tsx#L115) と [boardflow/src/components/tokens/create-token-dialog.tsx](boardflow/src/components/tokens/create-token-dialog.tsx#L176) のように `form` 属性で submit を関連付ける形へ揃えるべき。
+2. [docs/logs/79/worklog.md](docs/logs/79/worklog.md#L395) 以降の既存レビュー結果を、現実装に合わせて訂正する。
+  - [docs/logs/79/worklog.md](docs/logs/79/worklog.md#L395) は `Dialog.Footer` が `form` 配下にあると指摘しているが、現実装はそうなっていない。
+  - [docs/logs/79/worklog.md](docs/logs/79/worklog.md#L487) の実装記録も `Dialog.Footer` を `form` 内に置いたと書いており、コード実態と不一致。
+  - [docs/logs/79/worklog.md](docs/logs/79/worklog.md#L499) の「external ドキュメントは変更不要」という判断も、上記不整合があるため成立していない。
+
+### 任意改善
+
+1. [docs/frontend/summary.md](docs/frontend/summary.md#L17) の採用スタック表に、Form/Validation として TanStack Form + zod を追加すると、frontend 標準の見通しがよくなる。
+2. [docs/technology.md](docs/technology.md#L52) は現状の粒度でも問題ないが、repo 全体の技術スタック一覧をより網羅的にしたい場合だけ frontend 補助ライブラリの記載を検討する。
+
+### 不整合のあるドキュメント
+
+- [docs/external/tanstack-form-chakra-integration.md](docs/external/tanstack-form-chakra-integration.md#L317)
+- [docs/logs/79/worklog.md](docs/logs/79/worklog.md#L395)
+
+### 不足しているドキュメント
+
+- 必須の追記先はない。
+- 任意で [docs/frontend/summary.md](docs/frontend/summary.md#L17) に Form/Validation 行を追加するとよい。
+
+### 外部調査メモに関する指摘
+
+- [docs/external/tanstack-form-chakra-integration.md](docs/external/tanstack-form-chakra-integration.md#L470) と [docs/external/tanstack-form-chakra-integration.md](docs/external/tanstack-form-chakra-integration.md#L474) の注意書き自体は妥当だが、BoardFlow 固有サンプル側がその結論を反映できていない。
+- research メモは「trim は submit 時に明示処理が必要」という判断を出せているので、サンプルコードだけを現実装ベースに直せば整合する。
+
+### PR本文案に対する確認
+
+- 概要と変更内容の方向性は妥当。
+- ただし docs 修正を入れる前提なら、更新ドキュメントとして research メモと worklog を追記したことを本文に含めた方が整合する。
+- テスト欄は実際に確認したコマンドだけを書くべきで、`pnpm lint` ではなく `pnpm lint --write --unsafe` を実行事実として書く方が正確。
+
+### 更新した作業ログパス
+
+- `docs/logs/79/worklog.md`
+
+---
+
+## レビュー結果（2026-05-05 review agent）
+
+### 総評
+
+- CreateTokenDialog の TanStack Form + zod への移行は、コード・research・実装差分・検証結果の整合が取れている。
+- `pnpm typecheck`, `pnpm lint`, `pnpm build` は現ブランチで再確認できた。
+- RevokeTokenDialog は Issue 79 の対象外として未変更を確認した。
+- ブロッカーは見当たらないため、PR 作成は可能と判断する。
+
+### PR 判定
+
+- `pr_ready: true`
+
+### 指摘事項
+
+1. **warning**: `Dialog.Footer` が Chakra UI のドキュメント例と異なり、`Dialog.Content` の直下ではなく `form` 配下にネストされている。
+  - 対象: `boardflow/src/components/tokens/create-token-dialog.tsx` の `form` 配下にあるフッター
+  - 参照: Chakra UI の Dialog 例は `Dialog.Content > Dialog.Header / Dialog.Body / Dialog.Footer` 構造を前提にしている
+  - 影響: 現状でビルドや型は通るが、将来の Chakra UI 更新時にレイアウトや余白、アクセシビリティ上の前提が崩れる可能性がある
+  - 対応案: `form` を `Dialog.Body` と `Dialog.Footer` の両方を包む位置へ移す、または `form` に `id` を付与して `Button` 側の `form` 属性で submit を紐付ける
+
+2. **info**: 作業ログの受け入れ条件 3 が、実装内容と不一致になっている。
+  - 対象: `docs/logs/79/worklog.md` の受け入れ条件
+  - 現状: `createdToken` のみ残すと記載されているが、実装と Issue 要約では `createdToken` と `serverError` を残す構成
+  - 影響: 実装評価基準の読み手に誤解を与える
+  - 対応案: 受け入れ条件 3 を実装実態に合わせて修正する
+
+### 受け入れ条件評価
+
+1. `@tanstack/react-form` と `zod` の追加: 満たす
+2. CreateTokenDialog の `useForm` + zod 移行: 満たす
+3. `name`, `error` の `useState` 削減と `createdToken` / `serverError` 残置: 実装は満たす
+4. `field.state.meta.errors` によるフィールドエラー表示: 満たす
+5. サーバーエラー表示: 満たす
+6. close 時の `form.reset()`: 満たす
+7. `pnpm typecheck`, `pnpm lint`, `pnpm build`: 満たす
+8. RevokeTokenDialog 非変更: 満たす
+
+### 必須修正
+
+- なし
+
+### 任意改善
+
+- `Dialog.Footer` を Chakra UI の推奨構造に寄せる
+- `catch (err: unknown)` の API エラー取り出しを型ガード化して再利用可能にする
+
+### テスト不足
+
+- フロントエンドの自動 UI テストがないため、以下はビルド成功だけでは担保できない
+- 空 submit 時にフィールドエラーが表示されること
+- API エラー後に再入力して再 submit できること
+- close 時に `form.reset()` と `createdToken` / `serverError` のリセットが効くこと
+
+### ドキュメント確認
+
+- `docs/external/tanstack-form-chakra-integration.md`: 実装方針と整合
+- `docs/spec.md`: 本 Issue は UI 実装詳細のため仕様変更不要
+- `README.md`: 更新不要
+- `docs/logs/79/worklog.md`: 受け入れ条件 3 の記述だけ実装実態と不一致
+
+### plan / research / docs との不整合
+
+- plan/worklog 上の受け入れ条件 3 が古い記述のまま残っている
+- research で触れていた Chakra UI の構造例と、実装上の `Dialog.Footer` 配置が一致していない
+
+### 残リスク
+
+- Dialog 構造の逸脱が Chakra UI 将来更新で問題化する可能性
+- UI 操作系の回帰が自動テストで捕捉されない
+
+### 更新した作業ログパス
+
+- `docs/logs/79/worklog.md`
+
+---
+
 ## 実装結果（2026-05-05 impl agent）
 
 ### 実装内容
@@ -434,3 +566,78 @@ git push origin feature/79-tanstack-form
 ### 更新した作業ログパス
 
 `docs/logs/79/worklog.md`
+
+---
+
+## レビュー指摘修正 + ドキュメント修正（2026-05-05 orchestrator）
+
+### 修正内容
+
+1. **Dialog.Footer 構造修正**（review warning 対応）:
+   - `Dialog.Footer` を `<form>` 内から `Dialog.Content` 直下に移動
+   - `<form>` に `id="create-token-form"` を付与
+   - submit ボタンに `form="create-token-form"` 属性を追加して関連付け
+   - Chakra UI の推奨構造（Dialog.Content > Header/Body/Footer）に準拠
+
+2. **docs/external/tanstack-form-chakra-integration.md 修正**:
+   - BoardFlow 固有サンプル（セクション9）を実装に合わせて更新
+   - `z.string().trim()` → `z.string()` + onSubmit 内 `value.name.trim()` に修正
+   - `serverError` useState の追加
+   - form id + form 属性パターンでの Dialog.Footer 分離を反映
+   - useState 削減の記述を「3個 → 2個（createdToken + serverError）」に修正
+
+3. **docs/frontend/summary.md 更新**:
+   - 採用スタック表に「フォーム / バリデーション | TanStack Form + zod」行を追加
+
+### 検証結果
+
+- `pnpm typecheck` — パス
+- `pnpm lint --write --unsafe` — パス
+- `pnpm build` — パス
+
+---
+
+## ドキュメント再確認結果（2026-05-05 docs agent, follow-up）
+
+### 対象 Issue
+
+- Issue #79: TanStack Formへのフォームリファクタリング
+
+### 総評
+
+- [docs/external/tanstack-form-chakra-integration.md](docs/external/tanstack-form-chakra-integration.md#L334) の BoardFlow 固有サンプルは、[boardflow/src/components/tokens/create-token-dialog.tsx](boardflow/src/components/tokens/create-token-dialog.tsx#L16) と [boardflow/src/components/tokens/create-token-dialog.tsx](boardflow/src/components/tokens/create-token-dialog.tsx#L36) 以降の実装に整合している。
+- `z.string().trim()` をサンプルから除外し、submit 時に `value.name.trim()` を使う点、`serverError` を別 state で管理する点、`form id` + `form` 属性で `Dialog.Footer` の submit を関連付ける点が実装どおりに反映されている。
+- [docs/frontend/summary.md](docs/frontend/summary.md#L18) の「フォーム / バリデーション | TanStack Form + zod」追加も、frontend 採用スタックの粒度として適切。
+- 前回の必須修正 2 件と任意改善 1 件は、現時点ではいずれも対応済みと判断する。
+
+### PR 判定
+
+- `docs_ready: true`
+
+### 必須修正
+
+- なし
+
+### 任意改善
+
+- なし
+
+### 不整合のあるドキュメント
+
+- なし
+
+### 不足しているドキュメント
+
+- なし
+
+### 外部調査メモに関する指摘
+
+- 以前の指摘対象だった BoardFlow 固有サンプルは解消済み。本文中の trim に関する注意書きとサンプルコードの採用判断も一致している。
+
+### 残リスク
+
+- worklog には過去レビュー時点の `docs_ready: false` 判定が履歴として残っているが、後続の修正記録と今回の再確認結果が時系列で追記されているため、運用上の矛盾とはみなさない。
+
+### 更新した作業ログパス
+
+- `docs/logs/79/worklog.md`

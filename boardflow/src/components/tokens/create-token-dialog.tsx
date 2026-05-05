@@ -112,6 +112,7 @@ export function CreateTokenDialog({ repositoryId, open, onOpenChange }: Props) {
                 </Box>
               ) : (
                 <form
+                  id='create-token-form'
                   onSubmit={(e) => {
                     e.preventDefault();
                     e.stopPropagation();
@@ -149,37 +150,39 @@ export function CreateTokenDialog({ repositoryId, open, onOpenChange }: Props) {
                       </Field.Root>
                     )}
                   </form.Field>
-                  <Dialog.Footer>
-                    <form.Subscribe
-                      selector={(state) => [state.canSubmit, state.isSubmitting] as const}
-                    >
-                      {([canSubmit, isSubmitting]) => (
-                        <HStack>
-                          <Button
-                            variant='outline'
-                            onClick={() => handleClose(false)}
-                            disabled={isSubmitting}
-                          >
-                            キャンセル
-                          </Button>
-                          <Button
-                            type='submit'
-                            colorPalette='blue'
-                            loading={isSubmitting}
-                            disabled={!canSubmit}
-                          >
-                            作成
-                          </Button>
-                        </HStack>
-                      )}
-                    </form.Subscribe>
-                  </Dialog.Footer>
                 </form>
               )}
             </Dialog.Body>
-            {createdToken && (
+            {createdToken ? (
               <Dialog.Footer>
                 <Button onClick={() => handleClose(false)}>閉じる</Button>
+              </Dialog.Footer>
+            ) : (
+              <Dialog.Footer>
+                <form.Subscribe
+                  selector={(state) => [state.canSubmit, state.isSubmitting] as const}
+                >
+                  {([canSubmit, isSubmitting]) => (
+                    <HStack>
+                      <Button
+                        variant='outline'
+                        onClick={() => handleClose(false)}
+                        disabled={isSubmitting}
+                      >
+                        キャンセル
+                      </Button>
+                      <Button
+                        type='submit'
+                        form='create-token-form'
+                        colorPalette='blue'
+                        loading={isSubmitting}
+                        disabled={!canSubmit}
+                      >
+                        作成
+                      </Button>
+                    </HStack>
+                  )}
+                </form.Subscribe>
               </Dialog.Footer>
             )}
             {!createdToken && !form.state.isSubmitting && <Dialog.CloseTrigger />}
