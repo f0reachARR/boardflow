@@ -1,0 +1,3064 @@
+---
+source: crates/api/tests/openapi_schema_test.rs
+expression: json
+---
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "BoardFlow API",
+    "description": "",
+    "license": {
+      "name": ""
+    },
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/api/v1/auth/callback": {
+      "get": {
+        "operationId": "callback",
+        "parameters": [
+          {
+            "name": "code",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "state",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "302": {
+            "description": "Redirect after successful OAuth"
+          },
+          "401": {
+            "description": "OAuth failed"
+          },
+          "403": {
+            "description": "CSRF state mismatch"
+          }
+        }
+      }
+    },
+    "/api/v1/auth/login": {
+      "get": {
+        "operationId": "login",
+        "parameters": [
+          {
+            "name": "redirect_to",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "302": {
+            "description": "Redirect to GitHub OAuth"
+          }
+        }
+      }
+    },
+    "/api/v1/auth/logout": {
+      "post": {
+        "operationId": "logout",
+        "responses": {
+          "200": {
+            "description": "Logged out"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        }
+      }
+    },
+    "/api/v1/auth/me": {
+      "get": {
+        "operationId": "me",
+        "responses": {
+          "200": {
+            "description": "Current user info",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        }
+      }
+    },
+    "/api/v1/board-projects/{board_project_id}": {
+      "get": {
+        "operationId": "get_board_project",
+        "parameters": [
+          {
+            "name": "board_project_id",
+            "in": "path",
+            "description": "BoardProject ID (bp_ prefix)",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "BoardProject detail",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BoardProjectDetailResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/board-projects/{board_project_id}/board-runs": {
+      "get": {
+        "operationId": "list_board_runs",
+        "parameters": [
+          {
+            "name": "board_project_id",
+            "in": "path",
+            "description": "BoardProject ID (bp_ prefix)",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64",
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "BoardRun list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginatedResponse_BoardRunListItem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/board-runs": {
+      "post": {
+        "operationId": "create_board_run",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateBoardRunRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Board run created or existing returned",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateBoardRunResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/api/v1/board-runs/{board_run_id}": {
+      "get": {
+        "operationId": "get_board_run",
+        "parameters": [
+          {
+            "name": "board_run_id",
+            "in": "path",
+            "description": "BoardRun ID (br_ prefix)",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "BoardRun detail",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BoardRunDetailResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/board-runs/{board_run_id}/artifact-bundles/import": {
+      "post": {
+        "operationId": "import_artifact_bundle",
+        "parameters": [
+          {
+            "name": "board_run_id",
+            "in": "path",
+            "description": "Board run ID with br_ prefix",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImportArtifactBundleRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Import queued or existing returned",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportArtifactBundleResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "Gone",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/api/v1/board-runs/{board_run_id}/artifacts": {
+      "get": {
+        "operationId": "list_artifacts",
+        "parameters": [
+          {
+            "name": "board_run_id",
+            "in": "path",
+            "description": "BoardRun ID (br_ prefix)",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Artifact list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArtifactListResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/board-runs/{board_run_id}/checks/{check_kind}/findings": {
+      "get": {
+        "operationId": "list_findings",
+        "parameters": [
+          {
+            "name": "board_run_id",
+            "in": "path",
+            "description": "BoardRun ID (br_ prefix)",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "check_kind",
+            "in": "path",
+            "description": "Check kind: erc or drc",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64",
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "severity",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Findings list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginatedResponse_FindingListItem"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/board-runs/{board_run_id}/diff": {
+      "get": {
+        "operationId": "get_board_run_diff",
+        "parameters": [
+          {
+            "name": "board_run_id",
+            "in": "path",
+            "description": "Board run ID (br_<uuid>)",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Diff details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BoardRunDiffResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/board-runs/{board_run_id}/fail": {
+      "post": {
+        "operationId": "fail_board_run",
+        "parameters": [
+          {
+            "name": "board_run_id",
+            "in": "path",
+            "description": "Board run ID with br_ prefix",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FailBoardRunRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Board run marked as failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FailBoardRunResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "Gone",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/api/v1/board-runs/{board_run_id}/viewer-sources": {
+      "get": {
+        "operationId": "get_viewer_sources",
+        "parameters": [
+          {
+            "name": "board_run_id",
+            "in": "path",
+            "description": "BoardRun ID (br_ prefix)",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Viewer sources",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ViewerSourcesResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/repositories": {
+      "get": {
+        "operationId": "list_repositories",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64",
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Repository list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginatedResponse_RepositoryListItem"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/repositories/{github_repository_id}": {
+      "get": {
+        "operationId": "get_repository",
+        "parameters": [
+          {
+            "name": "github_repository_id",
+            "in": "path",
+            "description": "GitHub repository ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Repository detail",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RepositoryDetailResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/repositories/{github_repository_id}/api-tokens": {
+      "get": {
+        "operationId": "list_api_tokens",
+        "parameters": [
+          {
+            "name": "github_repository_id",
+            "in": "path",
+            "description": "GitHub repository ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64",
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Token list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTokenListResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "create_api_token",
+        "parameters": [
+          {
+            "name": "github_repository_id",
+            "in": "path",
+            "description": "GitHub repository ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateApiTokenRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Token created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateApiTokenResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/repositories/{github_repository_id}/api-tokens/{token_id}/revoke": {
+      "post": {
+        "operationId": "revoke_api_token",
+        "parameters": [
+          {
+            "name": "github_repository_id",
+            "in": "path",
+            "description": "GitHub repository ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "token_id",
+            "in": "path",
+            "description": "API token ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Token revoked",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTokenDetailResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/repositories/{github_repository_id}/board-projects": {
+      "get": {
+        "operationId": "list_board_projects",
+        "parameters": [
+          {
+            "name": "github_repository_id",
+            "in": "path",
+            "description": "GitHub repository ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64",
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "BoardProject list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginatedResponse_BoardProjectListItem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/runs/plan": {
+      "post": {
+        "operationId": "plan_run",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlanRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Plan decisions",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/healthz": {
+      "get": {
+        "operationId": "healthz",
+        "responses": {
+          "200": {
+            "description": "Service is healthy",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service is unhealthy"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "ApiTokenDetailResponse": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "created_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "last_used_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "revoked_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "ApiTokenListItem": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "created_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "last_used_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "revoked_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "ApiTokenListResponse": {
+        "type": "object",
+        "required": [
+          "items",
+          "has_more"
+        ],
+        "properties": {
+          "has_more": {
+            "type": "boolean"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ApiTokenListItem"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "ArtifactBundleInfo": {
+        "type": "object",
+        "required": [
+          "upload_mode",
+          "object_key",
+          "upload_url",
+          "method",
+          "expires_at"
+        ],
+        "properties": {
+          "expires_at": {
+            "type": "string"
+          },
+          "method": {
+            "type": "string"
+          },
+          "object_key": {
+            "type": "string"
+          },
+          "upload_mode": {
+            "type": "string"
+          },
+          "upload_url": {
+            "type": "string"
+          }
+        }
+      },
+      "ArtifactListItem": {
+        "type": "object",
+        "required": [
+          "type",
+          "status"
+        ],
+        "properties": {
+          "artifact_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "content_type": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "created_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "filename": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "logical_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "sha256": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "size_bytes": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "source_path": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "string"
+          },
+          "status_reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "type": {
+            "type": "string"
+          }
+        }
+      },
+      "ArtifactListResponse": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ArtifactListItem"
+            }
+          }
+        }
+      },
+      "ArtifactSummary": {
+        "type": "object",
+        "required": [
+          "available",
+          "missing",
+          "failed",
+          "skipped"
+        ],
+        "properties": {
+          "available": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "failed": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "missing": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "skipped": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "BoardProjectDetailResponse": {
+        "type": "object",
+        "required": [
+          "board_project_id",
+          "repository",
+          "project_path",
+          "project_dir",
+          "display_name",
+          "state",
+          "recreate_issue_on_update",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "board_project_id": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "issue_number": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "issue_url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "latest_completed_run_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "latest_tree_hash": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "project_dir": {
+            "type": "string"
+          },
+          "project_path": {
+            "type": "string"
+          },
+          "recreate_issue_on_update": {
+            "type": "boolean"
+          },
+          "repository": {
+            "$ref": "#/components/schemas/RepositoryRef"
+          },
+          "state": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string"
+          }
+        }
+      },
+      "BoardProjectListItem": {
+        "type": "object",
+        "required": [
+          "board_project_id",
+          "project_path",
+          "project_dir",
+          "display_name",
+          "state",
+          "updated_at"
+        ],
+        "properties": {
+          "board_project_id": {
+            "type": "string"
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "issue_url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "latest_completed_run_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "latest_tree_hash": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "project_dir": {
+            "type": "string"
+          },
+          "project_path": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string"
+          }
+        }
+      },
+      "BoardRunDetailResponse": {
+        "type": "object",
+        "required": [
+          "board_run_id",
+          "board_project_id",
+          "status",
+          "commit_sha",
+          "branch",
+          "ref",
+          "github_run_id",
+          "github_run_attempt",
+          "checks",
+          "artifact_summary",
+          "created_at"
+        ],
+        "properties": {
+          "artifact_summary": {
+            "$ref": "#/components/schemas/ArtifactSummary"
+          },
+          "board_project_id": {
+            "type": "string"
+          },
+          "board_run_id": {
+            "type": "string"
+          },
+          "branch": {
+            "type": "string"
+          },
+          "checks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CheckInfo"
+            }
+          },
+          "commit_sha": {
+            "type": "string"
+          },
+          "completed_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "github_run_attempt": {
+            "type": "string"
+          },
+          "github_run_id": {
+            "type": "string"
+          },
+          "ref": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "tree_hash": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "BoardRunDiffResponse": {
+        "type": "object",
+        "required": [
+          "board_run_id",
+          "status",
+          "created_at"
+        ],
+        "properties": {
+          "base_board_run_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "board_run_id": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "error_message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "metadata": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DiffMetadataResponse"
+              }
+            ]
+          },
+          "status": {
+            "type": "string"
+          },
+          "summary": {}
+        }
+      },
+      "BoardRunListItem": {
+        "type": "object",
+        "required": [
+          "board_run_id",
+          "status",
+          "commit_sha",
+          "branch",
+          "ref",
+          "github_run_id",
+          "github_run_attempt",
+          "erc_errors",
+          "erc_warnings",
+          "drc_errors",
+          "drc_warnings",
+          "created_at"
+        ],
+        "properties": {
+          "board_run_id": {
+            "type": "string"
+          },
+          "branch": {
+            "type": "string"
+          },
+          "commit_sha": {
+            "type": "string"
+          },
+          "completed_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "drc_errors": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "drc_status": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "drc_warnings": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "erc_errors": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "erc_status": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "erc_warnings": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "github_run_attempt": {
+            "type": "string"
+          },
+          "github_run_id": {
+            "type": "string"
+          },
+          "ref": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "tree_hash": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "CheckInfo": {
+        "type": "object",
+        "required": [
+          "kind",
+          "status",
+          "error_count",
+          "warning_count",
+          "notice_count"
+        ],
+        "properties": {
+          "error_count": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "notice_count": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "status": {
+            "type": "string"
+          },
+          "warning_count": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "CoordinateMmResponse": {
+        "type": "object",
+        "required": [
+          "x",
+          "y"
+        ],
+        "properties": {
+          "x": {
+            "type": "number",
+            "format": "double"
+          },
+          "y": {
+            "type": "number",
+            "format": "double"
+          }
+        }
+      },
+      "CreateApiTokenRequest": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "CreateApiTokenResponse": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "token",
+          "created_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "token": {
+            "type": "string"
+          }
+        }
+      },
+      "CreateBoardRunRequest": {
+        "type": "object",
+        "required": [
+          "board_project_id",
+          "project_path",
+          "tree_hash",
+          "commit_sha",
+          "branch",
+          "ref",
+          "github_run_id",
+          "github_run_attempt"
+        ],
+        "properties": {
+          "board_project_id": {
+            "type": "string"
+          },
+          "branch": {
+            "type": "string"
+          },
+          "commit_sha": {
+            "type": "string"
+          },
+          "github_run_attempt": {
+            "type": "string"
+          },
+          "github_run_id": {
+            "type": "string"
+          },
+          "project_path": {
+            "type": "string"
+          },
+          "ref": {
+            "type": "string"
+          },
+          "tree_hash": {
+            "type": "string"
+          }
+        }
+      },
+      "CreateBoardRunResponse": {
+        "type": "object",
+        "required": [
+          "board_run_id",
+          "status"
+        ],
+        "properties": {
+          "artifact_bundle": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ArtifactBundleInfo"
+              }
+            ]
+          },
+          "board_run_id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        }
+      },
+      "DiffMetadataResponse": {
+        "type": "object",
+        "properties": {
+          "artifacts_summary": {},
+          "bom_summary": {},
+          "checks_summary": {},
+          "file_hashes": {},
+          "previews": {}
+        }
+      },
+      "ErrorBody": {
+        "type": "object",
+        "required": [
+          "code",
+          "message",
+          "request_id"
+        ],
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "details": {},
+          "message": {
+            "type": "string"
+          },
+          "request_id": {
+            "type": "string"
+          }
+        }
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "required": [
+          "error"
+        ],
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/ErrorBody"
+          }
+        }
+      },
+      "FailBoardRunRequest": {
+        "type": "object",
+        "required": [
+          "status",
+          "error"
+        ],
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/FailErrorInfo"
+          },
+          "status": {
+            "type": "string"
+          }
+        }
+      },
+      "FailBoardRunResponse": {
+        "type": "object",
+        "required": [
+          "board_run_id",
+          "status",
+          "failed_at"
+        ],
+        "properties": {
+          "board_run_id": {
+            "type": "string"
+          },
+          "failed_at": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        }
+      },
+      "FailErrorInfo": {
+        "type": "object",
+        "required": [
+          "message"
+        ],
+        "properties": {
+          "details": {},
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "FindingListItem": {
+        "type": "object",
+        "required": [
+          "id",
+          "severity"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "pcb_layer": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "pos_mm": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CoordinateMmResponse"
+              }
+            ]
+          },
+          "rule_code": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "severity": {
+            "type": "string"
+          },
+          "sheet_path": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "subject_kind": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "subject_ref": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "HealthResponse": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "status": {
+            "type": "string"
+          }
+        }
+      },
+      "ImportArtifactBundleRequest": {
+        "type": "object",
+        "required": [
+          "staging_object_key",
+          "bundle_sha256",
+          "bundle_size_bytes"
+        ],
+        "properties": {
+          "bundle_sha256": {
+            "type": "string"
+          },
+          "bundle_size_bytes": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "staging_object_key": {
+            "type": "string"
+          }
+        }
+      },
+      "ImportArtifactBundleResponse": {
+        "type": "object",
+        "required": [
+          "bundle_id",
+          "status"
+        ],
+        "properties": {
+          "bundle_id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        }
+      },
+      "MeResponse": {
+        "type": "object",
+        "required": [
+          "user_id",
+          "github_login"
+        ],
+        "properties": {
+          "github_avatar_url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "github_login": {
+            "type": "string"
+          },
+          "user_id": {
+            "type": "string"
+          }
+        }
+      },
+      "PaginatedResponse_BoardProjectListItem": {
+        "type": "object",
+        "required": [
+          "items",
+          "has_more"
+        ],
+        "properties": {
+          "has_more": {
+            "type": "boolean"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "board_project_id",
+                "project_path",
+                "project_dir",
+                "display_name",
+                "state",
+                "updated_at"
+              ],
+              "properties": {
+                "board_project_id": {
+                  "type": "string"
+                },
+                "display_name": {
+                  "type": "string"
+                },
+                "issue_url": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "latest_completed_run_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "latest_tree_hash": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "project_dir": {
+                  "type": "string"
+                },
+                "project_path": {
+                  "type": "string"
+                },
+                "state": {
+                  "type": "string"
+                },
+                "updated_at": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "PaginatedResponse_BoardRunListItem": {
+        "type": "object",
+        "required": [
+          "items",
+          "has_more"
+        ],
+        "properties": {
+          "has_more": {
+            "type": "boolean"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "board_run_id",
+                "status",
+                "commit_sha",
+                "branch",
+                "ref",
+                "github_run_id",
+                "github_run_attempt",
+                "erc_errors",
+                "erc_warnings",
+                "drc_errors",
+                "drc_warnings",
+                "created_at"
+              ],
+              "properties": {
+                "board_run_id": {
+                  "type": "string"
+                },
+                "branch": {
+                  "type": "string"
+                },
+                "commit_sha": {
+                  "type": "string"
+                },
+                "completed_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "created_at": {
+                  "type": "string"
+                },
+                "drc_errors": {
+                  "type": "integer",
+                  "format": "int32"
+                },
+                "drc_status": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "drc_warnings": {
+                  "type": "integer",
+                  "format": "int32"
+                },
+                "erc_errors": {
+                  "type": "integer",
+                  "format": "int32"
+                },
+                "erc_status": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "erc_warnings": {
+                  "type": "integer",
+                  "format": "int32"
+                },
+                "github_run_attempt": {
+                  "type": "string"
+                },
+                "github_run_id": {
+                  "type": "string"
+                },
+                "ref": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string"
+                },
+                "tree_hash": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              }
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "PaginatedResponse_FindingListItem": {
+        "type": "object",
+        "required": [
+          "items",
+          "has_more"
+        ],
+        "properties": {
+          "has_more": {
+            "type": "boolean"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "id",
+                "severity"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "message": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "pcb_layer": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "pos_mm": {
+                  "oneOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "$ref": "#/components/schemas/CoordinateMmResponse"
+                    }
+                  ]
+                },
+                "rule_code": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "severity": {
+                  "type": "string"
+                },
+                "sheet_path": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "subject_kind": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "subject_ref": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "title": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              }
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "PaginatedResponse_RepositoryListItem": {
+        "type": "object",
+        "required": [
+          "items",
+          "has_more"
+        ],
+        "properties": {
+          "has_more": {
+            "type": "boolean"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "github_repository_id",
+                "owner",
+                "name",
+                "installation_id",
+                "board_project_count",
+                "updated_at"
+              ],
+              "properties": {
+                "board_project_count": {
+                  "type": "integer",
+                  "format": "int64"
+                },
+                "github_repository_id": {
+                  "type": "string"
+                },
+                "installation_id": {
+                  "type": "string"
+                },
+                "latest_run_status": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "name": {
+                  "type": "string"
+                },
+                "owner": {
+                  "type": "string"
+                },
+                "updated_at": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "PlanActionInput": {
+        "type": "object",
+        "required": [
+          "workflow",
+          "run_id",
+          "run_attempt"
+        ],
+        "properties": {
+          "run_attempt": {
+            "type": "string"
+          },
+          "run_id": {
+            "type": "string"
+          },
+          "workflow": {
+            "type": "string"
+          }
+        }
+      },
+      "PlanDecision": {
+        "type": "string",
+        "enum": [
+          "build",
+          "skip",
+          "error"
+        ]
+      },
+      "PlanGitInput": {
+        "type": "object",
+        "required": [
+          "ref",
+          "branch",
+          "commit_sha",
+          "event_name"
+        ],
+        "properties": {
+          "branch": {
+            "type": "string"
+          },
+          "commit_sha": {
+            "type": "string"
+          },
+          "event_name": {
+            "type": "string"
+          },
+          "ref": {
+            "type": "string"
+          }
+        }
+      },
+      "PlanMode": {
+        "type": "string",
+        "enum": [
+          "auto",
+          "all"
+        ]
+      },
+      "PlanProjectFile": {
+        "type": "object",
+        "required": [
+          "path",
+          "sha256"
+        ],
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "sha256": {
+            "type": "string"
+          }
+        }
+      },
+      "PlanProjectInput": {
+        "type": "object",
+        "required": [
+          "project_path",
+          "config_path",
+          "project_dir",
+          "tree_hash",
+          "files"
+        ],
+        "properties": {
+          "config_path": {
+            "type": "string"
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PlanProjectFile"
+            }
+          },
+          "project_dir": {
+            "type": "string"
+          },
+          "project_path": {
+            "type": "string"
+          },
+          "tree_hash": {
+            "type": "string"
+          }
+        }
+      },
+      "PlanProjectOutput": {
+        "type": "object",
+        "required": [
+          "project_path",
+          "board_project_id",
+          "decision",
+          "reason"
+        ],
+        "properties": {
+          "board_project_id": {
+            "type": "string"
+          },
+          "decision": {
+            "$ref": "#/components/schemas/PlanDecision"
+          },
+          "latest_completed_run_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "project_path": {
+            "type": "string"
+          },
+          "reason": {
+            "$ref": "#/components/schemas/PlanReason"
+          }
+        }
+      },
+      "PlanReason": {
+        "type": "string",
+        "enum": [
+          "new_project",
+          "hash_changed",
+          "config_changed",
+          "manual_dispatch",
+          "unchanged",
+          "previous_failed",
+          "no_previous_snapshot",
+          "duplicate_project_path",
+          "invalid_project_path",
+          "invalid_tree_hash",
+          "invalid_config_path"
+        ]
+      },
+      "PlanRepositoryInput": {
+        "type": "object",
+        "required": [
+          "owner",
+          "name"
+        ],
+        "properties": {
+          "github_repository_id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "owner": {
+            "type": "string"
+          }
+        }
+      },
+      "PlanRepositoryOutput": {
+        "type": "object",
+        "required": [
+          "github_repository_id",
+          "owner",
+          "name"
+        ],
+        "properties": {
+          "github_repository_id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "owner": {
+            "type": "string"
+          }
+        }
+      },
+      "PlanRequest": {
+        "type": "object",
+        "required": [
+          "repository",
+          "git",
+          "action",
+          "mode",
+          "projects"
+        ],
+        "properties": {
+          "action": {
+            "$ref": "#/components/schemas/PlanActionInput"
+          },
+          "git": {
+            "$ref": "#/components/schemas/PlanGitInput"
+          },
+          "mode": {
+            "$ref": "#/components/schemas/PlanMode"
+          },
+          "projects": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PlanProjectInput"
+            }
+          },
+          "repository": {
+            "$ref": "#/components/schemas/PlanRepositoryInput"
+          }
+        }
+      },
+      "PlanResponse": {
+        "type": "object",
+        "required": [
+          "repository",
+          "projects"
+        ],
+        "properties": {
+          "projects": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PlanProjectOutput"
+            }
+          },
+          "repository": {
+            "$ref": "#/components/schemas/PlanRepositoryOutput"
+          }
+        }
+      },
+      "RepositoryDetailResponse": {
+        "type": "object",
+        "required": [
+          "github_repository_id",
+          "owner",
+          "name",
+          "installation_id",
+          "html_url",
+          "board_project_count",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "board_project_count": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "github_repository_id": {
+            "type": "string"
+          },
+          "html_url": {
+            "type": "string"
+          },
+          "installation_id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "owner": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string"
+          }
+        }
+      },
+      "RepositoryListItem": {
+        "type": "object",
+        "required": [
+          "github_repository_id",
+          "owner",
+          "name",
+          "installation_id",
+          "board_project_count",
+          "updated_at"
+        ],
+        "properties": {
+          "board_project_count": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "github_repository_id": {
+            "type": "string"
+          },
+          "installation_id": {
+            "type": "string"
+          },
+          "latest_run_status": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "owner": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string"
+          }
+        }
+      },
+      "RepositoryRef": {
+        "type": "object",
+        "required": [
+          "github_repository_id",
+          "owner",
+          "name"
+        ],
+        "properties": {
+          "github_repository_id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "owner": {
+            "type": "string"
+          }
+        }
+      },
+      "ViewerDownload": {
+        "type": "object",
+        "required": [
+          "artifact_type",
+          "status"
+        ],
+        "properties": {
+          "artifact_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "artifact_type": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "status_reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "ViewerMap": {
+        "type": "object",
+        "required": [
+          "kicanvas",
+          "schematic",
+          "pcb_preview",
+          "ibom",
+          "bom",
+          "fabrication"
+        ],
+        "properties": {
+          "bom": {
+            "$ref": "#/components/schemas/ViewerStatus"
+          },
+          "fabrication": {
+            "$ref": "#/components/schemas/ViewerStatus"
+          },
+          "ibom": {
+            "$ref": "#/components/schemas/ViewerStatus"
+          },
+          "kicanvas": {
+            "$ref": "#/components/schemas/ViewerStatus"
+          },
+          "pcb_preview": {
+            "$ref": "#/components/schemas/ViewerStatus"
+          },
+          "schematic": {
+            "$ref": "#/components/schemas/ViewerStatus"
+          }
+        }
+      },
+      "ViewerSource": {
+        "type": "object",
+        "properties": {
+          "artifact_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "artifact_type": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kind": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "source_path": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "ViewerSourcesResponse": {
+        "type": "object",
+        "required": [
+          "board_run_id",
+          "expires_at",
+          "viewers"
+        ],
+        "properties": {
+          "board_run_id": {
+            "type": "string"
+          },
+          "expires_at": {
+            "type": "string"
+          },
+          "viewers": {
+            "$ref": "#/components/schemas/ViewerMap"
+          }
+        }
+      },
+      "ViewerStatus": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "downloads": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/ViewerDownload"
+            }
+          },
+          "iframe_url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "primary": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ViewerSource"
+              }
+            ]
+          },
+          "sources": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/ViewerSource"
+            }
+          },
+          "status": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "securitySchemes": {
+      "bearer_auth": {
+        "type": "http",
+        "scheme": "bearer"
+      }
+    }
+  }
+}

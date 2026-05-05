@@ -40,30 +40,7 @@ pub fn create_app_with_config(
     webhook_secret: Option<String>,
     github_app_id: Option<u64>,
 ) -> Router {
-    let (router, api) = OpenApiRouter::with_openapi(ApiDoc::openapi())
-        .routes(routes!(routes::health::healthz))
-        .routes(routes!(routes::plan::plan_run))
-        .routes(routes!(routes::board_run::create_board_run))
-        .routes(routes!(routes::board_run::fail_board_run))
-        .routes(routes!(routes::board_run::import_artifact_bundle))
-        .routes(routes!(routes::read::list_repositories))
-        .routes(routes!(routes::read::get_repository))
-        .routes(routes!(routes::read::list_board_projects))
-        .routes(routes!(routes::read::get_board_project))
-        .routes(routes!(routes::read::list_board_runs))
-        .routes(routes!(routes::read::get_board_run))
-        .routes(routes!(routes::read::list_artifacts))
-        .routes(routes!(routes::read::get_viewer_sources))
-        .routes(routes!(routes::read::get_board_run_diff))
-        .routes(routes!(routes::read::list_findings))
-        .routes(routes!(routes::auth::login))
-        .routes(routes!(routes::auth::callback))
-        .routes(routes!(routes::auth::logout))
-        .routes(routes!(routes::auth::me))
-        .routes(routes!(routes::api_token::create_api_token))
-        .routes(routes!(routes::api_token::list_api_tokens))
-        .routes(routes!(routes::api_token::revoke_api_token))
-        .split_for_parts();
+    let (router, api) = openapi_router().split_for_parts();
 
     let oauth = oauth_config.unwrap_or_else(|| OAuthConfig {
         client_id: optional_env("GITHUB_CLIENT_ID").unwrap_or_default(),
@@ -161,6 +138,39 @@ pub struct GithubAppId(pub Option<u64>);
     modifiers(&SecurityAddon)
 )]
 struct ApiDoc;
+
+fn openapi_router() -> OpenApiRouter<PgPool> {
+    OpenApiRouter::with_openapi(ApiDoc::openapi())
+        .routes(routes!(routes::health::healthz))
+        .routes(routes!(routes::plan::plan_run))
+        .routes(routes!(routes::board_run::create_board_run))
+        .routes(routes!(routes::board_run::fail_board_run))
+        .routes(routes!(routes::board_run::import_artifact_bundle))
+        .routes(routes!(routes::read::list_repositories))
+        .routes(routes!(routes::read::get_repository))
+        .routes(routes!(routes::read::list_board_projects))
+        .routes(routes!(routes::read::get_board_project))
+        .routes(routes!(routes::read::list_board_runs))
+        .routes(routes!(routes::read::get_board_run))
+        .routes(routes!(routes::read::list_artifacts))
+        .routes(routes!(routes::read::get_viewer_sources))
+        .routes(routes!(routes::read::get_board_run_diff))
+        .routes(routes!(routes::read::list_findings))
+        .routes(routes!(routes::auth::login))
+        .routes(routes!(routes::auth::callback))
+        .routes(routes!(routes::auth::logout))
+        .routes(routes!(routes::auth::me))
+        .routes(routes!(routes::api_token::create_api_token))
+        .routes(routes!(routes::api_token::list_api_tokens))
+        .routes(routes!(routes::api_token::revoke_api_token))
+}
+
+/// Returns the full OpenAPI schema including all registered routes.
+/// Used for snapshot testing and documentation generation.
+pub fn openapi_schema() -> utoipa::openapi::OpenApi {
+    let (_router, api) = openapi_router().split_for_parts();
+    api
+}
 
 struct SecurityAddon;
 

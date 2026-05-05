@@ -33,6 +33,7 @@ rand = { workspace = true }
 
 [dev-dependencies]
 boardflow-config = { path = "../config" }
+insta = { workspace = true }
 http-body-util = "0.1"
 serial_test = { workspace = true }
 tower = { version = "0.5", features = ["util"] }
