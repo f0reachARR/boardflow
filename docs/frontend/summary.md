@@ -23,6 +23,7 @@ KiCad 実行、成果物生成、GitHub Issue 更新などの副作用は backen
 | アイコン | lucide-react | 軽量で一覧画面や状態表示に合わせやすい |
 | API 型 | `openapi-typescript` などの生成型 | OpenAPI と UI の齟齬を減らせる |
 | データ取得 | TanStack Query v5 + openapi-react-query | Client Component のキャッシュ、再取得、prefetch + hydration を型安全に扱える |
+| フォーム / バリデーション | TanStack Form + zod | 宣言的バリデーション、型安全なフォーム状態管理、TanStack Query mutation との連携 |
 | E2E | Playwright | 主要導線の smoke test に向く |
 
 ## 3. 画面アーキテクチャ
