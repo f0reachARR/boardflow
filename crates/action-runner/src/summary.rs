@@ -58,7 +58,7 @@ pub fn write_unsupported_event_summary(event: &str, summary_path: &Path) -> Resu
     }
 
     let md = format!(
-        "## BoardFlow\n\n> **Skipped**: Event `{event}` is not supported by BoardFlow Action.\n\nBoardFlow processes `push` events only.\n"
+        "## BoardFlow\n\n> **Skipped**: Event `{event}` is not supported by BoardFlow Action.\n\nBoardFlow processes `push` and `workflow_dispatch` events only.\n"
     );
 
     if let Some(parent) = summary_path.parent() {

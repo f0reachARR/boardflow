@@ -200,7 +200,24 @@ fn test_create_manifest() {
     fs::write(&checks_path, r#"{"erc":{"available":true},"drc":{"available":false}}"#).unwrap();
 
     let artifacts = vec![
-        serde_json::json!({"type": "erc_report", "status": "available"}),
+        serde_json::json!({"type": "erc_report", "status": "available", "path": "checks/erc.json", "content_type": "application/json"}),
+    ];
+
+    let checks = vec![
+        serde_json::json!({
+            "kind": "erc",
+            "status": "passed",
+            "error_count": 0,
+            "warning_count": 1,
+            "notice_count": 0,
+            "tool_name": "kicad-cli",
+            "findings": [{"severity": "warning", "rule_code": "W001", "title": "test warning"}]
+        }),
+    ];
+
+    let files = vec![
+        serde_json::json!({"path": "board.kicad_pro", "sha256": "sha256:abc123"}),
+        serde_json::json!({"path": "board.kicad_pcb", "sha256": "sha256:def456"}),
     ];
 
     let output = dir.path().join("manifest.json");
@@ -210,6 +227,8 @@ fn test_create_manifest() {
         "abc123",
         &checks_path,
         &artifacts,
+        &checks,
+        &files,
         &output,
     ).unwrap();
 
@@ -220,14 +239,22 @@ fn test_create_manifest() {
     assert_eq!(parsed["tree_hash"].as_str().unwrap(), "sha256:abcdef");
     assert_eq!(parsed["commit_sha"].as_str().unwrap(), "abc123");
     assert!(parsed["files"].is_array());
+    assert_eq!(parsed["files"].as_array().unwrap().len(), 2);
+    assert_eq!(parsed["files"][0]["path"].as_str().unwrap(), "board.kicad_pro");
     assert!(parsed["artifacts"].is_array());
     assert_eq!(parsed["artifacts"].as_array().unwrap().len(), 1);
     // Check artifact conversion to ManifestArtifact format
     let art = &parsed["artifacts"][0];
     assert_eq!(art["type"].as_str().unwrap(), "erc_report");
     assert_eq!(art["status"].as_str().unwrap(), "available");
+    assert_eq!(art["filename"].as_str().unwrap(), "erc.json");
     assert!(parsed["diff_metadata"].is_object());
     assert!(parsed["checks"].is_array());
+    assert_eq!(parsed["checks"].as_array().unwrap().len(), 1);
+    assert_eq!(parsed["checks"][0]["kind"].as_str().unwrap(), "erc");
+    assert_eq!(parsed["checks"][0]["status"].as_str().unwrap(), "passed");
+    assert_eq!(parsed["checks"][0]["warning_count"].as_i64().unwrap(), 1);
+    assert_eq!(parsed["checks"][0]["findings"].as_array().unwrap().len(), 1);
 }
 
 #[test]

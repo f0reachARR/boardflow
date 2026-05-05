@@ -361,6 +361,8 @@ pub fn create_manifest(
     commit_sha: &str,
     checks_summary_path: &Path,
     artifacts: &[serde_json::Value],
+    checks: &[serde_json::Value],
+    files: &[serde_json::Value],
     output: &Path,
 ) -> Result<()> {
     // Build diff_metadata entries with sha256 and size_bytes from actual files
@@ -413,9 +415,6 @@ pub fn create_manifest(
         })
         .collect();
 
-    // Build files array (same as plan files but stored in manifest)
-    let files = build_manifest_files(checks_summary_path);
-
     let manifest = serde_json::json!({
         "version": 1,
         "project_path": project_path,
@@ -423,7 +422,7 @@ pub fn create_manifest(
         "commit_sha": commit_sha,
         "files": files,
         "artifacts": manifest_artifacts,
-        "checks": [],
+        "checks": checks,
         "diff_metadata": diff_metadata,
     });
 
@@ -433,12 +432,6 @@ pub fn create_manifest(
     let json = serde_json::to_string_pretty(&manifest)?;
     fs::write(output, json)?;
     Ok(())
-}
-
-/// Build a minimal files array for the manifest (list project files with hashes is handled at plan time).
-fn build_manifest_files(_checks_path: &Path) -> Vec<serde_json::Value> {
-    // Files array in manifest is informational; the actual file validation happens at plan time
-    Vec::new()
 }
 
 /// Build diff_metadata object with path, sha256, and size_bytes for each diff file.

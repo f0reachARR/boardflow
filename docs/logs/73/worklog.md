@@ -1023,3 +1023,61 @@ test result: ok. 6 passed (summary_test)
 
 - import 側を直しても、runner レベルの回帰テストが無いままだと `fail-on-*` や required file exclusion の後退を検知しにくい。
 - 実 KiCad 実行環境を使う end-to-end 検証は未実施のため、Docker image 置換後の実行時差分は残る。
+
+---
+
+## Review結果 (2026-05-05, Phase 2-4 再レビュー 2回目)
+
+### 総評
+
+- action-runner 単体のビルド、API retry、Docker multi-stage 化そのものは成立している。
+- ただし、bundle manifest の `checks` と `files` が実データを持たず、import worker がそのまま DB へ反映しているため、Issue #73 の受け入れ条件である「check結果保存」と「差分用スナップショット保存」を満たしていない。
+- そのため、現時点の判定は `pr_ready: false`。
+
+### 調査結果
+
+- `mise exec -- cargo test -p boardflow-action-runner --quiet`: passed (7 + 12 + 8 + 6 tests, timeout test 1件 ignored)
+- `mise exec -- cargo test -p boardflow-artifact --quiet`: 25 tests passed
+- `docs/spec.md` では `workflow_dispatch` も正式対象、かつ `manifest.json` と ERC/DRC check 保存を BoardRun completed の最低条件としている。
+- Web 調査でも、GitHub Actions Docker action の `GITHUB_OUTPUT` / `GITHUB_STEP_SUMMARY` はファイル追記方式が正であり、multi-stage Docker build の方向性自体は妥当だった。
+
+### レビュー結果
+
+- `pr_ready: false`
+
+### 重大度順の指摘
+
+1. **Blocker**: `crates/action-runner/src/bundle.rs` が manifest に `checks: []` を固定で出力しており、ERC/DRC の結果を一切載せていない。一方で import worker は `crates/worker/src/handlers/import.rs` で `manifest.checks` を唯一の入力として `run_checks` を保存し、同じ値から `board_runs.erc_status` / `drc_status` も決めている。このままだと import 成功後も run_checks が 0 件になり、BoardRun completed の最低条件である「check結果、または skipped 状態の保存」を満たさない。
+2. **Blocker**: `crates/action-runner/src/bundle.rs` の `build_manifest_files()` が常に空配列を返しており、manifest の `files` が実質無効化されている。import worker は `manifest.files` をそのまま snapshot の `file_hashes_json` に保存し、diff summary の `total_files` 計算にも使っているため、現状では snapshot に差分基準となるファイルハッシュが残らず、`total_files` も常に 0 になる。Plan API では正しい file list を計算しているのに、import 側へ引き継がれていない。
+3. **Minor**: `crates/action-runner/src/summary.rs` の unsupported event summary が `BoardFlow processes push events only.` と書いており、`docs/spec.md` の `push` + `workflow_dispatch` 対応と食い違っている。挙動自体は `pull_request` のみ skip なので機能バグではないが、summary 表示は誤案内になっている。
+
+### 必須修正
+
+1. manifest 生成時に ERC/DRC の check entry を埋め、import worker が `run_checks` と `board_runs.{erc,drc}_status` を正しく保存できるようにすること。少なくとも `kind`, `status`, `error_count`, `warning_count`, `raw_summary` を揃える必要がある。
+2. manifest `files` に project file hash 一覧を含め、import worker の snapshot 保存と diff summary が空にならないようにすること。既に生成している `PlanFile` 相当データを再利用するか、bundle 生成時に同等の一覧を明示的に渡す必要がある。
+
+### 任意改善
+
+1. unsupported event summary の文言を `push` のみに限定せず、`workflow_dispatch` も正式対象であることが分かる表現に直した方がよい。
+2. API retry のテストは 5xx と 4xx を押さえているが、backoff 秒数そのものは固定していない。1, 2 秒の待機方針まで将来壊したくないなら時間依存を抽象化したテストを追加する余地がある。
+
+### テスト不足
+
+- action-runner が生成した manifest を `boardflow-artifact::extract_bundle()` と worker import handler の期待に通して検証する cross-crate test がない。
+- `manifest.checks` と `manifest.files` の中身を検証する test がなく、現状の空配列退行を検知できていない。
+- unsupported event summary の文言が spec と整合しているかを見る test がない。
+
+### ドキュメント確認
+
+- `docs/spec.md` の completed 条件と現行実装は不整合。spec は check結果保存を必須にしているが、現行 manifest は check を空で出力している。
+- `docs/logs/73/worklog.md` の直前レビューでは「manifest schema 整合」が主論点だったが、現行コードでは schema 互換よりも `checks` / `files` の実データ欠落が主要な blocker になっている。
+
+### PR/完了結果
+
+- Issue #73 は Phase 2-4 の主要ファイル追加と Docker 移行まではできている。
+- ただし import 完了後の DB 状態が要件を満たさないため、PR 作成はまだ不可。
+
+### 残リスク
+
+- `checks_summary.json` と `diff/file_hashes.json` は作っていても、worker が completed 判定や snapshot 保存に使っているのは `manifest.checks` / `manifest.files` なので、manifest 本体を埋めない限り UI 側で整合しない可能性が高い。
+- 現状の unit test 群は module 単位では通るが、bundle 生成から import までの接続面の欠落を拾えていない。
