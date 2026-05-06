@@ -10,6 +10,7 @@ mod api;
 mod error;
 
 use api::ApiClient;
+use boardflow_api_types::board_run::CreateBoardRunStatus;
 
 fn sample_board_project_id() -> &'static str {
     "bp_123e4567-e89b-12d3-a456-426614174000"
@@ -126,7 +127,7 @@ async fn test_create_board_run() {
         .and(path("/api/v1/board-runs"))
         .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
             "board_run_id": "br_123e4567-e89b-12d3-a456-426614174111",
-            "status": "pending",
+            "status": "created",
             "artifact_bundle": {
                 "upload_mode": "staging_s3",
                 "upload_url": "https://s3.example.com/upload",
@@ -142,7 +143,7 @@ async fn test_create_board_run() {
     let payload = serde_json::json!({"board_project_id": sample_board_project_id()});
     let resp = client.create_board_run(&payload).await.unwrap();
     assert_eq!(resp.board_run_id, sample_board_run_id());
-    assert_eq!(resp.status, "pending");
+    assert_eq!(resp.status, CreateBoardRunStatus::Created);
     let bundle = resp.artifact_bundle.unwrap();
     assert_eq!(bundle.upload_url, "https://s3.example.com/upload");
     assert_eq!(bundle.object_key, "bundles/run-123.zip");
@@ -243,6 +244,6 @@ async fn test_create_board_run_idempotent_no_bundle() {
         resp.board_run_id,
         BoardRunId::from(Uuid::parse_str("123e4567-e89b-12d3-a456-426614174112").unwrap())
     );
-    assert_eq!(resp.status, "completed");
+    assert_eq!(resp.status, CreateBoardRunStatus::Completed);
     assert!(resp.artifact_bundle.is_none());
 }

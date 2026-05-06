@@ -3,7 +3,7 @@
 //! Requires DATABASE_URL to be set to a PostgreSQL database with migrations applied.
 //! Run with: `cargo test -p boardflow-worker --test dashboard_comment_test -- --ignored`
 
-use boardflow_domain::models::github_job::{GithubJob, GithubJobStatus};
+use boardflow_domain::models::github_job::{GithubJob, GithubJobStatus, GithubJobType};
 use boardflow_github::{
     CreatedComment, CreatedIssue, GitHubAppClient, GitHubClientError, IssueInfo, IssueState,
 };
@@ -135,7 +135,7 @@ fn make_config() -> boardflow_worker::WorkerConfig {
 }
 
 fn make_job(
-    job_type: &str,
+    job_type: GithubJobType,
     board_project_id: Option<Uuid>,
     board_run_id: Option<Uuid>,
 ) -> GithubJob {
@@ -145,7 +145,7 @@ fn make_job(
         repository_id: Uuid::now_v7(),
         board_project_id,
         board_run_id,
-        r#type: job_type.into(),
+        r#type: job_type,
         payload_json: serde_json::json!({}),
         status: GithubJobStatus::Running,
         attempts: 1,
@@ -290,7 +290,11 @@ async fn test_create_dashboard_comment_success() {
 
     let client = MockGitHubClient::default_success();
     let config = make_config();
-    let mut job = make_job("create_dashboard_comment", Some(bp_id), Some(run_id));
+    let mut job = make_job(
+        GithubJobType::CreateDashboardComment,
+        Some(bp_id),
+        Some(run_id),
+    );
     job.installation_id = installation_id;
     job.repository_id = repo_id;
 
@@ -379,7 +383,11 @@ async fn test_create_dashboard_comment_idempotent() {
     }
 
     let config = make_config();
-    let mut job = make_job("create_dashboard_comment", Some(bp_id), Some(run_id));
+    let mut job = make_job(
+        GithubJobType::CreateDashboardComment,
+        Some(bp_id),
+        Some(run_id),
+    );
     job.installation_id = installation_id;
     job.repository_id = repo_id;
 
@@ -409,7 +417,11 @@ async fn test_create_dashboard_comment_no_issue() {
 
     let client = MockGitHubClient::default_success();
     let config = make_config();
-    let mut job = make_job("create_dashboard_comment", Some(bp_id), Some(run_id));
+    let mut job = make_job(
+        GithubJobType::CreateDashboardComment,
+        Some(bp_id),
+        Some(run_id),
+    );
     job.installation_id = installation_id;
     job.repository_id = repo_id;
 
@@ -445,7 +457,11 @@ async fn test_create_dashboard_comment_missing_board_project_id() {
 
     let client = MockGitHubClient::default_success();
     let config = make_config();
-    let job = make_job("create_dashboard_comment", None, Some(Uuid::now_v7()));
+    let job = make_job(
+        GithubJobType::CreateDashboardComment,
+        None,
+        Some(Uuid::now_v7()),
+    );
 
     let result =
         boardflow_worker::handlers::create_dashboard_comment::handle(&pool, &client, &config, &job)
@@ -467,7 +483,11 @@ async fn test_create_dashboard_comment_missing_board_run_id() {
 
     let client = MockGitHubClient::default_success();
     let config = make_config();
-    let job = make_job("create_dashboard_comment", Some(Uuid::now_v7()), None);
+    let job = make_job(
+        GithubJobType::CreateDashboardComment,
+        Some(Uuid::now_v7()),
+        None,
+    );
 
     let result =
         boardflow_worker::handlers::create_dashboard_comment::handle(&pool, &client, &config, &job)
@@ -491,7 +511,7 @@ async fn test_create_dashboard_comment_project_not_found() {
     let client = MockGitHubClient::default_success();
     let config = make_config();
     let job = make_job(
-        "create_dashboard_comment",
+        GithubJobType::CreateDashboardComment,
         Some(non_existent_bp_id),
         Some(Uuid::now_v7()),
     );
@@ -540,7 +560,11 @@ async fn test_update_dashboard_comment_success() {
         captured_comment_body: std::sync::Mutex::new(None),
     };
     let config = make_config();
-    let mut job = make_job("update_dashboard_comment", Some(bp_id), Some(run_id));
+    let mut job = make_job(
+        GithubJobType::UpdateDashboardComment,
+        Some(bp_id),
+        Some(run_id),
+    );
     job.installation_id = installation_id;
     job.repository_id = repo_id;
 
@@ -581,7 +605,11 @@ async fn test_update_dashboard_comment_fallback_create() {
     let client =
         MockGitHubClient::default_success().with_create_comment(Ok(CreatedComment { id: 300 }));
     let config = make_config();
-    let mut job = make_job("update_dashboard_comment", Some(bp_id), Some(run_id));
+    let mut job = make_job(
+        GithubJobType::UpdateDashboardComment,
+        Some(bp_id),
+        Some(run_id),
+    );
     job.installation_id = installation_id;
     job.repository_id = repo_id;
 
@@ -626,7 +654,11 @@ async fn test_update_dashboard_comment_404_recreate() {
         .with_update_comment(Err(GitHubClientError::NotFound("comment not found".into())))
         .with_create_comment(Ok(CreatedComment { id: 400 }));
     let config = make_config();
-    let mut job = make_job("update_dashboard_comment", Some(bp_id), Some(run_id));
+    let mut job = make_job(
+        GithubJobType::UpdateDashboardComment,
+        Some(bp_id),
+        Some(run_id),
+    );
     job.installation_id = installation_id;
     job.repository_id = repo_id;
 
@@ -662,7 +694,11 @@ async fn test_update_dashboard_comment_no_issue() {
 
     let client = MockGitHubClient::default_success();
     let config = make_config();
-    let mut job = make_job("update_dashboard_comment", Some(bp_id), Some(run_id));
+    let mut job = make_job(
+        GithubJobType::UpdateDashboardComment,
+        Some(bp_id),
+        Some(run_id),
+    );
     job.installation_id = installation_id;
     job.repository_id = repo_id;
 
@@ -709,7 +745,7 @@ async fn test_create_dashboard_comment_issue_closed_recreate_tree_hash_changed()
     }));
     let config = make_config();
     let mut job = make_job(
-        "create_dashboard_comment",
+        GithubJobType::CreateDashboardComment,
         Some(bp_id),
         Some(current_run_id),
     );
@@ -789,7 +825,7 @@ async fn test_create_dashboard_comment_issue_closed_tree_hash_unchanged() {
     }));
     let config = make_config();
     let mut job = make_job(
-        "create_dashboard_comment",
+        GithubJobType::CreateDashboardComment,
         Some(bp_id),
         Some(current_run_id),
     );
@@ -831,7 +867,11 @@ async fn test_create_dashboard_comment_issue_closed_no_recreate() {
         html_url: "https://github.com/test-owner/test-repo/issues/1".into(),
     }));
     let config = make_config();
-    let mut job = make_job("create_dashboard_comment", Some(bp_id), Some(run_id));
+    let mut job = make_job(
+        GithubJobType::CreateDashboardComment,
+        Some(bp_id),
+        Some(run_id),
+    );
     job.installation_id = installation_id;
     job.repository_id = repo_id;
 
@@ -861,7 +901,11 @@ async fn test_create_dashboard_comment_issue_404() {
     let client = MockGitHubClient::default_success()
         .with_get_issue(Err(GitHubClientError::NotFound("not found".into())));
     let config = make_config();
-    let mut job = make_job("create_dashboard_comment", Some(bp_id), Some(run_id));
+    let mut job = make_job(
+        GithubJobType::CreateDashboardComment,
+        Some(bp_id),
+        Some(run_id),
+    );
     job.installation_id = installation_id;
     job.repository_id = repo_id;
 
@@ -928,7 +972,11 @@ async fn test_create_dashboard_comment_uses_latest_completed_run() {
     let client = MockGitHubClient::default_success();
     let config = make_config();
     // Job references the OLD run, but latest_completed_run_id points to the NEW run
-    let mut job = make_job("create_dashboard_comment", Some(bp_id), Some(old_run_id));
+    let mut job = make_job(
+        GithubJobType::CreateDashboardComment,
+        Some(bp_id),
+        Some(old_run_id),
+    );
     job.installation_id = installation_id;
     job.repository_id = repo_id;
 
@@ -999,7 +1047,11 @@ async fn test_update_dashboard_comment_issue_closed_no_recreate() {
         captured_comment_body: std::sync::Mutex::new(None),
     };
     let config = make_config();
-    let mut job = make_job("update_dashboard_comment", Some(bp_id), Some(run_id));
+    let mut job = make_job(
+        GithubJobType::UpdateDashboardComment,
+        Some(bp_id),
+        Some(run_id),
+    );
     job.installation_id = installation_id;
     job.repository_id = repo_id;
 
@@ -1040,7 +1092,11 @@ async fn test_update_dashboard_comment_issue_404() {
         captured_comment_body: std::sync::Mutex::new(None),
     };
     let config = make_config();
-    let mut job = make_job("update_dashboard_comment", Some(bp_id), Some(run_id));
+    let mut job = make_job(
+        GithubJobType::UpdateDashboardComment,
+        Some(bp_id),
+        Some(run_id),
+    );
     job.installation_id = installation_id;
     job.repository_id = repo_id;
 

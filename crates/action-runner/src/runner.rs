@@ -488,7 +488,7 @@ async fn process_project(
         Some(bundle) => bundle,
         None => {
             info!(
-                "Board run {} already in status '{}', skipping build",
+                "Board run {} already in status '{:?}', skipping build",
                 board_run_id, create_resp.status
             );
             return Ok(false);

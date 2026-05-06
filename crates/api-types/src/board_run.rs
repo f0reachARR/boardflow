@@ -1,6 +1,48 @@
 use boardflow_domain::public_ids::{ArtifactBundleId, BoardProjectId, BoardRunId};
 use serde::{Deserialize, Serialize};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum CreateBoardRunStatus {
+    Created,
+    Importing,
+    Completed,
+    Failed,
+    TimedOut,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum ArtifactBundleUploadMode {
+    StagingS3,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub enum ArtifactBundleUploadMethod {
+    #[serde(rename = "PUT")]
+    Put,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum FailBoardRunStatus {
+    Failed,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum ImportArtifactBundleStatus {
+    Queued,
+    Running,
+    Completed,
+    Failed,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct CreateBoardRunRequest {
@@ -19,7 +61,7 @@ pub struct CreateBoardRunRequest {
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct CreateBoardRunResponse {
     pub board_run_id: BoardRunId,
-    pub status: String,
+    pub status: CreateBoardRunStatus,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(default)]
     pub artifact_bundle: Option<ArtifactBundleInfo>,
@@ -28,17 +70,17 @@ pub struct CreateBoardRunResponse {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct ArtifactBundleInfo {
-    pub upload_mode: String,
+    pub upload_mode: ArtifactBundleUploadMode,
     pub object_key: String,
     pub upload_url: String,
-    pub method: String,
+    pub method: ArtifactBundleUploadMethod,
     pub expires_at: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct FailBoardRunRequest {
-    pub status: String,
+    pub status: FailBoardRunStatus,
     pub error: FailErrorInfo,
 }
 
@@ -55,7 +97,7 @@ pub struct FailErrorInfo {
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct FailBoardRunResponse {
     pub board_run_id: BoardRunId,
-    pub status: String,
+    pub status: FailBoardRunStatus,
     pub failed_at: String,
 }
 
@@ -71,5 +113,5 @@ pub struct ImportArtifactBundleRequest {
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct ImportArtifactBundleResponse {
     pub bundle_id: ArtifactBundleId,
-    pub status: String,
+    pub status: ImportArtifactBundleStatus,
 }

@@ -119,7 +119,7 @@ pub async fn handle(
                     job.repository_id,
                     job.board_project_id,
                     job.board_run_id,
-                    "create_issue",
+                    boardflow_domain::models::github_job::GithubJobType::CreateIssue,
                     &serde_json::json!({}),
                 )
                 .await;
@@ -159,7 +159,7 @@ pub async fn handle(
                 job.repository_id,
                 job.board_project_id,
                 job.board_run_id,
-                "create_issue",
+                boardflow_domain::models::github_job::GithubJobType::CreateIssue,
                 &serde_json::json!({}),
             )
             .await;

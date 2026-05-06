@@ -4,7 +4,7 @@
 //! Run with: `cargo test -p boardflow-worker --test create_issue_test -- --ignored`
 //! Tests are skipped (ignored) by default and must be explicitly opted in.
 
-use boardflow_domain::models::github_job::{GithubJob, GithubJobStatus};
+use boardflow_domain::models::github_job::{GithubJob, GithubJobStatus, GithubJobType};
 use boardflow_github::{
     CreatedComment, CreatedIssue, GitHubAppClient, GitHubClientError, IssueInfo, IssueState,
 };
@@ -128,7 +128,7 @@ fn make_job(board_project_id: Option<Uuid>, board_run_id: Option<Uuid>) -> Githu
         repository_id: Uuid::now_v7(),
         board_project_id,
         board_run_id,
-        r#type: "create_issue".into(),
+        r#type: GithubJobType::CreateIssue,
         payload_json: serde_json::json!({}),
         status: GithubJobStatus::Running,
         attempts: 1,

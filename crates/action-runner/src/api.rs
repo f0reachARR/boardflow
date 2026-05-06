@@ -5,7 +5,9 @@ use boardflow_domain::public_ids::BoardRunId;
 use reqwest::Client;
 use serde_json::Value;
 
-use boardflow_api_types::board_run::CreateBoardRunResponse;
+use boardflow_api_types::board_run::{
+    CreateBoardRunResponse, FailBoardRunRequest, FailBoardRunStatus,
+};
 use boardflow_api_types::plan::PlanProjectOutput;
 
 use crate::error::{ActionError, Result};
@@ -128,8 +130,8 @@ impl ApiClient {
 
     pub async fn fail(&self, board_run_id: BoardRunId, message: &str, details: &str) -> Result<()> {
         let endpoint = format!("/api/v1/board-runs/{board_run_id}/fail");
-        let req = boardflow_api_types::board_run::FailBoardRunRequest {
-            status: "failed".to_string(),
+        let req = FailBoardRunRequest {
+            status: FailBoardRunStatus::Failed,
             error: boardflow_api_types::board_run::FailErrorInfo {
                 message: message.to_string(),
                 details: Some(serde_json::Value::String(details.to_string())),

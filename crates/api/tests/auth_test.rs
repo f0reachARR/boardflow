@@ -107,7 +107,7 @@ async fn app_error_into_response_format() {
     let body = response.into_body().collect().await.unwrap().to_bytes();
     let error_response: ErrorResponse = serde_json::from_slice(&body).unwrap();
 
-    assert_eq!(error_response.error.code, "not_found");
+    assert_eq!(error_response.error.code, ErrorCode::NotFound);
     assert_eq!(error_response.error.message, "resource not found");
     assert_eq!(error_response.error.request_id, "req-123");
     assert!(error_response.error.details.is_none());
@@ -124,7 +124,7 @@ async fn app_error_unauthorized_response() {
     let body = response.into_body().collect().await.unwrap().to_bytes();
     let error_response: ErrorResponse = serde_json::from_slice(&body).unwrap();
 
-    assert_eq!(error_response.error.code, "unauthorized");
+    assert_eq!(error_response.error.code, ErrorCode::Unauthorized);
     assert_eq!(error_response.error.message, "invalid token");
     assert_eq!(error_response.error.request_id, "req-456");
 }
@@ -140,7 +140,7 @@ async fn app_error_internal_error_response() {
     let body = response.into_body().collect().await.unwrap().to_bytes();
     let error_response: ErrorResponse = serde_json::from_slice(&body).unwrap();
 
-    assert_eq!(error_response.error.code, "internal_error");
+    assert_eq!(error_response.error.code, ErrorCode::InternalError);
     assert_eq!(error_response.error.message, "something went wrong");
 }
 

@@ -1,8 +1,19 @@
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, sqlx::Type)]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    serde::Serialize,
+    serde::Deserialize,
+    sqlx::Type,
+    utoipa::ToSchema,
+)]
 #[sqlx(type_name = "text", rename_all = "snake_case")]
+#[serde(rename_all = "snake_case")]
 pub enum ArtifactBundleStatus {
     Pending,
     Validating,
@@ -11,11 +22,28 @@ pub enum ArtifactBundleStatus {
     Failed,
 }
 
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    serde::Serialize,
+    serde::Deserialize,
+    sqlx::Type,
+    utoipa::ToSchema,
+)]
+#[sqlx(type_name = "text", rename_all = "snake_case")]
+#[serde(rename_all = "snake_case")]
+pub enum ArtifactBundleIntakeMode {
+    StagingS3,
+}
+
 #[derive(Debug, Clone, sqlx::FromRow, serde::Serialize, serde::Deserialize)]
 pub struct ArtifactBundle {
     pub id: Uuid,
     pub board_run_id: Uuid,
-    pub intake_mode: String,
+    pub intake_mode: ArtifactBundleIntakeMode,
     pub staging_object_key: Option<String>,
     pub original_filename: Option<String>,
     pub sha256: Option<String>,

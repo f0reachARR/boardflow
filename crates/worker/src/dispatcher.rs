@@ -1,4 +1,5 @@
 use boardflow_db::queries::{artifact_bundle, board_project, board_run, github_job};
+use boardflow_domain::models::github_job::GithubJobType;
 use boardflow_github::GitHubAppClient;
 use boardflow_jobs::MAX_ATTEMPTS;
 use sqlx::PgPool;
@@ -10,12 +11,12 @@ use crate::handlers::{
 };
 
 /// Job types in priority order.
-const JOB_TYPES: &[&str] = &[
-    "artifact_bundle_import",
-    "create_issue",
-    "create_dashboard_comment",
-    "update_dashboard_comment",
-    "create_run_result_comment",
+const JOB_TYPES: &[GithubJobType] = &[
+    GithubJobType::ArtifactBundleImport,
+    GithubJobType::CreateIssue,
+    GithubJobType::CreateDashboardComment,
+    GithubJobType::UpdateDashboardComment,
+    GithubJobType::CreateRunResultComment,
 ];
 
 /// Poll for jobs and dispatch to the appropriate handler.
@@ -30,47 +31,41 @@ pub async fn poll_and_dispatch(
     for &job_type in JOB_TYPES {
         match github_job::dequeue(pool, job_type).await {
             Ok(Some(job)) => {
-                tracing::info!(job_id = %job.id, job_type = job_type, "Dequeued job");
+                tracing::info!(job_id = %job.id, job_type = ?job_type, "Dequeued job");
 
                 let result = match job_type {
-                    "artifact_bundle_import" => {
+                    GithubJobType::ArtifactBundleImport => {
                         handlers::import::handle(pool, s3_client, config, &job).await
                     }
-                    "create_issue" => match github_client {
+                    GithubJobType::CreateIssue => match github_client {
                         Some(client) => create_issue::handle(pool, client, config, &job).await,
                         None => no_github_client_result(),
                     },
-                    "create_dashboard_comment" => match github_client {
+                    GithubJobType::CreateDashboardComment => match github_client {
                         Some(client) => {
                             create_dashboard_comment::handle(pool, client, config, &job).await
                         }
                         None => no_github_client_result(),
                     },
-                    "update_dashboard_comment" => match github_client {
+                    GithubJobType::UpdateDashboardComment => match github_client {
                         Some(client) => {
                             update_dashboard_comment::handle(pool, client, config, &job).await
                         }
                         None => no_github_client_result(),
                     },
-                    "create_run_result_comment" => match github_client {
+                    GithubJobType::CreateRunResultComment => match github_client {
                         Some(client) => {
                             create_run_result_comment::handle(pool, client, config, &job).await
                         }
                         None => no_github_client_result(),
                     },
-                    _ => {
-                        tracing::error!(job_type = job_type, "Unknown job type");
-                        HandlerResult::Failed {
-                            reason: format!("unknown job type: {job_type}"),
-                        }
-                    }
                 };
 
                 // Handle result (import handler manages its own completion/failure)
                 match result {
                     HandlerResult::Completed => {
                         // For non-import jobs, mark completed here
-                        if job_type != "artifact_bundle_import" {
+                        if !matches!(job_type, GithubJobType::ArtifactBundleImport) {
                             if let Err(e) = github_job::mark_completed(pool, job.id).await {
                                 tracing::error!(error = %e, "Failed to mark job completed");
                             }
@@ -84,7 +79,7 @@ pub async fn poll_and_dispatch(
                         if job.attempts >= MAX_ATTEMPTS {
                             let _ = github_job::mark_failed(pool, job.id, &reason).await;
                             // Mark issue_sync_status as failed for create_issue terminal failures
-                            if job_type == "create_issue" {
+                            if matches!(job_type, GithubJobType::CreateIssue) {
                                 if let Some(bp_id) = job.board_project_id {
                                     let _ = board_project::update_issue_sync_status(
                                         pool, bp_id, "failed",
@@ -100,7 +95,7 @@ pub async fn poll_and_dispatch(
                         tracing::error!(job_id = %job.id, reason = %reason, "Job failed terminally");
                         let _ = github_job::mark_failed(pool, job.id, &reason).await;
                         // Mark issue_sync_status as failed for create_issue terminal failures
-                        if job_type == "create_issue" {
+                        if matches!(job_type, GithubJobType::CreateIssue) {
                             if let Some(bp_id) = job.board_project_id {
                                 let _ =
                                     board_project::update_issue_sync_status(pool, bp_id, "failed")
@@ -117,7 +112,7 @@ pub async fn poll_and_dispatch(
                 continue;
             }
             Err(e) => {
-                tracing::error!(job_type = job_type, error = %e, "Failed to dequeue job");
+                tracing::error!(job_type = ?job_type, error = %e, "Failed to dequeue job");
                 tokio::time::sleep(std::time::Duration::from_secs(5)).await;
                 return;
             }

@@ -1441,18 +1441,30 @@ expression: json
             "type": "string"
           },
           "method": {
-            "type": "string"
+            "$ref": "#/components/schemas/ArtifactBundleUploadMethod"
           },
           "object_key": {
             "type": "string"
           },
           "upload_mode": {
-            "type": "string"
+            "$ref": "#/components/schemas/ArtifactBundleUploadMode"
           },
           "upload_url": {
             "type": "string"
           }
         }
+      },
+      "ArtifactBundleUploadMethod": {
+        "type": "string",
+        "enum": [
+          "PUT"
+        ]
+      },
+      "ArtifactBundleUploadMode": {
+        "type": "string",
+        "enum": [
+          "staging_s3"
+        ]
       },
       "ArtifactId": {
         "type": "string",
@@ -1519,7 +1531,7 @@ expression: json
             ]
           },
           "status": {
-            "type": "string"
+            "$ref": "#/components/schemas/ArtifactStatus"
           },
           "status_reason": {
             "type": [
@@ -1545,6 +1557,15 @@ expression: json
             }
           }
         }
+      },
+      "ArtifactStatus": {
+        "type": "string",
+        "enum": [
+          "available",
+          "missing",
+          "failed",
+          "skipped"
+        ]
       },
       "ArtifactSummary": {
         "type": "object",
@@ -1661,7 +1682,7 @@ expression: json
             "$ref": "#/components/schemas/RepositoryRef"
           },
           "state": {
-            "type": "string"
+            "$ref": "#/components/schemas/BoardProjectState"
           },
           "updated_at": {
             "type": "string"
@@ -1718,12 +1739,22 @@ expression: json
             "type": "string"
           },
           "state": {
-            "type": "string"
+            "$ref": "#/components/schemas/BoardProjectState"
           },
           "updated_at": {
             "type": "string"
           }
         }
+      },
+      "BoardProjectState": {
+        "type": "string",
+        "enum": [
+          "detected",
+          "processing",
+          "failed",
+          "timed_out",
+          "completed"
+        ]
       },
       "BoardRunDetailResponse": {
         "type": "object",
@@ -1781,7 +1812,7 @@ expression: json
             "type": "string"
           },
           "status": {
-            "type": "string"
+            "$ref": "#/components/schemas/BoardRunStatus"
           },
           "tree_hash": {
             "type": [
@@ -1832,10 +1863,19 @@ expression: json
             ]
           },
           "status": {
-            "type": "string"
+            "$ref": "#/components/schemas/BoardRunDiffStatus"
           },
           "summary": {}
         }
+      },
+      "BoardRunDiffStatus": {
+        "type": "string",
+        "enum": [
+          "ready",
+          "no_baseline",
+          "unavailable",
+          "failed"
+        ]
       },
       "BoardRunId": {
         "type": "string",
@@ -1881,9 +1921,13 @@ expression: json
             "format": "int32"
           },
           "drc_status": {
-            "type": [
-              "string",
-              "null"
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CheckStatus"
+              }
             ]
           },
           "drc_warnings": {
@@ -1895,9 +1939,13 @@ expression: json
             "format": "int32"
           },
           "erc_status": {
-            "type": [
-              "string",
-              "null"
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CheckStatus"
+              }
             ]
           },
           "erc_warnings": {
@@ -1914,7 +1962,7 @@ expression: json
             "type": "string"
           },
           "status": {
-            "type": "string"
+            "$ref": "#/components/schemas/BoardRunStatus"
           },
           "tree_hash": {
             "type": [
@@ -1923,6 +1971,17 @@ expression: json
             ]
           }
         }
+      },
+      "BoardRunStatus": {
+        "type": "string",
+        "enum": [
+          "created",
+          "uploading",
+          "importing",
+          "completed",
+          "failed",
+          "timed_out"
+        ]
       },
       "CheckInfo": {
         "type": "object",
@@ -1939,20 +1998,35 @@ expression: json
             "format": "int32"
           },
           "kind": {
-            "type": "string"
+            "$ref": "#/components/schemas/CheckKind"
           },
           "notice_count": {
             "type": "integer",
             "format": "int32"
           },
           "status": {
-            "type": "string"
+            "$ref": "#/components/schemas/RunCheckStatus"
           },
           "warning_count": {
             "type": "integer",
             "format": "int32"
           }
         }
+      },
+      "CheckKind": {
+        "type": "string",
+        "enum": [
+          "erc",
+          "drc"
+        ]
+      },
+      "CheckStatus": {
+        "type": "string",
+        "enum": [
+          "passed",
+          "failed",
+          "skipped"
+        ]
       },
       "CoordinateMmResponse": {
         "type": "object",
@@ -2065,9 +2139,19 @@ expression: json
             "$ref": "#/components/schemas/BoardRunId"
           },
           "status": {
-            "type": "string"
+            "$ref": "#/components/schemas/CreateBoardRunStatus"
           }
         }
+      },
+      "CreateBoardRunStatus": {
+        "type": "string",
+        "enum": [
+          "created",
+          "importing",
+          "completed",
+          "failed",
+          "timed_out"
+        ]
       },
       "DiffMetadataResponse": {
         "type": "object",
@@ -2088,7 +2172,7 @@ expression: json
         ],
         "properties": {
           "code": {
-            "type": "string"
+            "$ref": "#/components/schemas/ErrorCode"
           },
           "details": {},
           "message": {
@@ -2098,6 +2182,19 @@ expression: json
             "type": "string"
           }
         }
+      },
+      "ErrorCode": {
+        "type": "string",
+        "enum": [
+          "unauthorized",
+          "forbidden",
+          "validation_failed",
+          "not_found",
+          "conflict",
+          "gone",
+          "rate_limited",
+          "internal_error"
+        ]
       },
       "ErrorResponse": {
         "type": "object",
@@ -2121,7 +2218,7 @@ expression: json
             "$ref": "#/components/schemas/FailErrorInfo"
           },
           "status": {
-            "type": "string"
+            "$ref": "#/components/schemas/FailBoardRunStatus"
           }
         }
       },
@@ -2140,9 +2237,15 @@ expression: json
             "type": "string"
           },
           "status": {
-            "type": "string"
+            "$ref": "#/components/schemas/FailBoardRunStatus"
           }
         }
+      },
+      "FailBoardRunStatus": {
+        "type": "string",
+        "enum": [
+          "failed"
+        ]
       },
       "FailErrorInfo": {
         "type": "object",
@@ -2195,7 +2298,7 @@ expression: json
             ]
           },
           "severity": {
-            "type": "string"
+            "$ref": "#/components/schemas/FindingSeverity"
           },
           "sheet_path": {
             "type": [
@@ -2204,9 +2307,13 @@ expression: json
             ]
           },
           "subject_kind": {
-            "type": [
-              "string",
-              "null"
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SubjectKind"
+              }
             ]
           },
           "subject_ref": {
@@ -2222,6 +2329,14 @@ expression: json
             ]
           }
         }
+      },
+      "FindingSeverity": {
+        "type": "string",
+        "enum": [
+          "error",
+          "warning",
+          "notice"
+        ]
       },
       "HealthResponse": {
         "type": "object",
@@ -2265,9 +2380,18 @@ expression: json
             "$ref": "#/components/schemas/ArtifactBundleId"
           },
           "status": {
-            "type": "string"
+            "$ref": "#/components/schemas/ImportArtifactBundleStatus"
           }
         }
+      },
+      "ImportArtifactBundleStatus": {
+        "type": "string",
+        "enum": [
+          "queued",
+          "running",
+          "completed",
+          "failed"
+        ]
       },
       "MeResponse": {
         "type": "object",
@@ -2348,7 +2472,7 @@ expression: json
                   "type": "string"
                 },
                 "state": {
-                  "type": "string"
+                  "$ref": "#/components/schemas/BoardProjectState"
                 },
                 "updated_at": {
                   "type": "string"
@@ -2416,9 +2540,13 @@ expression: json
                   "format": "int32"
                 },
                 "drc_status": {
-                  "type": [
-                    "string",
-                    "null"
+                  "oneOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "$ref": "#/components/schemas/CheckStatus"
+                    }
                   ]
                 },
                 "drc_warnings": {
@@ -2430,9 +2558,13 @@ expression: json
                   "format": "int32"
                 },
                 "erc_status": {
-                  "type": [
-                    "string",
-                    "null"
+                  "oneOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "$ref": "#/components/schemas/CheckStatus"
+                    }
                   ]
                 },
                 "erc_warnings": {
@@ -2449,7 +2581,7 @@ expression: json
                   "type": "string"
                 },
                 "status": {
-                  "type": "string"
+                  "$ref": "#/components/schemas/BoardRunStatus"
                 },
                 "tree_hash": {
                   "type": [
@@ -2519,7 +2651,7 @@ expression: json
                   ]
                 },
                 "severity": {
-                  "type": "string"
+                  "$ref": "#/components/schemas/FindingSeverity"
                 },
                 "sheet_path": {
                   "type": [
@@ -2528,9 +2660,13 @@ expression: json
                   ]
                 },
                 "subject_kind": {
-                  "type": [
-                    "string",
-                    "null"
+                  "oneOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "$ref": "#/components/schemas/SubjectKind"
+                    }
                   ]
                 },
                 "subject_ref": {
@@ -2590,9 +2726,13 @@ expression: json
                   "type": "string"
                 },
                 "latest_run_status": {
-                  "type": [
-                    "string",
-                    "null"
+                  "oneOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "$ref": "#/components/schemas/BoardRunStatus"
+                    }
                   ]
                 },
                 "name": {
@@ -2919,9 +3059,13 @@ expression: json
             "type": "string"
           },
           "latest_run_status": {
-            "type": [
-              "string",
-              "null"
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/BoardRunStatus"
+              }
             ]
           },
           "name": {
@@ -2954,6 +3098,34 @@ expression: json
           }
         }
       },
+      "RunCheckStatus": {
+        "type": "string",
+        "enum": [
+          "passed",
+          "failed",
+          "skipped"
+        ]
+      },
+      "SubjectKind": {
+        "type": "string",
+        "enum": [
+          "schematic",
+          "pcb",
+          "net",
+          "footprint",
+          "symbol"
+        ]
+      },
+      "ViewerAvailabilityStatus": {
+        "type": "string",
+        "enum": [
+          "available",
+          "partial",
+          "skipped",
+          "failed",
+          "missing"
+        ]
+      },
       "ViewerDownload": {
         "type": "object",
         "required": [
@@ -2975,7 +3147,7 @@ expression: json
             "$ref": "#/components/schemas/ArtifactType"
           },
           "status": {
-            "type": "string"
+            "$ref": "#/components/schemas/ArtifactStatus"
           },
           "status_reason": {
             "type": [
@@ -3046,9 +3218,13 @@ expression: json
             ]
           },
           "kind": {
-            "type": [
-              "string",
-              "null"
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ViewerSourceKind"
+              }
             ]
           },
           "name": {
@@ -3070,6 +3246,14 @@ expression: json
             ]
           }
         }
+      },
+      "ViewerSourceKind": {
+        "type": "string",
+        "enum": [
+          "project",
+          "schematic",
+          "board"
+        ]
       },
       "ViewerSourcesResponse": {
         "type": "object",
@@ -3131,7 +3315,7 @@ expression: json
             }
           },
           "status": {
-            "type": "string"
+            "$ref": "#/components/schemas/ViewerAvailabilityStatus"
           }
         }
       }
