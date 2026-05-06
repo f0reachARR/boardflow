@@ -17,6 +17,7 @@ use uuid::Uuid;
 /// Simple mock GitHub client for testing.
 struct MockGitHubClient {
     create_issue_result: tokio::sync::Mutex<Option<Result<CreatedIssue, GitHubClientError>>>,
+    captured_issue_body: std::sync::Mutex<Option<String>>,
 }
 
 impl MockGitHubClient {
@@ -27,12 +28,14 @@ impl MockGitHubClient {
                 node_id: node_id.to_string(),
                 html_url: html_url.to_string(),
             }))),
+            captured_issue_body: std::sync::Mutex::new(None),
         }
     }
 
     fn failing(err: GitHubClientError) -> Self {
         Self {
             create_issue_result: tokio::sync::Mutex::new(Some(Err(err))),
+            captured_issue_body: std::sync::Mutex::new(None),
         }
     }
 }
@@ -49,8 +52,9 @@ impl GitHubAppClient for MockGitHubClient {
         _owner: &str,
         _repo: &str,
         _title: &str,
-        _body: &str,
+        body: &str,
     ) -> Result<CreatedIssue, GitHubClientError> {
+        *self.captured_issue_body.lock().unwrap() = Some(body.to_string());
         self.create_issue_result
             .lock()
             .await
@@ -251,6 +255,14 @@ async fn test_create_issue_success() {
         follow_up_count.0 >= 1,
         "Expected create_dashboard_comment job to be enqueued"
     );
+
+    {
+        let body = client.captured_issue_body.lock().unwrap();
+        let body = body.as_ref().expect("issue body should be captured");
+        assert!(body.contains(&format!("/boards/bp_{bp_id}")));
+        assert!(body.contains("/runs/br_"));
+        assert!(body.contains("/diff"));
+    }
 
     cleanup_test_data(&pool, repo_id, bp_id).await;
 }

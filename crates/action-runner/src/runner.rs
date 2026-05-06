@@ -2,6 +2,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use boardflow_domain::models::artifact::ArtifactType;
+use boardflow_domain::public_ids::BoardProjectId;
 use serde::Serialize;
 use tracing::{error, info, warn};
 
@@ -384,11 +385,22 @@ pub async fn run() -> i32 {
             continue;
         }
 
-        let board_project_id = decision
-            .map(|d| d.board_project_id.clone())
-            .unwrap_or_default();
+        let board_project_id = decision.and_then(|d| d.board_project_id);
+        let Some(board_project_id) = board_project_id else {
+            error!(
+                "Build decision for {} is missing board_project_id",
+                vp.rel_pro_path
+            );
+            results.push(ProjectResult {
+                path: vp.rel_pro_path.clone(),
+                status: "error".to_string(),
+                error: Some("plan response missing board_project_id for build".to_string()),
+            });
+            exit_code = 1;
+            continue;
+        };
 
-        match process_project(&kicad, &api, vp, &gh, &action_inputs, &board_project_id).await {
+        match process_project(&kicad, &api, vp, &gh, &action_inputs, board_project_id).await {
             Ok(checks_failed) => {
                 results.push(ProjectResult {
                     path: vp.rel_pro_path.clone(),
@@ -436,7 +448,7 @@ async fn process_project(
     vp: &ValidProject,
     gh: &GitHubContext,
     inputs: &ActionInputs,
-    board_project_id: &str,
+    board_project_id: BoardProjectId,
 ) -> std::result::Result<bool, ActionError> {
     let pro_stem = vp
         .pro_file
@@ -456,7 +468,7 @@ async fn process_project(
         .map_err(|e| ActionError::Bundle(format!("tree hash: {e}")))?;
 
     let create_payload = serde_json::to_value(&CreateBoardRunRequest {
-        board_project_id: board_project_id.to_string(),
+        board_project_id,
         project_path: vp.rel_pro_path.clone(),
         tree_hash: format!("sha256:{tree_hash}"),
         commit_sha: gh.sha.clone(),
@@ -468,7 +480,7 @@ async fn process_project(
     .expect("failed to serialize create_board_run request");
 
     let create_resp = api.create_board_run(&create_payload).await?;
-    let board_run_id = &create_resp.board_run_id;
+    let board_run_id = create_resp.board_run_id;
 
     // If artifact_bundle is None, the run already exists in a terminal or importing state.
     // Skip processing — no upload or build needed.

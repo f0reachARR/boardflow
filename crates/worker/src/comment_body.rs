@@ -1,13 +1,13 @@
 use boardflow_domain::models::board_run::BoardRun;
-use uuid::Uuid;
+use boardflow_domain::public_ids::{BoardProjectId, BoardRunId};
 
 /// Generate the issue body for a board project issue.
 pub fn issue_body(
     github_repository_id: i64,
     project_path: &str,
-    board_project_id: Uuid,
+    board_project_id: BoardProjectId,
     base_url: &str,
-    latest_completed_run_id: Option<Uuid>,
+    latest_completed_run_id: Option<BoardRunId>,
 ) -> String {
     let board_page_url =
         format!("{base_url}/repositories/{github_repository_id}/boards/{board_project_id}");
@@ -47,7 +47,7 @@ pub fn issue_title(display_name: &str) -> String {
 pub fn dashboard_comment(
     project_path: &str,
     board_run: &BoardRun,
-    board_project_id: Uuid,
+    board_project_id: BoardProjectId,
     github_repository_id: i64,
     base_url: &str,
 ) -> String {
@@ -67,13 +67,14 @@ pub fn dashboard_comment(
 
     let board_page_url =
         format!("{base_url}/repositories/{github_repository_id}/boards/{board_project_id}");
+    let board_run_id = BoardRunId::from(board_run.id);
     let run_url = format!(
         "{base_url}/repositories/{github_repository_id}/boards/{board_project_id}/runs/{}",
-        board_run.id
+        board_run_id
     );
     let diff_url = format!(
         "{base_url}/repositories/{github_repository_id}/boards/{board_project_id}/runs/{}/diff",
-        board_run.id
+        board_run_id
     );
 
     format!(
@@ -104,7 +105,7 @@ Last updated by BoardFlow."#
 /// Generate the run result comment body.
 pub fn run_result_comment(
     board_run: &BoardRun,
-    board_project_id: Uuid,
+    board_project_id: BoardProjectId,
     github_repository_id: i64,
     base_url: &str,
 ) -> String {
@@ -121,13 +122,14 @@ pub fn run_result_comment(
         board_run.drc_warnings,
     );
 
+    let board_run_id = BoardRunId::from(board_run.id);
     let run_url = format!(
         "{base_url}/repositories/{github_repository_id}/boards/{board_project_id}/runs/{}",
-        board_run.id
+        board_run_id
     );
     let diff_url = format!(
         "{base_url}/repositories/{github_repository_id}/boards/{board_project_id}/runs/{}/diff",
-        board_run.id
+        board_run_id
     );
 
     format!(
@@ -208,6 +210,7 @@ mod tests {
         BoardRun, BoardRunStatus, CheckStatus, DiffStatus, ReviewStatus,
     };
     use chrono::Utc;
+    use uuid::Uuid;
 
     fn make_run(
         erc_status: Option<CheckStatus>,
@@ -247,17 +250,20 @@ mod tests {
 
     #[test]
     fn test_issue_body_contains_markers() {
+        let board_project_id = BoardProjectId::from(Uuid::nil());
         let body = issue_body(
             12345,
             "hardware/LightStick.kicad_pro",
-            Uuid::nil(),
+            board_project_id,
             "https://boardflow.example.com",
             None,
         );
         assert!(body.contains("<!-- boardflow:repository_id=12345 -->"));
         assert!(body.contains("<!-- boardflow:project_path=hardware/LightStick.kicad_pro -->"));
         assert!(body.contains("`hardware/LightStick.kicad_pro`"));
-        assert!(body.contains("https://boardflow.example.com/repositories/12345/boards/"));
+        assert!(body.contains(&format!(
+            "https://boardflow.example.com/repositories/12345/boards/{board_project_id}"
+        )));
         // Without latest_completed_run_id, no diff link
         assert!(!body.contains("diff"));
     }
@@ -265,24 +271,26 @@ mod tests {
     #[test]
     fn test_issue_body_with_diff_link() {
         let run_id = Uuid::now_v7();
+        let board_project_id = BoardProjectId::from(Uuid::nil());
         let body = issue_body(
             12345,
             "hardware/board.kicad_pro",
-            Uuid::nil(),
+            board_project_id,
             "https://bf.dev",
-            Some(run_id),
+            Some(BoardRunId::from(run_id)),
         );
         assert!(body.contains("Latest diff page:"));
-        assert!(body.contains(&format!("/runs/{run_id}/diff")));
+        assert!(body.contains(&format!("/boards/{board_project_id}/runs/br_{run_id}/diff")));
     }
 
     #[test]
     fn test_dashboard_comment_contains_markers() {
         let run = make_run(Some(CheckStatus::Passed), 0, Some(CheckStatus::Failed), 2);
+        let board_project_id = BoardProjectId::from(run.board_project_id);
         let body = dashboard_comment(
             "hw/board.kicad_pro",
             &run,
-            run.board_project_id,
+            board_project_id,
             99,
             "https://bf.dev",
         );
@@ -294,16 +302,20 @@ mod tests {
         assert!(body.contains("Last updated by BoardFlow."));
         assert!(body.contains("| Latest run |"));
         assert!(body.contains("| Latest diff |"));
+        assert!(body.contains(&format!("/boards/{board_project_id}")));
+        assert!(body.contains(&format!("/runs/br_{}/diff", run.id)));
     }
 
     #[test]
     fn test_run_result_comment_contains_markers() {
         let run = make_run(Some(CheckStatus::Passed), 0, Some(CheckStatus::Skipped), 0);
-        let body = run_result_comment(&run, run.board_project_id, 42, "https://bf.dev");
+        let board_project_id = BoardProjectId::from(run.board_project_id);
+        let body = run_result_comment(&run, board_project_id, 42, "https://bf.dev");
         assert!(body.contains("<!-- boardflow:comment_type=run_result -->"));
         assert!(body.contains(&format!("<!-- boardflow:board_run_id={} -->", run.id)));
         assert!(body.contains("✅ Passed"));
         assert!(body.contains("⏭️ Skipped"));
+        assert!(body.contains(&format!("/boards/{board_project_id}/runs/br_{}", run.id)));
     }
 
     #[test]
@@ -363,15 +375,16 @@ mod tests {
     #[test]
     fn test_issue_body_with_run() {
         let run_id = Uuid::now_v7();
+        let board_project_id = BoardProjectId::from(Uuid::nil());
         let body = issue_body(
             999,
             "hw/motor_driver.kicad_pro",
-            Uuid::nil(),
+            board_project_id,
             "https://bf.test",
-            Some(run_id),
+            Some(BoardRunId::from(run_id)),
         );
         assert!(body.contains("Latest diff page:"));
-        assert!(body.contains(&format!("/runs/{run_id}/diff")));
+        assert!(body.contains(&format!("/boards/{board_project_id}/runs/br_{run_id}/diff")));
     }
 
     #[test]
@@ -379,7 +392,7 @@ mod tests {
         let body = issue_body(
             999,
             "hw/motor_driver.kicad_pro",
-            Uuid::nil(),
+            BoardProjectId::from(Uuid::nil()),
             "https://bf.test",
             None,
         );

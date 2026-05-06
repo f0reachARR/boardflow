@@ -1,5 +1,6 @@
 use boardflow_db::queries::{board_project, board_run};
 use boardflow_domain::models::github_job::GithubJob;
+use boardflow_domain::public_ids::BoardProjectId;
 use boardflow_github::types::IssueState;
 use boardflow_github::{GitHubAppClient, GitHubClientError};
 use sqlx::PgPool;
@@ -201,7 +202,7 @@ pub async fn handle(
     let body = comment_body::dashboard_comment(
         &bp.project_path,
         &run,
-        board_project_id,
+        BoardProjectId::from(board_project_id),
         bp.github_repository_id,
         &config.app_domain,
     );

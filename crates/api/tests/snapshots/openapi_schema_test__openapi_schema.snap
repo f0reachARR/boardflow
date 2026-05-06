@@ -1423,6 +1423,10 @@ expression: json
           }
         }
       },
+      "ArtifactBundleId": {
+        "type": "string",
+        "example": "ab_123e4567-e89b-12d3-a456-426614174000"
+      },
       "ArtifactBundleInfo": {
         "type": "object",
         "required": [
@@ -1450,6 +1454,10 @@ expression: json
           }
         }
       },
+      "ArtifactId": {
+        "type": "string",
+        "example": "art_123e4567-e89b-12d3-a456-426614174000"
+      },
       "ArtifactListItem": {
         "type": "object",
         "required": [
@@ -1458,9 +1466,13 @@ expression: json
         ],
         "properties": {
           "artifact_id": {
-            "type": [
-              "string",
-              "null"
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ArtifactId"
+              }
             ]
           },
           "content_type": {
@@ -1599,7 +1611,7 @@ expression: json
         ],
         "properties": {
           "board_project_id": {
-            "type": "string"
+            "$ref": "#/components/schemas/BoardProjectId"
           },
           "created_at": {
             "type": "string"
@@ -1621,9 +1633,13 @@ expression: json
             ]
           },
           "latest_completed_run_id": {
-            "type": [
-              "string",
-              "null"
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/BoardRunId"
+              }
             ]
           },
           "latest_tree_hash": {
@@ -1652,6 +1668,10 @@ expression: json
           }
         }
       },
+      "BoardProjectId": {
+        "type": "string",
+        "example": "bp_123e4567-e89b-12d3-a456-426614174000"
+      },
       "BoardProjectListItem": {
         "type": "object",
         "required": [
@@ -1664,7 +1684,7 @@ expression: json
         ],
         "properties": {
           "board_project_id": {
-            "type": "string"
+            "$ref": "#/components/schemas/BoardProjectId"
           },
           "display_name": {
             "type": "string"
@@ -1676,9 +1696,13 @@ expression: json
             ]
           },
           "latest_completed_run_id": {
-            "type": [
-              "string",
-              "null"
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/BoardRunId"
+              }
             ]
           },
           "latest_tree_hash": {
@@ -1721,10 +1745,10 @@ expression: json
             "$ref": "#/components/schemas/ArtifactSummary"
           },
           "board_project_id": {
-            "type": "string"
+            "$ref": "#/components/schemas/BoardProjectId"
           },
           "board_run_id": {
-            "type": "string"
+            "$ref": "#/components/schemas/BoardRunId"
           },
           "branch": {
             "type": "string"
@@ -1776,13 +1800,17 @@ expression: json
         ],
         "properties": {
           "base_board_run_id": {
-            "type": [
-              "string",
-              "null"
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/BoardRunId"
+              }
             ]
           },
           "board_run_id": {
-            "type": "string"
+            "$ref": "#/components/schemas/BoardRunId"
           },
           "created_at": {
             "type": "string"
@@ -1809,6 +1837,10 @@ expression: json
           "summary": {}
         }
       },
+      "BoardRunId": {
+        "type": "string",
+        "example": "br_123e4567-e89b-12d3-a456-426614174000"
+      },
       "BoardRunListItem": {
         "type": "object",
         "required": [
@@ -1827,7 +1859,7 @@ expression: json
         ],
         "properties": {
           "board_run_id": {
-            "type": "string"
+            "$ref": "#/components/schemas/BoardRunId"
           },
           "branch": {
             "type": "string"
@@ -1987,7 +2019,7 @@ expression: json
         ],
         "properties": {
           "board_project_id": {
-            "type": "string"
+            "$ref": "#/components/schemas/BoardProjectId"
           },
           "branch": {
             "type": "string"
@@ -2030,7 +2062,7 @@ expression: json
             ]
           },
           "board_run_id": {
-            "type": "string"
+            "$ref": "#/components/schemas/BoardRunId"
           },
           "status": {
             "type": "string"
@@ -2102,7 +2134,7 @@ expression: json
         ],
         "properties": {
           "board_run_id": {
-            "type": "string"
+            "$ref": "#/components/schemas/BoardRunId"
           },
           "failed_at": {
             "type": "string"
@@ -2230,7 +2262,7 @@ expression: json
         ],
         "properties": {
           "bundle_id": {
-            "type": "string"
+            "$ref": "#/components/schemas/ArtifactBundleId"
           },
           "status": {
             "type": "string"
@@ -2282,7 +2314,7 @@ expression: json
               ],
               "properties": {
                 "board_project_id": {
-                  "type": "string"
+                  "$ref": "#/components/schemas/BoardProjectId"
                 },
                 "display_name": {
                   "type": "string"
@@ -2294,9 +2326,13 @@ expression: json
                   ]
                 },
                 "latest_completed_run_id": {
-                  "type": [
-                    "string",
-                    "null"
+                  "oneOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "$ref": "#/components/schemas/BoardRunId"
+                    }
                   ]
                 },
                 "latest_tree_hash": {
@@ -2358,7 +2394,7 @@ expression: json
               ],
               "properties": {
                 "board_run_id": {
-                  "type": "string"
+                  "$ref": "#/components/schemas/BoardRunId"
                 },
                 "branch": {
                   "type": "string"
@@ -2685,21 +2721,31 @@ expression: json
         "type": "object",
         "required": [
           "project_path",
-          "board_project_id",
           "decision",
           "reason"
         ],
         "properties": {
           "board_project_id": {
-            "type": "string"
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/BoardProjectId"
+              }
+            ]
           },
           "decision": {
             "$ref": "#/components/schemas/PlanDecision"
           },
           "latest_completed_run_id": {
-            "type": [
-              "string",
-              "null"
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/BoardRunId"
+              }
             ]
           },
           "project_path": {
@@ -2916,9 +2962,13 @@ expression: json
         ],
         "properties": {
           "artifact_id": {
-            "type": [
-              "string",
-              "null"
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ArtifactId"
+              }
             ]
           },
           "artifact_type": {
@@ -2976,9 +3026,13 @@ expression: json
         "type": "object",
         "properties": {
           "artifact_id": {
-            "type": [
-              "string",
-              "null"
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ArtifactId"
+              }
             ]
           },
           "artifact_type": {
@@ -3026,7 +3080,7 @@ expression: json
         ],
         "properties": {
           "board_run_id": {
-            "type": "string"
+            "$ref": "#/components/schemas/BoardRunId"
           },
           "expires_at": {
             "type": "string"

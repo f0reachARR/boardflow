@@ -1,9 +1,10 @@
+use boardflow_domain::public_ids::{ArtifactBundleId, BoardProjectId, BoardRunId};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct CreateBoardRunRequest {
-    pub board_project_id: String,
+    pub board_project_id: BoardProjectId,
     pub project_path: String,
     pub tree_hash: String,
     pub commit_sha: String,
@@ -17,7 +18,7 @@ pub struct CreateBoardRunRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct CreateBoardRunResponse {
-    pub board_run_id: String,
+    pub board_run_id: BoardRunId,
     pub status: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(default)]
@@ -53,7 +54,7 @@ pub struct FailErrorInfo {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct FailBoardRunResponse {
-    pub board_run_id: String,
+    pub board_run_id: BoardRunId,
     pub status: String,
     pub failed_at: String,
 }
@@ -69,6 +70,6 @@ pub struct ImportArtifactBundleRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct ImportArtifactBundleResponse {
-    pub bundle_id: String,
+    pub bundle_id: ArtifactBundleId,
     pub status: String,
 }

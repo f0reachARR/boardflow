@@ -5,6 +5,7 @@ use sqlx::PgPool;
 use std::collections::HashSet;
 
 use boardflow_api_types::plan::*;
+use boardflow_domain::public_ids::{BoardProjectId, BoardRunId};
 
 use crate::error::{AppError, RequestId};
 use crate::extractors::AuthenticatedToken;
@@ -94,7 +95,7 @@ pub async fn plan_run(
         {
             project_outputs.push(PlanProjectOutput {
                 project_path: project.project_path.clone(),
-                board_project_id: String::new(),
+                board_project_id: None,
                 decision: PlanDecision::Error,
                 reason: PlanReason::InvalidProjectPath,
                 latest_completed_run_id: None,
@@ -106,7 +107,7 @@ pub async fn plan_run(
         if duplicate_paths.contains(project.project_path.as_str()) {
             project_outputs.push(PlanProjectOutput {
                 project_path: project.project_path.clone(),
-                board_project_id: String::new(),
+                board_project_id: None,
                 decision: PlanDecision::Error,
                 reason: PlanReason::DuplicateProjectPath,
                 latest_completed_run_id: None,
@@ -118,7 +119,7 @@ pub async fn plan_run(
         if project.tree_hash.is_empty() || project.tree_hash.chars().any(|c| c.is_whitespace()) {
             project_outputs.push(PlanProjectOutput {
                 project_path: project.project_path.clone(),
-                board_project_id: String::new(),
+                board_project_id: None,
                 decision: PlanDecision::Error,
                 reason: PlanReason::InvalidTreeHash,
                 latest_completed_run_id: None,
@@ -133,7 +134,7 @@ pub async fn plan_run(
         {
             project_outputs.push(PlanProjectOutput {
                 project_path: project.project_path.clone(),
-                board_project_id: String::new(),
+                board_project_id: None,
                 decision: PlanDecision::Error,
                 reason: PlanReason::InvalidConfigPath,
                 latest_completed_run_id: None,
@@ -189,10 +190,10 @@ pub async fn plan_run(
 
         project_outputs.push(PlanProjectOutput {
             project_path: project.project_path.clone(),
-            board_project_id: format!("bp_{}", bp.id),
+            board_project_id: Some(BoardProjectId::from(bp.id)),
             decision,
             reason,
-            latest_completed_run_id: bp.latest_completed_run_id.map(|id| format!("br_{}", id)),
+            latest_completed_run_id: bp.latest_completed_run_id.map(BoardRunId::from),
         });
     }
 

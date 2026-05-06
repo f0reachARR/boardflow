@@ -1,5 +1,6 @@
 use boardflow_db::queries::{board_project, github_job};
 use boardflow_domain::models::github_job::GithubJob;
+use boardflow_domain::public_ids::{BoardProjectId, BoardRunId};
 use boardflow_github::{GitHubAppClient, GitHubClientError};
 use sqlx::PgPool;
 
@@ -49,9 +50,9 @@ pub async fn handle(
     let body = comment_body::issue_body(
         bp.github_repository_id,
         &bp.project_path,
-        board_project_id,
+        BoardProjectId::from(board_project_id),
         &config.app_domain,
-        bp.latest_completed_run_id,
+        bp.latest_completed_run_id.map(BoardRunId::from),
     );
 
     // Phase 2: Call GitHub API (no DB lock held, avoiding long lock hold).

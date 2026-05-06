@@ -1,6 +1,7 @@
 use std::path::Path;
 use std::time::Duration;
 
+use boardflow_domain::public_ids::BoardRunId;
 use reqwest::Client;
 use serde_json::Value;
 
@@ -118,14 +119,14 @@ impl ApiClient {
         Ok(response)
     }
 
-    pub async fn import(&self, board_run_id: &str, payload: &Value) -> Result<()> {
+    pub async fn import(&self, board_run_id: BoardRunId, payload: &Value) -> Result<()> {
         let endpoint = format!("/api/v1/board-runs/{board_run_id}/artifact-bundles/import");
         self.request(reqwest::Method::POST, &endpoint, Some(payload))
             .await?;
         Ok(())
     }
 
-    pub async fn fail(&self, board_run_id: &str, message: &str, details: &str) -> Result<()> {
+    pub async fn fail(&self, board_run_id: BoardRunId, message: &str, details: &str) -> Result<()> {
         let endpoint = format!("/api/v1/board-runs/{board_run_id}/fail");
         let req = boardflow_api_types::board_run::FailBoardRunRequest {
             status: "failed".to_string(),
