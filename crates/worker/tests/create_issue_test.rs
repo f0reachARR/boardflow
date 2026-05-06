@@ -260,8 +260,7 @@ async fn test_create_issue_success() {
         let body = client.captured_issue_body.lock().unwrap();
         let body = body.as_ref().expect("issue body should be captured");
         assert!(body.contains(&format!("/boards/bp_{bp_id}")));
-        assert!(body.contains("/runs/br_"));
-        assert!(body.contains("/diff"));
+        assert!(body.contains("boardflow:repository_id"));
     }
 
     cleanup_test_data(&pool, repo_id, bp_id).await;
