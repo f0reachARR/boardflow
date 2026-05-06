@@ -120,6 +120,13 @@ fn find_artifact(artifacts: &[Artifact], artifact_type: ArtifactType) -> Option<
         .find(|artifact| artifact.r#type == artifact_type)
 }
 
+fn find_artifacts(artifacts: &[Artifact], artifact_type: ArtifactType) -> Vec<&Artifact> {
+    artifacts
+        .iter()
+        .filter(|artifact| artifact.r#type == artifact_type)
+        .collect()
+}
+
 fn single_viewer_status(artifact: Option<&Artifact>) -> ViewerAvailabilityStatus {
     match artifact {
         Some(a) if a.status == ArtifactStatus::Available => ViewerAvailabilityStatus::Available,
@@ -1184,57 +1191,69 @@ pub async fn get_viewer_sources(
 
     // KiCanvas viewer: needs kicad_pro, kicad_sch, kicad_pcb
     let kicanvas = {
-        let pro = find_artifact(&artifacts, ArtifactType::KicadPro);
-        let sch = find_artifact(&artifacts, ArtifactType::KicadSch);
-        let pcb = find_artifact(&artifacts, ArtifactType::KicadPcb);
-        let all = [pro, sch, pcb];
-        let available_count = all
+        let pro = find_artifacts(&artifacts, ArtifactType::KicadPro);
+        let sch = find_artifacts(&artifacts, ArtifactType::KicadSch);
+        let pcb = find_artifacts(&artifacts, ArtifactType::KicadPcb);
+        let groups = [&pro, &sch, &pcb];
+        let available_count = groups
             .iter()
-            .filter(|a| a.is_some_and(|art| art.status == ArtifactStatus::Available))
+            .filter(|group| {
+                group
+                    .iter()
+                    .any(|artifact| artifact.status == ArtifactStatus::Available)
+            })
             .count();
-
-        let status = viewer_status(available_count, 3, &all);
-
-        let sources = if available_count > 0 {
-            let mut srcs = Vec::new();
-            if let Some(a) = pro.filter(|a| a.status == ArtifactStatus::Available) {
-                srcs.push(ViewerSource {
-                    artifact_id: Some(ArtifactId::from(a.id)),
-                    artifact_type: None,
-                    kind: Some(ViewerSourceKind::Project),
-                    name: a.filename.clone(),
-                    source_path: a.source_path.clone(),
-                    url: Some(proxy_url_with_filename(a)),
-                });
-            }
-            if let Some(a) = sch.filter(|a| a.status == ArtifactStatus::Available) {
-                srcs.push(ViewerSource {
-                    artifact_id: Some(ArtifactId::from(a.id)),
-                    artifact_type: None,
-                    kind: Some(ViewerSourceKind::Schematic),
-                    name: a.filename.clone(),
-                    source_path: a.source_path.clone(),
-                    url: Some(proxy_url_with_filename(a)),
-                });
-            }
-            if let Some(a) = pcb.filter(|a| a.status == ArtifactStatus::Available) {
-                srcs.push(ViewerSource {
-                    artifact_id: Some(ArtifactId::from(a.id)),
-                    artifact_type: None,
-                    kind: Some(ViewerSourceKind::Board),
-                    name: a.filename.clone(),
-                    source_path: a.source_path.clone(),
-                    url: Some(proxy_url_with_filename(a)),
-                });
-            }
-            Some(srcs)
+        let all_skipped = groups.iter().all(|group| {
+            !group.is_empty()
+                && group
+                    .iter()
+                    .all(|artifact| artifact.status == ArtifactStatus::Skipped)
+        });
+        let has_failed = groups.iter().any(|group| {
+            group
+                .iter()
+                .any(|artifact| artifact.status == ArtifactStatus::Failed)
+        });
+        let status = if available_count == 3 {
+            ViewerAvailabilityStatus::Available
+        } else if available_count > 0 {
+            ViewerAvailabilityStatus::Partial
+        } else if all_skipped {
+            ViewerAvailabilityStatus::Skipped
+        } else if has_failed {
+            ViewerAvailabilityStatus::Failed
         } else {
-            None
+            ViewerAvailabilityStatus::Missing
         };
+
+        let sources: Vec<_> = artifacts
+            .iter()
+            .filter_map(|artifact| {
+                let kind = match artifact.r#type {
+                    ArtifactType::KicadPro => ViewerSourceKind::Project,
+                    ArtifactType::KicadSch => ViewerSourceKind::Schematic,
+                    ArtifactType::KicadPcb => ViewerSourceKind::Board,
+                    _ => return None,
+                };
+
+                if artifact.status != ArtifactStatus::Available {
+                    return None;
+                }
+
+                Some(ViewerSource {
+                    artifact_id: Some(ArtifactId::from(artifact.id)),
+                    artifact_type: None,
+                    kind: Some(kind),
+                    name: artifact.filename.clone(),
+                    source_path: artifact.source_path.clone(),
+                    url: Some(proxy_url_with_filename(artifact)),
+                })
+            })
+            .collect();
 
         ViewerStatus {
             status,
-            sources,
+            sources: (!sources.is_empty()).then_some(sources),
             primary: None,
             iframe_url: None,
             downloads: None,

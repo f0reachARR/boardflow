@@ -180,20 +180,40 @@ async fn create_test_artifact(
     artifact_type: ArtifactType,
     status: &str,
 ) -> Uuid {
+    create_test_artifact_with_metadata(pool, board_run_id, artifact_type, status, None, None, None)
+        .await
+}
+
+async fn create_test_artifact_with_metadata(
+    pool: &PgPool,
+    board_run_id: Uuid,
+    artifact_type: ArtifactType,
+    status: &str,
+    filename: Option<&str>,
+    source_path: Option<&str>,
+    logical_name: Option<&str>,
+) -> Uuid {
     let id = Uuid::now_v7();
+    let stored_filename = if status == "available" {
+        Some(
+            filename
+                .map(str::to_owned)
+                .unwrap_or_else(|| test_artifact_filename(artifact_type)),
+        )
+    } else {
+        None
+    };
     sqlx::query(
-        "INSERT INTO artifacts (id, board_run_id, type, status, filename, content_type, storage_key, sha256, size_bytes, created_at) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())",
+        "INSERT INTO artifacts (id, board_run_id, type, status, filename, source_path, logical_name, content_type, storage_key, sha256, size_bytes, created_at) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW())",
     )
     .bind(id)
     .bind(board_run_id)
     .bind(artifact_type)
     .bind(status)
-    .bind(if status == "available" {
-        Some(test_artifact_filename(artifact_type))
-    } else {
-        None
-    })
+    .bind(stored_filename)
+    .bind(source_path)
+    .bind(logical_name)
     .bind(if status == "available" { Some("application/octet-stream") } else { None })
     .bind(if status == "available" { Some(format!("storage/{id}")) } else { None })
     .bind(if status == "available" { Some("sha256:abc123") } else { None })
@@ -1148,6 +1168,90 @@ async fn test_get_viewer_sources_all_available() {
         // Token should not be "placeholder"
         assert!(!url.contains("token=placeholder"));
     }
+}
+
+#[tokio::test]
+#[serial]
+async fn test_get_viewer_sources_returns_all_split_kicad_files() {
+    let pool = match setup_pool().await {
+        Some(p) => p,
+        None => return,
+    };
+
+    let user_id = create_test_user(&pool).await;
+    let session_id = create_test_session(&pool, user_id).await;
+    let github_repo_id = rand_i64();
+    let repo_id = create_test_repository(&pool, github_repo_id).await;
+    let bp_id = create_test_board_project(&pool, repo_id).await;
+    let br_id = create_test_board_run(&pool, bp_id, "completed").await;
+
+    create_test_artifact_with_metadata(
+        &pool,
+        br_id,
+        ArtifactType::KicadPro,
+        "available",
+        Some("project.kicad_pro"),
+        Some("hardware/project.kicad_pro"),
+        None,
+    )
+    .await;
+    create_test_artifact_with_metadata(
+        &pool,
+        br_id,
+        ArtifactType::KicadSch,
+        "available",
+        Some("power.kicad_sch"),
+        Some("hardware/power.kicad_sch"),
+        None,
+    )
+    .await;
+    create_test_artifact_with_metadata(
+        &pool,
+        br_id,
+        ArtifactType::KicadSch,
+        "available",
+        Some("control.kicad_sch"),
+        Some("hardware/control.kicad_sch"),
+        None,
+    )
+    .await;
+    create_test_artifact_with_metadata(
+        &pool,
+        br_id,
+        ArtifactType::KicadPcb,
+        "available",
+        Some("board.kicad_pcb"),
+        Some("hardware/board.kicad_pcb"),
+        None,
+    )
+    .await;
+
+    let app = create_test_app(pool);
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(&format!("/api/v1/board-runs/br_{br_id}/viewer-sources"))
+                .header("cookie", session_cookie(session_id))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body_bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+
+    let kicanvas_sources = json["viewers"]["kicanvas"]["sources"].as_array().unwrap();
+    assert_eq!(json["viewers"]["kicanvas"]["status"], "available");
+    assert_eq!(kicanvas_sources.len(), 4);
+    assert!(kicanvas_sources.iter().any(|src| {
+        src["kind"] == "schematic" && src["source_path"] == "hardware/power.kicad_sch"
+    }));
+    assert!(kicanvas_sources.iter().any(|src| {
+        src["kind"] == "schematic" && src["source_path"] == "hardware/control.kicad_sch"
+    }));
 }
 
 /// 正常系: 一部のartifactが missing の場合は partial
