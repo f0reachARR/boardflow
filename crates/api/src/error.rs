@@ -7,7 +7,8 @@ use serde::Serialize;
 #[derive(Debug, Clone)]
 pub struct RequestId(pub String);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, serde::Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "snake_case")]
 pub enum ErrorCode {
     Unauthorized,
     Forbidden,
@@ -49,7 +50,7 @@ impl ErrorCode {
 
 #[derive(Debug, Serialize, serde::Deserialize, utoipa::ToSchema)]
 pub struct ErrorBody {
-    pub code: String,
+    pub code: ErrorCode,
     pub message: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub details: Option<serde_json::Value>,
@@ -119,7 +120,7 @@ impl IntoResponse for AppError {
         let status = self.code.status_code();
         let body = ErrorResponse {
             error: ErrorBody {
-                code: self.code.as_str().to_string(),
+                code: self.code,
                 message: self.message,
                 details: self.details,
                 request_id: self.request_id,

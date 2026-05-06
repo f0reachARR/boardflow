@@ -9,10 +9,8 @@ interface SvgViewerProps {
 }
 
 export function SvgViewer({ sources }: SvgViewerProps) {
-  const topSource = sources.find((s) => s.artifact_type === 'pcb_top_svg' || s.kind === 'top');
-  const bottomSource = sources.find(
-    (s) => s.artifact_type === 'pcb_bottom_svg' || s.kind === 'bottom',
-  );
+  const topSource = sources.find((s) => s.artifact_type === 'pcb_top_svg');
+  const bottomSource = sources.find((s) => s.artifact_type === 'pcb_bottom_svg');
 
   const availableTabs = [
     ...(topSource ? [{ value: 'top', label: 'Top', source: topSource }] : []),

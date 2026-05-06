@@ -771,6 +771,7 @@ dependencies = [
 name = "boardflow-api-types"
 version = "0.0.1"
 dependencies = [
+ "boardflow-domain",
  "serde",
  "serde_json",
  "utoipa",

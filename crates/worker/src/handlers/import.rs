@@ -5,7 +5,7 @@ use boardflow_db::queries::{
     artifact, artifact_bundle, board_project, board_run, diff, github_job, run_check,
     run_check_finding, snapshot,
 };
-use boardflow_domain::models::github_job::GithubJob;
+use boardflow_domain::models::github_job::{GithubJob, GithubJobType};
 use boardflow_jobs::{BASE_BACKOFF_SECS, MAX_ATTEMPTS};
 use serde::Deserialize;
 use sqlx::PgPool;
@@ -446,7 +446,7 @@ async fn process_import_job(
             job.repository_id,
             Some(board_project_id),
             Some(board_run_id),
-            "create_issue",
+            GithubJobType::CreateIssue,
             &serde_json::json!({}),
         )
         .await
@@ -459,9 +459,9 @@ async fn process_import_job(
         .and_then(|bp| bp.dashboard_comment_id)
         .is_some()
     {
-        "update_dashboard_comment"
+        GithubJobType::UpdateDashboardComment
     } else {
-        "create_dashboard_comment"
+        GithubJobType::CreateDashboardComment
     };
     let _ = github_job::enqueue(
         &mut *tx,
@@ -484,7 +484,7 @@ async fn process_import_job(
         job.repository_id,
         Some(board_project_id),
         Some(board_run_id),
-        "create_run_result_comment",
+        GithubJobType::CreateRunResultComment,
         &serde_json::json!({}),
     )
     .await

@@ -3,7 +3,7 @@
 //! Requires DATABASE_URL to be set to a PostgreSQL database with migrations applied.
 //! Run with: `cargo test -p boardflow-worker --test run_result_comment_test -- --ignored`
 
-use boardflow_domain::models::github_job::{GithubJob, GithubJobStatus};
+use boardflow_domain::models::github_job::{GithubJob, GithubJobStatus, GithubJobType};
 use boardflow_github::{
     CreatedComment, CreatedIssue, GitHubAppClient, GitHubClientError, IssueInfo, IssueState,
 };
@@ -131,7 +131,7 @@ fn make_job(board_project_id: Option<Uuid>, board_run_id: Option<Uuid>) -> Githu
         repository_id: Uuid::now_v7(),
         board_project_id,
         board_run_id,
-        r#type: "create_run_result_comment".into(),
+        r#type: GithubJobType::CreateRunResultComment,
         payload_json: serde_json::json!({}),
         status: GithubJobStatus::Running,
         attempts: 1,

@@ -2,40 +2,24 @@ use axum::extract::rejection::JsonRejection;
 use axum::extract::{Path, State};
 use axum::{Extension, Json};
 use sqlx::PgPool;
-use uuid::Uuid;
 
 use boardflow_api_types::board_run::*;
 use boardflow_domain::models::artifact_bundle::ArtifactBundleStatus;
 use boardflow_domain::models::board_run::BoardRunStatus;
+use boardflow_domain::models::github_job::GithubJobType;
+use boardflow_domain::public_ids::{ArtifactBundleId, BoardRunId};
+use uuid::Uuid;
 
 use crate::error::{AppError, RequestId};
 use crate::extractors::AuthenticatedToken;
 
-// ─── ID prefix helpers ───────────────────────────────────────────────────────
-
-fn parse_board_project_id(s: &str) -> Option<Uuid> {
-    s.strip_prefix("bp_").and_then(|v| Uuid::parse_str(v).ok())
-}
-
-fn parse_board_run_id(s: &str) -> Option<Uuid> {
-    s.strip_prefix("br_").and_then(|v| Uuid::parse_str(v).ok())
-}
-
-fn format_board_run_id(id: Uuid) -> String {
-    format!("br_{id}")
-}
-
-fn format_bundle_id(id: Uuid) -> String {
-    format!("ab_{id}")
-}
-
-fn bundle_status_str(status: ArtifactBundleStatus) -> &'static str {
+fn bundle_status(status: ArtifactBundleStatus) -> ImportArtifactBundleStatus {
     match status {
-        ArtifactBundleStatus::Pending => "queued",
-        ArtifactBundleStatus::Validating => "running",
-        ArtifactBundleStatus::Importing => "running",
-        ArtifactBundleStatus::Completed => "completed",
-        ArtifactBundleStatus::Failed => "failed",
+        ArtifactBundleStatus::Pending => ImportArtifactBundleStatus::Queued,
+        ArtifactBundleStatus::Validating => ImportArtifactBundleStatus::Running,
+        ArtifactBundleStatus::Importing => ImportArtifactBundleStatus::Running,
+        ArtifactBundleStatus::Completed => ImportArtifactBundleStatus::Completed,
+        ArtifactBundleStatus::Failed => ImportArtifactBundleStatus::Failed,
     }
 }
 
@@ -67,10 +51,10 @@ async fn generate_upload_info(
 
             let expires_at = chrono::Utc::now() + chrono::Duration::seconds(expires_in_secs as i64);
             Ok(ArtifactBundleInfo {
-                upload_mode: "staging_s3".to_string(),
+                upload_mode: ArtifactBundleUploadMode::StagingS3,
                 object_key: object_key.to_string(),
                 upload_url: presigned.uri().to_string(),
-                method: "PUT".to_string(),
+                method: ArtifactBundleUploadMethod::Put,
                 expires_at: expires_at.to_rfc3339(),
             })
         }
@@ -78,10 +62,10 @@ async fn generate_upload_info(
             // Test mode: return placeholder
             let expires_at = chrono::Utc::now() + chrono::Duration::seconds(expires_in_secs as i64);
             Ok(ArtifactBundleInfo {
-                upload_mode: "staging_s3".to_string(),
+                upload_mode: ArtifactBundleUploadMode::StagingS3,
                 object_key: object_key.to_string(),
                 upload_url: format!("http://localhost:9000/{bucket}/{object_key}?presigned=test"),
-                method: "PUT".to_string(),
+                method: ArtifactBundleUploadMethod::Put,
                 expires_at: expires_at.to_rfc3339(),
             })
         }
@@ -115,8 +99,7 @@ pub async fn create_board_run(
     let Json(req) = payload.map_err(|e| AppError::validation_failed(e.body_text(), rid))?;
 
     // 1. Parse board_project_id
-    let board_project_id = parse_board_project_id(&req.board_project_id)
-        .ok_or_else(|| AppError::validation_failed("invalid board_project_id format", rid))?;
+    let board_project_id = req.board_project_id.into_uuid();
 
     // 2. Lookup board_project and verify ownership
     let board_project = boardflow_db::queries::board_project::find_by_id(&pool, board_project_id)
@@ -156,12 +139,12 @@ pub async fn create_board_run(
         tracing::error!("idempotency check failed: {e}");
         AppError::internal_error("database error", rid)
     })? {
-        let status_str = match existing.status {
-            BoardRunStatus::Completed => "completed",
-            BoardRunStatus::Failed => "failed",
-            BoardRunStatus::TimedOut => "timed_out",
-            BoardRunStatus::Importing => "importing",
-            BoardRunStatus::Created | BoardRunStatus::Uploading => "created",
+        let status = match existing.status {
+            BoardRunStatus::Completed => CreateBoardRunStatus::Completed,
+            BoardRunStatus::Failed => CreateBoardRunStatus::Failed,
+            BoardRunStatus::TimedOut => CreateBoardRunStatus::TimedOut,
+            BoardRunStatus::Importing => CreateBoardRunStatus::Importing,
+            BoardRunStatus::Created | BoardRunStatus::Uploading => CreateBoardRunStatus::Created,
         };
 
         // For terminal or importing statuses, return without artifact_bundle
@@ -173,22 +156,19 @@ pub async fn create_board_run(
                 | BoardRunStatus::Importing
         ) {
             return Ok(Json(CreateBoardRunResponse {
-                board_run_id: format_board_run_id(existing.id),
-                status: status_str.to_string(),
+                board_run_id: BoardRunId::from(existing.id),
+                status,
                 artifact_bundle: None,
             }));
         }
 
         // For created/uploading, generate new presigned URL
-        let object_key = format!(
-            "staging/runs/{}/bundle.zip",
-            format_board_run_id(existing.id)
-        );
+        let object_key = format!("staging/runs/{}/bundle.zip", BoardRunId::from(existing.id));
         let upload_info =
             generate_upload_info(&s3_client, &staging_bucket.0, &object_key, 3600).await?;
         return Ok(Json(CreateBoardRunResponse {
-            board_run_id: format_board_run_id(existing.id),
-            status: status_str.to_string(),
+            board_run_id: BoardRunId::from(existing.id),
+            status,
             artifact_bundle: Some(upload_info),
         }));
     }
@@ -214,10 +194,7 @@ pub async fn create_board_run(
 
     // 6. Create ArtifactBundle
     let bundle_id = Uuid::now_v7();
-    let object_key = format!(
-        "staging/runs/{}/bundle.zip",
-        format_board_run_id(board_run.id)
-    );
+    let object_key = format!("staging/runs/{}/bundle.zip", BoardRunId::from(board_run.id));
     boardflow_db::queries::artifact_bundle::insert_staging(
         &pool,
         bundle_id,
@@ -235,8 +212,8 @@ pub async fn create_board_run(
         generate_upload_info(&s3_client, &staging_bucket.0, &object_key, 3600).await?;
 
     Ok(Json(CreateBoardRunResponse {
-        board_run_id: format_board_run_id(board_run.id),
-        status: "created".to_string(),
+        board_run_id: BoardRunId::from(board_run.id),
+        status: CreateBoardRunStatus::Created,
         artifact_bundle: Some(upload_info),
     }))
 }
@@ -270,14 +247,11 @@ pub async fn fail_board_run(
     let rid = &request_id.0;
     let Json(req) = payload.map_err(|e| AppError::validation_failed(e.body_text(), rid))?;
 
-    // 1. Validate status field
-    if req.status != "failed" {
-        return Err(AppError::validation_failed("status must be 'failed'", rid));
-    }
-
-    // 2. Parse board_run_id
-    let board_run_id = parse_board_run_id(&board_run_id_str)
-        .ok_or_else(|| AppError::validation_failed("invalid board_run_id format", rid))?;
+    // 1. Parse board_run_id
+    let board_run_id = board_run_id_str
+        .parse::<BoardRunId>()
+        .map(BoardRunId::into_uuid)
+        .map_err(|_| AppError::validation_failed("invalid board_run_id format", rid))?;
 
     // 3. Find board_run
     let board_run = boardflow_db::queries::board_run::find_by_id(&pool, board_run_id)
@@ -314,8 +288,8 @@ pub async fn fail_board_run(
                 .unwrap_or_else(chrono::Utc::now)
                 .to_rfc3339();
             return Ok(Json(FailBoardRunResponse {
-                board_run_id: format_board_run_id(board_run.id),
-                status: "failed".to_string(),
+                board_run_id: BoardRunId::from(board_run.id),
+                status: req.status,
                 failed_at,
             }));
         }
@@ -344,8 +318,8 @@ pub async fn fail_board_run(
         .to_rfc3339();
 
     Ok(Json(FailBoardRunResponse {
-        board_run_id: format_board_run_id(updated.id),
-        status: "failed".to_string(),
+        board_run_id: BoardRunId::from(updated.id),
+        status: req.status,
         failed_at,
     }))
 }
@@ -380,8 +354,10 @@ pub async fn import_artifact_bundle(
     let Json(req) = payload.map_err(|e| AppError::validation_failed(e.body_text(), rid))?;
 
     // 1. Parse board_run_id
-    let board_run_id = parse_board_run_id(&board_run_id_str)
-        .ok_or_else(|| AppError::validation_failed("invalid board_run_id format", rid))?;
+    let board_run_id = board_run_id_str
+        .parse::<BoardRunId>()
+        .map(BoardRunId::into_uuid)
+        .map_err(|_| AppError::validation_failed("invalid board_run_id format", rid))?;
 
     // 2. Begin transaction BEFORE any DB reads
     let mut tx = pool.begin().await.map_err(|e| {
@@ -435,8 +411,8 @@ pub async fn import_artifact_bundle(
                     AppError::internal_error("database error", rid)
                 })?;
                 return Ok(Json(ImportArtifactBundleResponse {
-                    bundle_id: format_bundle_id(bundle.id),
-                    status: bundle_status_str(bundle.status).to_string(),
+                    bundle_id: ArtifactBundleId::from(bundle.id),
+                    status: bundle_status(bundle.status),
                 }));
             }
             return Err(AppError::internal_error(
@@ -464,8 +440,8 @@ pub async fn import_artifact_bundle(
             AppError::internal_error("database error", rid)
         })?;
         return Ok(Json(ImportArtifactBundleResponse {
-            bundle_id: format_bundle_id(existing.id),
-            status: bundle_status_str(existing.status).to_string(),
+            bundle_id: ArtifactBundleId::from(existing.id),
+            status: bundle_status(existing.status),
         }));
     }
 
@@ -553,6 +529,7 @@ pub async fn import_artifact_bundle(
         board_project.repository_id,
         board_project.id,
         board_run_id,
+        GithubJobType::ArtifactBundleImport,
         &payload_json,
     )
     .await
@@ -568,7 +545,7 @@ pub async fn import_artifact_bundle(
     })?;
 
     Ok(Json(ImportArtifactBundleResponse {
-        bundle_id: format_bundle_id(bundle.id),
-        status: "queued".to_string(),
+        bundle_id: ArtifactBundleId::from(bundle.id),
+        status: ImportArtifactBundleStatus::Queued,
     }))
 }

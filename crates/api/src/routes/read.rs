@@ -9,34 +9,17 @@ use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
 
 use boardflow_domain::models::artifact::{Artifact, ArtifactStatus, ArtifactType};
-use boardflow_domain::models::run_check::{FindingSeverity, SubjectKind};
+use boardflow_domain::models::board_run::{BoardRunStatus, CheckStatus};
+use boardflow_domain::models::run_check::{
+    CheckKind, FindingSeverity, RunCheckStatus, SubjectKind,
+};
+use boardflow_domain::models::snapshot::BoardRunDiffStatus;
+use boardflow_domain::public_ids::{ArtifactId, BoardProjectId, BoardRunId};
 
 use crate::error::{AppError, RequestId};
 use crate::extractors::AuthenticatedSession;
 use crate::github_access::{AccessError, AccessResult, DynGithubAccessChecker};
 use crate::{ArtifactBaseUrl, ArtifactSecret};
-
-// ─── ID prefix helpers ───────────────────────────────────────────────────────
-
-fn format_board_project_id(id: Uuid) -> String {
-    format!("bp_{id}")
-}
-
-fn format_board_run_id(id: Uuid) -> String {
-    format!("br_{id}")
-}
-
-fn format_artifact_id(id: Uuid) -> String {
-    format!("art_{id}")
-}
-
-fn parse_board_project_id(s: &str) -> Option<Uuid> {
-    s.strip_prefix("bp_").and_then(|v| Uuid::parse_str(v).ok())
-}
-
-fn parse_board_run_id(s: &str) -> Option<Uuid> {
-    s.strip_prefix("br_").and_then(|v| Uuid::parse_str(v).ok())
-}
 
 // ─── Cursor encoding/decoding ────────────────────────────────────────────────
 
@@ -137,12 +120,84 @@ fn find_artifact(artifacts: &[Artifact], artifact_type: ArtifactType) -> Option<
         .find(|artifact| artifact.r#type == artifact_type)
 }
 
-fn single_viewer_status(artifact: Option<&Artifact>) -> &'static str {
+fn single_viewer_status(artifact: Option<&Artifact>) -> ViewerAvailabilityStatus {
     match artifact {
-        Some(a) if a.status == ArtifactStatus::Available => "available",
-        Some(a) if a.status == ArtifactStatus::Failed => "failed",
-        Some(a) if a.status == ArtifactStatus::Skipped => "skipped",
-        _ => "missing",
+        Some(a) if a.status == ArtifactStatus::Available => ViewerAvailabilityStatus::Available,
+        Some(a) if a.status == ArtifactStatus::Failed => ViewerAvailabilityStatus::Failed,
+        Some(a) if a.status == ArtifactStatus::Skipped => ViewerAvailabilityStatus::Skipped,
+        _ => ViewerAvailabilityStatus::Missing,
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum BoardProjectState {
+    Detected,
+    Processing,
+    Failed,
+    TimedOut,
+    Completed,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ViewerAvailabilityStatus {
+    Available,
+    Partial,
+    Skipped,
+    Failed,
+    Missing,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ViewerSourceKind {
+    Project,
+    Schematic,
+    Board,
+}
+
+fn parse_board_run_status(status: &str) -> Option<BoardRunStatus> {
+    match status {
+        "created" => Some(BoardRunStatus::Created),
+        "uploading" => Some(BoardRunStatus::Uploading),
+        "importing" => Some(BoardRunStatus::Importing),
+        "completed" => Some(BoardRunStatus::Completed),
+        "failed" => Some(BoardRunStatus::Failed),
+        "timed_out" => Some(BoardRunStatus::TimedOut),
+        _ => None,
+    }
+}
+
+fn check_kind_str(kind: CheckKind) -> &'static str {
+    match kind {
+        CheckKind::Erc => "erc",
+        CheckKind::Drc => "drc",
+    }
+}
+
+fn parse_check_kind(value: &str) -> Option<CheckKind> {
+    match value {
+        "erc" => Some(CheckKind::Erc),
+        "drc" => Some(CheckKind::Drc),
+        _ => None,
+    }
+}
+
+fn finding_severity_str(severity: FindingSeverity) -> &'static str {
+    match severity {
+        FindingSeverity::Error => "error",
+        FindingSeverity::Warning => "warning",
+        FindingSeverity::Notice => "notice",
+    }
+}
+
+fn parse_finding_severity(value: &str) -> Option<FindingSeverity> {
+    match value {
+        "error" => Some(FindingSeverity::Error),
+        "warning" => Some(FindingSeverity::Warning),
+        "notice" => Some(FindingSeverity::Notice),
+        _ => None,
     }
 }
 
@@ -197,7 +252,7 @@ pub struct RepositoryListItem {
     pub name: String,
     pub installation_id: String,
     pub board_project_count: i64,
-    pub latest_run_status: Option<String>,
+    pub latest_run_status: Option<BoardRunStatus>,
     pub updated_at: String,
 }
 
@@ -216,12 +271,12 @@ pub struct RepositoryDetailResponse {
 // BoardProject responses
 #[derive(Debug, Serialize, ToSchema)]
 pub struct BoardProjectListItem {
-    pub board_project_id: String,
+    pub board_project_id: BoardProjectId,
     pub project_path: String,
     pub project_dir: String,
     pub display_name: String,
-    pub state: String,
-    pub latest_completed_run_id: Option<String>,
+    pub state: BoardProjectState,
+    pub latest_completed_run_id: Option<BoardRunId>,
     pub latest_tree_hash: Option<String>,
     pub issue_url: Option<String>,
     pub updated_at: String,
@@ -229,13 +284,13 @@ pub struct BoardProjectListItem {
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct BoardProjectDetailResponse {
-    pub board_project_id: String,
+    pub board_project_id: BoardProjectId,
     pub repository: RepositoryRef,
     pub project_path: String,
     pub project_dir: String,
     pub display_name: String,
-    pub state: String,
-    pub latest_completed_run_id: Option<String>,
+    pub state: BoardProjectState,
+    pub latest_completed_run_id: Option<BoardRunId>,
     pub latest_tree_hash: Option<String>,
     pub issue_number: Option<i32>,
     pub issue_url: Option<String>,
@@ -254,8 +309,8 @@ pub struct RepositoryRef {
 // BoardRun responses
 #[derive(Debug, Serialize, ToSchema)]
 pub struct BoardRunListItem {
-    pub board_run_id: String,
-    pub status: String,
+    pub board_run_id: BoardRunId,
+    pub status: BoardRunStatus,
     pub commit_sha: String,
     pub branch: String,
     #[serde(rename = "ref")]
@@ -263,10 +318,10 @@ pub struct BoardRunListItem {
     pub github_run_id: String,
     pub github_run_attempt: String,
     pub tree_hash: Option<String>,
-    pub erc_status: Option<String>,
+    pub erc_status: Option<CheckStatus>,
     pub erc_errors: i32,
     pub erc_warnings: i32,
-    pub drc_status: Option<String>,
+    pub drc_status: Option<CheckStatus>,
     pub drc_errors: i32,
     pub drc_warnings: i32,
     pub created_at: String,
@@ -275,9 +330,9 @@ pub struct BoardRunListItem {
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct BoardRunDetailResponse {
-    pub board_run_id: String,
-    pub board_project_id: String,
-    pub status: String,
+    pub board_run_id: BoardRunId,
+    pub board_project_id: BoardProjectId,
+    pub status: BoardRunStatus,
     pub commit_sha: String,
     pub branch: String,
     #[serde(rename = "ref")]
@@ -293,8 +348,8 @@ pub struct BoardRunDetailResponse {
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct CheckInfo {
-    pub kind: String,
-    pub status: String,
+    pub kind: CheckKind,
+    pub status: RunCheckStatus,
     pub error_count: i32,
     pub warning_count: i32,
     pub notice_count: i32,
@@ -312,9 +367,9 @@ pub struct ArtifactSummary {
 #[derive(Debug, Serialize, ToSchema)]
 pub struct ArtifactListItem {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub artifact_id: Option<String>,
+    pub artifact_id: Option<ArtifactId>,
     pub r#type: ArtifactType,
-    pub status: String,
+    pub status: ArtifactStatus,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub filename: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -336,7 +391,7 @@ pub struct ArtifactListItem {
 // Viewer Sources responses
 #[derive(Debug, Serialize, ToSchema)]
 pub struct ViewerSourcesResponse {
-    pub board_run_id: String,
+    pub board_run_id: BoardRunId,
     pub expires_at: String,
     pub viewers: ViewerMap,
 }
@@ -344,9 +399,9 @@ pub struct ViewerSourcesResponse {
 // Diff responses
 #[derive(Debug, Serialize, ToSchema)]
 pub struct BoardRunDiffResponse {
-    pub board_run_id: String,
-    pub base_board_run_id: Option<String>,
-    pub status: String,
+    pub board_run_id: BoardRunId,
+    pub base_board_run_id: Option<BoardRunId>,
+    pub status: BoardRunDiffStatus,
     pub summary: Option<serde_json::Value>,
     pub metadata: Option<DiffMetadataResponse>,
     pub error_message: Option<String>,
@@ -379,7 +434,7 @@ pub struct ViewerMap {
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct ViewerStatus {
-    pub status: String,
+    pub status: ViewerAvailabilityStatus,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sources: Option<Vec<ViewerSource>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -393,11 +448,11 @@ pub struct ViewerStatus {
 #[derive(Debug, Serialize, ToSchema)]
 pub struct ViewerSource {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub artifact_id: Option<String>,
+    pub artifact_id: Option<ArtifactId>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub artifact_type: Option<ArtifactType>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub kind: Option<String>,
+    pub kind: Option<ViewerSourceKind>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -409,9 +464,9 @@ pub struct ViewerSource {
 #[derive(Debug, Serialize, ToSchema)]
 pub struct ViewerDownload {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub artifact_id: Option<String>,
+    pub artifact_id: Option<ArtifactId>,
     pub artifact_type: ArtifactType,
-    pub status: String,
+    pub status: ArtifactStatus,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -422,15 +477,17 @@ pub struct ViewerDownload {
 
 fn derive_board_project_state(
     latest_completed_run_id: Option<Uuid>,
-    latest_run_status: Option<&str>,
-) -> &'static str {
+    latest_run_status: Option<BoardRunStatus>,
+) -> BoardProjectState {
     match latest_completed_run_id {
-        Some(_) => "completed",
+        Some(_) => BoardProjectState::Completed,
         None => match latest_run_status {
-            Some("failed") => "failed",
-            Some("timed_out") => "timed_out",
-            Some("created") | Some("uploading") | Some("importing") => "processing",
-            _ => "detected",
+            Some(BoardRunStatus::Failed) => BoardProjectState::Failed,
+            Some(BoardRunStatus::TimedOut) => BoardProjectState::TimedOut,
+            Some(
+                BoardRunStatus::Created | BoardRunStatus::Uploading | BoardRunStatus::Importing,
+            ) => BoardProjectState::Processing,
+            _ => BoardProjectState::Detected,
         },
     }
 }
@@ -486,7 +543,10 @@ pub async fn list_repositories(
             name: r.name.clone(),
             installation_id: r.installation_id.to_string(),
             board_project_count: r.board_project_count,
-            latest_run_status: r.latest_run_status.clone(),
+            latest_run_status: r
+                .latest_run_status
+                .as_deref()
+                .and_then(parse_board_run_status),
             updated_at: r.updated_at.to_rfc3339(),
         })
         .collect();
@@ -625,15 +685,17 @@ pub async fn list_board_projects(
         .map(|bp| {
             let state = derive_board_project_state(
                 bp.latest_completed_run_id,
-                bp.latest_run_status.as_deref(),
+                bp.latest_run_status
+                    .as_deref()
+                    .and_then(parse_board_run_status),
             );
             BoardProjectListItem {
-                board_project_id: format_board_project_id(bp.id),
+                board_project_id: BoardProjectId::from(bp.id),
                 project_path: bp.project_path.clone(),
                 project_dir: bp.project_dir.clone(),
                 display_name: bp.display_name.clone(),
-                state: state.to_string(),
-                latest_completed_run_id: bp.latest_completed_run_id.map(format_board_run_id),
+                state,
+                latest_completed_run_id: bp.latest_completed_run_id.map(BoardRunId::from),
                 latest_tree_hash: bp.latest_tree_hash.clone(),
                 issue_url: bp.issue_url.clone(),
                 updated_at: bp.updated_at.to_rfc3339(),
@@ -676,9 +738,10 @@ pub async fn get_board_project(
     State(pool): State<PgPool>,
     Path(board_project_id): Path<String>,
 ) -> Result<Json<BoardProjectDetailResponse>, AppError> {
-    let id = parse_board_project_id(&board_project_id).ok_or_else(|| {
-        AppError::validation_failed("invalid board_project_id format", &request_id)
-    })?;
+    let id = board_project_id
+        .parse::<BoardProjectId>()
+        .map(BoardProjectId::into_uuid)
+        .map_err(|_| AppError::validation_failed("invalid board_project_id format", &request_id))?;
 
     let row = boardflow_db::queries::board_project::find_by_id_with_repository(&pool, id)
         .await
@@ -710,11 +773,15 @@ pub async fn get_board_project(
             AppError::internal_error("database error", &request_id)
         })?;
 
-    let state =
-        derive_board_project_state(row.latest_completed_run_id, latest_run_status.as_deref());
+    let state = derive_board_project_state(
+        row.latest_completed_run_id,
+        latest_run_status
+            .as_deref()
+            .and_then(parse_board_run_status),
+    );
 
     Ok(Json(BoardProjectDetailResponse {
-        board_project_id: format_board_project_id(row.id),
+        board_project_id: BoardProjectId::from(row.id),
         repository: RepositoryRef {
             github_repository_id: row.github_repository_id.to_string(),
             owner: row.repo_owner,
@@ -723,8 +790,8 @@ pub async fn get_board_project(
         project_path: row.project_path,
         project_dir: row.project_dir,
         display_name: row.display_name,
-        state: state.to_string(),
-        latest_completed_run_id: row.latest_completed_run_id.map(format_board_run_id),
+        state,
+        latest_completed_run_id: row.latest_completed_run_id.map(BoardRunId::from),
         latest_tree_hash: row.latest_tree_hash,
         issue_number: row.issue_number,
         issue_url: row.issue_url,
@@ -757,9 +824,10 @@ pub async fn list_board_runs(
     Path(board_project_id): Path<String>,
     Query(params): Query<PaginationParams>,
 ) -> Result<Json<PaginatedResponse<BoardRunListItem>>, AppError> {
-    let bp_id = parse_board_project_id(&board_project_id).ok_or_else(|| {
-        AppError::validation_failed("invalid board_project_id format", &request_id)
-    })?;
+    let bp_id = board_project_id
+        .parse::<BoardProjectId>()
+        .map(BoardProjectId::into_uuid)
+        .map_err(|_| AppError::validation_failed("invalid board_project_id format", &request_id))?;
 
     // Verify board_project exists and check repository access
     let repo =
@@ -794,18 +862,18 @@ pub async fn list_board_runs(
         .iter()
         .take(limit as usize)
         .map(|r| BoardRunListItem {
-            board_run_id: format_board_run_id(r.id),
-            status: format!("{:?}", r.status).to_lowercase(),
+            board_run_id: BoardRunId::from(r.id),
+            status: r.status,
             commit_sha: r.commit_sha.clone(),
             branch: r.branch.clone(),
             ref_: r.r#ref.clone(),
             github_run_id: r.github_run_id.to_string(),
             github_run_attempt: r.github_run_attempt.to_string(),
             tree_hash: r.tree_hash.clone(),
-            erc_status: r.erc_status.map(|s| format!("{:?}", s).to_lowercase()),
+            erc_status: r.erc_status,
             erc_errors: r.erc_errors,
             erc_warnings: r.erc_warnings,
-            drc_status: r.drc_status.map(|s| format!("{:?}", s).to_lowercase()),
+            drc_status: r.drc_status,
             drc_errors: r.drc_errors,
             drc_warnings: r.drc_warnings,
             created_at: r.created_at.to_rfc3339(),
@@ -848,8 +916,10 @@ pub async fn get_board_run(
     State(pool): State<PgPool>,
     Path(board_run_id): Path<String>,
 ) -> Result<Json<BoardRunDetailResponse>, AppError> {
-    let id = parse_board_run_id(&board_run_id)
-        .ok_or_else(|| AppError::validation_failed("invalid board_run_id format", &request_id))?;
+    let id = board_run_id
+        .parse::<BoardRunId>()
+        .map(BoardRunId::into_uuid)
+        .map_err(|_| AppError::validation_failed("invalid board_run_id format", &request_id))?;
 
     // Check repository access via board_run → board_project → repository
     let repo = boardflow_db::queries::board_run::find_repository_by_board_run_id(&pool, id)
@@ -892,8 +962,8 @@ pub async fn get_board_run(
     let check_infos: Vec<CheckInfo> = checks
         .iter()
         .map(|c| CheckInfo {
-            kind: format!("{:?}", c.check_kind).to_lowercase(),
-            status: format!("{:?}", c.status).to_lowercase(),
+            kind: c.check_kind,
+            status: c.status,
             error_count: c.error_count,
             warning_count: c.warning_count,
             notice_count: c.notice_count,
@@ -920,9 +990,9 @@ pub async fn get_board_run(
     };
 
     Ok(Json(BoardRunDetailResponse {
-        board_run_id: format_board_run_id(run.id),
-        board_project_id: format_board_project_id(run.board_project_id),
-        status: format!("{:?}", run.status).to_lowercase(),
+        board_run_id: BoardRunId::from(run.id),
+        board_project_id: BoardProjectId::from(run.board_project_id),
+        status: run.status,
         commit_sha: run.commit_sha,
         branch: run.branch,
         ref_: run.r#ref,
@@ -960,8 +1030,10 @@ pub async fn list_artifacts(
     State(pool): State<PgPool>,
     Path(board_run_id): Path<String>,
 ) -> Result<Json<ArtifactListResponse>, AppError> {
-    let id = parse_board_run_id(&board_run_id)
-        .ok_or_else(|| AppError::validation_failed("invalid board_run_id format", &request_id))?;
+    let id = board_run_id
+        .parse::<BoardRunId>()
+        .map(BoardRunId::into_uuid)
+        .map_err(|_| AppError::validation_failed("invalid board_run_id format", &request_id))?;
 
     // Check repository access via board_run → board_project → repository
     let repo = boardflow_db::queries::board_run::find_repository_by_board_run_id(&pool, id)
@@ -992,12 +1064,12 @@ pub async fn list_artifacts(
             let is_available = a.status == ArtifactStatus::Available;
             ArtifactListItem {
                 artifact_id: if is_available {
-                    Some(format_artifact_id(a.id))
+                    Some(ArtifactId::from(a.id))
                 } else {
                     None
                 },
                 r#type: a.r#type,
-                status: format!("{:?}", a.status).to_lowercase(),
+                status: a.status,
                 filename: if is_available {
                     a.filename.clone()
                 } else {
@@ -1046,8 +1118,10 @@ pub async fn get_viewer_sources(
     State(pool): State<PgPool>,
     Path(board_run_id): Path<String>,
 ) -> Result<Json<ViewerSourcesResponse>, AppError> {
-    let id = parse_board_run_id(&board_run_id)
-        .ok_or_else(|| AppError::validation_failed("invalid board_run_id format", &request_id))?;
+    let id = board_run_id
+        .parse::<BoardRunId>()
+        .map(BoardRunId::into_uuid)
+        .map_err(|_| AppError::validation_failed("invalid board_run_id format", &request_id))?;
 
     // Check repository access via board_run → board_project → repository
     let repo = boardflow_db::queries::board_run::find_repository_by_board_run_id(&pool, id)
@@ -1090,7 +1164,7 @@ pub async fn get_viewer_sources(
         format!(
             "{}/proxy/artifacts/{}?token={}",
             artifact_base_url.0,
-            format_artifact_id(a.id),
+            ArtifactId::from(a.id),
             token
         )
     };
@@ -1112,9 +1186,9 @@ pub async fn get_viewer_sources(
             let mut srcs = Vec::new();
             if let Some(a) = pro.filter(|a| a.status == ArtifactStatus::Available) {
                 srcs.push(ViewerSource {
-                    artifact_id: Some(format_artifact_id(a.id)),
+                    artifact_id: Some(ArtifactId::from(a.id)),
                     artifact_type: None,
-                    kind: Some("project".to_string()),
+                    kind: Some(ViewerSourceKind::Project),
                     name: a.filename.clone(),
                     source_path: a.source_path.clone(),
                     url: Some(proxy_url(a)),
@@ -1122,9 +1196,9 @@ pub async fn get_viewer_sources(
             }
             if let Some(a) = sch.filter(|a| a.status == ArtifactStatus::Available) {
                 srcs.push(ViewerSource {
-                    artifact_id: Some(format_artifact_id(a.id)),
+                    artifact_id: Some(ArtifactId::from(a.id)),
                     artifact_type: None,
-                    kind: Some("schematic".to_string()),
+                    kind: Some(ViewerSourceKind::Schematic),
                     name: a.filename.clone(),
                     source_path: a.source_path.clone(),
                     url: Some(proxy_url(a)),
@@ -1132,9 +1206,9 @@ pub async fn get_viewer_sources(
             }
             if let Some(a) = pcb.filter(|a| a.status == ArtifactStatus::Available) {
                 srcs.push(ViewerSource {
-                    artifact_id: Some(format_artifact_id(a.id)),
+                    artifact_id: Some(ArtifactId::from(a.id)),
                     artifact_type: None,
-                    kind: Some("board".to_string()),
+                    kind: Some(ViewerSourceKind::Board),
                     name: a.filename.clone(),
                     source_path: a.source_path.clone(),
                     url: Some(proxy_url(a)),
@@ -1161,7 +1235,7 @@ pub async fn get_viewer_sources(
         let primary = pdf
             .filter(|a| a.status == ArtifactStatus::Available)
             .map(|a| ViewerSource {
-                artifact_id: Some(format_artifact_id(a.id)),
+                artifact_id: Some(ArtifactId::from(a.id)),
                 artifact_type: Some(ArtifactType::SchematicPdf),
                 kind: None,
                 name: None,
@@ -1169,7 +1243,7 @@ pub async fn get_viewer_sources(
                 url: Some(proxy_url(a)),
             });
         ViewerStatus {
-            status: status.to_string(),
+            status,
             sources: None,
             primary,
             iframe_url: None,
@@ -1192,7 +1266,7 @@ pub async fn get_viewer_sources(
             let mut srcs = Vec::new();
             if let Some(a) = top.filter(|a| a.status == ArtifactStatus::Available) {
                 srcs.push(ViewerSource {
-                    artifact_id: Some(format_artifact_id(a.id)),
+                    artifact_id: Some(ArtifactId::from(a.id)),
                     artifact_type: Some(ArtifactType::PcbTopSvg),
                     kind: None,
                     name: None,
@@ -1202,7 +1276,7 @@ pub async fn get_viewer_sources(
             }
             if let Some(a) = bottom.filter(|a| a.status == ArtifactStatus::Available) {
                 srcs.push(ViewerSource {
-                    artifact_id: Some(format_artifact_id(a.id)),
+                    artifact_id: Some(ArtifactId::from(a.id)),
                     artifact_type: Some(ArtifactType::PcbBottomSvg),
                     kind: None,
                     name: None,
@@ -1232,7 +1306,7 @@ pub async fn get_viewer_sources(
             .filter(|a| a.status == ArtifactStatus::Available)
             .map(proxy_url);
         ViewerStatus {
-            status: status.to_string(),
+            status,
             sources: None,
             primary: None,
             iframe_url,
@@ -1248,15 +1322,15 @@ pub async fn get_viewer_sources(
             .filter(|a| a.status == ArtifactStatus::Available)
             .map(|a| {
                 vec![ViewerDownload {
-                    artifact_id: Some(format_artifact_id(a.id)),
+                    artifact_id: Some(ArtifactId::from(a.id)),
                     artifact_type: ArtifactType::BomCsv,
-                    status: "available".to_string(),
+                    status: ArtifactStatus::Available,
                     url: Some(proxy_url(a)),
                     status_reason: None,
                 }]
             });
         ViewerStatus {
-            status: status.to_string(),
+            status,
             sources: None,
             primary: None,
             iframe_url: None,
@@ -1279,9 +1353,9 @@ pub async fn get_viewer_sources(
         match gerber {
             Some(a) if a.status == ArtifactStatus::Available => {
                 downloads.push(ViewerDownload {
-                    artifact_id: Some(format_artifact_id(a.id)),
+                    artifact_id: Some(ArtifactId::from(a.id)),
                     artifact_type: ArtifactType::GerberZip,
-                    status: "available".to_string(),
+                    status: ArtifactStatus::Available,
                     url: Some(proxy_url(a)),
                     status_reason: None,
                 });
@@ -1290,7 +1364,7 @@ pub async fn get_viewer_sources(
                 downloads.push(ViewerDownload {
                     artifact_id: None,
                     artifact_type: ArtifactType::GerberZip,
-                    status: format!("{:?}", a.status).to_lowercase(),
+                    status: a.status,
                     url: None,
                     status_reason: a.status_reason.clone(),
                 });
@@ -1299,7 +1373,7 @@ pub async fn get_viewer_sources(
                 downloads.push(ViewerDownload {
                     artifact_id: None,
                     artifact_type: ArtifactType::GerberZip,
-                    status: "missing".to_string(),
+                    status: ArtifactStatus::Missing,
                     url: None,
                     status_reason: None,
                 });
@@ -1308,9 +1382,9 @@ pub async fn get_viewer_sources(
         match drill {
             Some(a) if a.status == ArtifactStatus::Available => {
                 downloads.push(ViewerDownload {
-                    artifact_id: Some(format_artifact_id(a.id)),
+                    artifact_id: Some(ArtifactId::from(a.id)),
                     artifact_type: ArtifactType::DrillZip,
-                    status: "available".to_string(),
+                    status: ArtifactStatus::Available,
                     url: Some(proxy_url(a)),
                     status_reason: None,
                 });
@@ -1319,7 +1393,7 @@ pub async fn get_viewer_sources(
                 downloads.push(ViewerDownload {
                     artifact_id: None,
                     artifact_type: ArtifactType::DrillZip,
-                    status: format!("{:?}", a.status).to_lowercase(),
+                    status: a.status,
                     url: None,
                     status_reason: a.status_reason.clone(),
                 });
@@ -1328,7 +1402,7 @@ pub async fn get_viewer_sources(
                 downloads.push(ViewerDownload {
                     artifact_id: None,
                     artifact_type: ArtifactType::DrillZip,
-                    status: "missing".to_string(),
+                    status: ArtifactStatus::Missing,
                     url: None,
                     status_reason: None,
                 });
@@ -1345,7 +1419,7 @@ pub async fn get_viewer_sources(
     };
 
     Ok(Json(ViewerSourcesResponse {
-        board_run_id: format_board_run_id(id),
+        board_run_id: BoardRunId::from(id),
         expires_at: expires_at.to_rfc3339(),
         viewers: ViewerMap {
             kicanvas,
@@ -1364,27 +1438,27 @@ fn viewer_status(
     available_count: usize,
     required_count: usize,
     artifacts: &[Option<&Artifact>],
-) -> String {
+) -> ViewerAvailabilityStatus {
     if available_count == required_count {
-        "available".to_string()
+        ViewerAvailabilityStatus::Available
     } else if available_count > 0 {
-        "partial".to_string()
+        ViewerAvailabilityStatus::Partial
     } else {
         // Check if all are skipped
         let all_skipped = artifacts
             .iter()
             .all(|a| a.is_some_and(|art| art.status == ArtifactStatus::Skipped));
         if all_skipped && artifacts.iter().any(|a| a.is_some()) {
-            return "skipped".to_string();
+            return ViewerAvailabilityStatus::Skipped;
         }
         // Check if any are failed
         let has_failed = artifacts
             .iter()
             .any(|a| a.is_some_and(|art| art.status == ArtifactStatus::Failed));
         if has_failed {
-            "failed".to_string()
+            ViewerAvailabilityStatus::Failed
         } else {
-            "missing".to_string()
+            ViewerAvailabilityStatus::Missing
         }
     }
 }
@@ -1411,8 +1485,10 @@ pub async fn get_board_run_diff(
     State(pool): State<PgPool>,
     Path(board_run_id): Path<String>,
 ) -> Result<Json<BoardRunDiffResponse>, AppError> {
-    let id = parse_board_run_id(&board_run_id)
-        .ok_or_else(|| AppError::validation_failed("invalid board_run_id format", &request_id))?;
+    let id = board_run_id
+        .parse::<BoardRunId>()
+        .map(BoardRunId::into_uuid)
+        .map_err(|_| AppError::validation_failed("invalid board_run_id format", &request_id))?;
 
     // Check repository access via board_run → board_project → repository
     let repo = boardflow_db::queries::board_run::find_repository_by_board_run_id(&pool, id)
@@ -1455,17 +1531,10 @@ pub async fn get_board_run_diff(
         previews: m.previews_json,
     });
 
-    let status_str = match diff.status {
-        boardflow_domain::models::snapshot::BoardRunDiffStatus::Ready => "ready",
-        boardflow_domain::models::snapshot::BoardRunDiffStatus::NoBaseline => "no_baseline",
-        boardflow_domain::models::snapshot::BoardRunDiffStatus::Unavailable => "unavailable",
-        boardflow_domain::models::snapshot::BoardRunDiffStatus::Failed => "failed",
-    };
-
     Ok(Json(BoardRunDiffResponse {
-        board_run_id: format_board_run_id(id),
-        base_board_run_id: diff.base_board_run_id.map(format_board_run_id),
-        status: status_str.to_string(),
+        board_run_id: BoardRunId::from(id),
+        base_board_run_id: diff.base_board_run_id.map(BoardRunId::from),
+        status: diff.status,
         summary: diff.summary_json,
         metadata: metadata_response,
         error_message: diff.error_message,
@@ -1512,11 +1581,11 @@ pub struct FindingsQueryParams {
 #[derive(Debug, Serialize, ToSchema)]
 pub struct FindingListItem {
     pub id: String,
-    pub severity: String,
+    pub severity: FindingSeverity,
     pub rule_code: Option<String>,
     pub title: Option<String>,
     pub message: Option<String>,
-    pub subject_kind: Option<String>,
+    pub subject_kind: Option<SubjectKind>,
     pub subject_ref: Option<String>,
     pub sheet_path: Option<String>,
     pub pcb_layer: Option<String>,
@@ -1556,16 +1625,20 @@ pub async fn list_findings(
     Query(params): Query<FindingsQueryParams>,
 ) -> Result<Json<PaginatedResponse<FindingListItem>>, AppError> {
     // 1. Parse board_run_id
-    let br_id = parse_board_run_id(&board_run_id)
-        .ok_or_else(|| AppError::validation_failed("invalid board_run_id format", &request_id))?;
+    let br_id = board_run_id
+        .parse::<BoardRunId>()
+        .map(BoardRunId::into_uuid)
+        .map_err(|_| AppError::validation_failed("invalid board_run_id format", &request_id))?;
 
     // 2. Validate check_kind
-    if check_kind != "erc" && check_kind != "drc" {
+    let check_kind = if let Some(check_kind) = parse_check_kind(&check_kind) {
+        check_kind
+    } else {
         return Err(AppError::validation_failed(
             "check_kind must be 'erc' or 'drc'",
             &request_id,
         ));
-    }
+    };
 
     // 3. Validate cursor (must reject invalid cursor before any early-return path)
     let limit = params.limit.unwrap_or(50).clamp(1, 100);
@@ -1578,16 +1651,15 @@ pub async fn list_findings(
     };
 
     // 4. Validate severity if provided
-    if let Some(ref sev) = params.severity
-        && sev != "error"
-        && sev != "warning"
-        && sev != "notice"
-    {
-        return Err(AppError::validation_failed(
-            "severity must be 'error', 'warning', or 'notice'",
-            &request_id,
-        ));
-    }
+    let severity = match params.severity.as_deref() {
+        Some(sev) => Some(parse_finding_severity(sev).ok_or_else(|| {
+            AppError::validation_failed(
+                "severity must be 'error', 'warning', or 'notice'",
+                &request_id,
+            )
+        })?),
+        None => None,
+    };
 
     // 5. Check repository access (same pattern as get_board_run)
     let repo = boardflow_db::queries::board_run::find_repository_by_board_run_id(&pool, br_id)
@@ -1606,13 +1678,16 @@ pub async fn list_findings(
     }
 
     // 6. Find run_check by board_run_id + check_kind
-    let run_check =
-        boardflow_db::queries::run_check::find_by_board_run_and_kind(&pool, br_id, &check_kind)
-            .await
-            .map_err(|e| {
-                tracing::error!("list_findings run_check lookup failed: {e}");
-                AppError::internal_error("database error", &request_id)
-            })?;
+    let run_check = boardflow_db::queries::run_check::find_by_board_run_and_kind(
+        &pool,
+        br_id,
+        check_kind_str(check_kind),
+    )
+    .await
+    .map_err(|e| {
+        tracing::error!("list_findings run_check lookup failed: {e}");
+        AppError::internal_error("database error", &request_id)
+    })?;
 
     // If run_check not found, return empty list (not 404)
     let run_check = match run_check {
@@ -1632,7 +1707,7 @@ pub async fn list_findings(
         run_check.id,
         limit + 1,
         cursor,
-        params.severity.as_deref(),
+        severity.map(finding_severity_str),
     )
     .await
     .map_err(|e| {
@@ -1654,27 +1729,13 @@ pub async fn list_findings(
                 _ => None,
             };
 
-            let severity_str = match f.severity {
-                FindingSeverity::Error => "error",
-                FindingSeverity::Warning => "warning",
-                FindingSeverity::Notice => "notice",
-            };
-
-            let subject_kind_str = f.subject_kind.map(|sk| match sk {
-                SubjectKind::Schematic => "schematic",
-                SubjectKind::Pcb => "pcb",
-                SubjectKind::Net => "net",
-                SubjectKind::Footprint => "footprint",
-                SubjectKind::Symbol => "symbol",
-            });
-
             FindingListItem {
                 id: f.id.to_string(),
-                severity: severity_str.to_string(),
+                severity: f.severity,
                 rule_code: f.rule_code.clone(),
                 title: f.title.clone(),
                 message: f.message.clone(),
-                subject_kind: subject_kind_str.map(|s| s.to_string()),
+                subject_kind: f.subject_kind,
                 subject_ref: f.subject_ref.clone(),
                 sheet_path: f.sheet_path.clone(),
                 pcb_layer: f.pcb_layer.clone(),

@@ -5,18 +5,13 @@ use axum::http::Response;
 use axum::http::header::{self, HeaderMap, HeaderValue};
 use serde::Deserialize;
 use sqlx::PgPool;
-use uuid::Uuid;
 
 use boardflow_domain::models::artifact::{ArtifactStatus, ArtifactType};
+use boardflow_domain::public_ids::ArtifactId;
 
 use crate::artifact_token::verify_artifact_token;
 use crate::error::{AppError, ErrorCode, RequestId};
 use crate::{AppDomain, ArtifactSecret, FinalBucket};
-
-/// Parse artifact_id from path parameter, expecting `art_` prefix.
-fn parse_artifact_id(s: &str) -> Option<Uuid> {
-    s.strip_prefix("art_").and_then(|v| Uuid::parse_str(v).ok())
-}
 
 #[derive(Debug, Deserialize)]
 pub struct ProxyQuery {
@@ -50,13 +45,16 @@ pub async fn get_artifact(
         .ok_or_else(|| AppError::unauthorized("invalid or expired token", &request_id))?;
 
     // Parse artifact_id from path (expects art_ prefix per viewer-sources URL format)
-    let artifact_id = parse_artifact_id(&artifact_id_str).ok_or_else(|| {
-        AppError::new(
-            ErrorCode::ValidationFailed,
-            "invalid artifact_id format",
-            &request_id,
-        )
-    })?;
+    let artifact_id = artifact_id_str
+        .parse::<ArtifactId>()
+        .map(ArtifactId::into_uuid)
+        .map_err(|_| {
+            AppError::new(
+                ErrorCode::ValidationFailed,
+                "invalid artifact_id format",
+                &request_id,
+            )
+        })?;
 
     // Verify token's artifact_id matches the URL path artifact_id
     if token_artifact_id != artifact_id {

@@ -1,4 +1,6 @@
+use boardflow_domain::public_ids::BoardRunId;
 use std::time::Duration;
+use uuid::Uuid;
 use wiremock::matchers::{header, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -8,6 +10,15 @@ mod api;
 mod error;
 
 use api::ApiClient;
+use boardflow_api_types::board_run::CreateBoardRunStatus;
+
+fn sample_board_project_id() -> &'static str {
+    "bp_123e4567-e89b-12d3-a456-426614174000"
+}
+
+fn sample_board_run_id() -> BoardRunId {
+    BoardRunId::from(Uuid::parse_str("123e4567-e89b-12d3-a456-426614174111").unwrap())
+}
 
 #[tokio::test]
 async fn test_plan_api_success() {
@@ -18,7 +29,7 @@ async fn test_plan_api_success() {
         .and(header("Authorization", "Bearer test-token"))
         .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
             "projects": [
-                {"project_path": "board/board.kicad_pro", "decision": "build", "board_project_id": "proj-1", "reason": "new_project"},
+                {"project_path": "board/board.kicad_pro", "decision": "build", "board_project_id": "bp_123e4567-e89b-12d3-a456-426614174000", "reason": "new_project"},
                 {"project_path": "other/other.kicad_pro", "decision": "skip", "board_project_id": "", "reason": "unchanged"}
             ]
         })))
@@ -36,7 +47,10 @@ async fn test_plan_api_success() {
         decisions[0].decision,
         boardflow_api_types::plan::PlanDecision::Build
     ));
-    assert_eq!(decisions[0].board_project_id, "proj-1");
+    assert_eq!(
+        decisions[0].board_project_id.map(|id| id.to_string()),
+        Some(sample_board_project_id().to_string())
+    );
     assert!(matches!(
         decisions[1].decision,
         boardflow_api_types::plan::PlanDecision::Skip
@@ -112,8 +126,8 @@ async fn test_create_board_run() {
     Mock::given(method("POST"))
         .and(path("/api/v1/board-runs"))
         .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-            "board_run_id": "run-123",
-            "status": "pending",
+            "board_run_id": "br_123e4567-e89b-12d3-a456-426614174111",
+            "status": "created",
             "artifact_bundle": {
                 "upload_mode": "staging_s3",
                 "upload_url": "https://s3.example.com/upload",
@@ -126,10 +140,10 @@ async fn test_create_board_run() {
         .await;
 
     let client = ApiClient::new(&mock_server.uri(), "tok");
-    let payload = serde_json::json!({"board_project_id": "proj-1"});
+    let payload = serde_json::json!({"board_project_id": sample_board_project_id()});
     let resp = client.create_board_run(&payload).await.unwrap();
-    assert_eq!(resp.board_run_id, "run-123");
-    assert_eq!(resp.status, "pending");
+    assert_eq!(resp.board_run_id, sample_board_run_id());
+    assert_eq!(resp.status, CreateBoardRunStatus::Created);
     let bundle = resp.artifact_bundle.unwrap();
     assert_eq!(bundle.upload_url, "https://s3.example.com/upload");
     assert_eq!(bundle.object_key, "bundles/run-123.zip");
@@ -140,7 +154,9 @@ async fn test_import_api() {
     let mock_server = MockServer::start().await;
 
     Mock::given(method("POST"))
-        .and(path("/api/v1/board-runs/run-abc/artifact-bundles/import"))
+        .and(path(
+            "/api/v1/board-runs/br_123e4567-e89b-12d3-a456-426614174111/artifact-bundles/import",
+        ))
         .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({"ok": true})))
         .expect(1)
         .mount(&mock_server)
@@ -148,7 +164,10 @@ async fn test_import_api() {
 
     let client = ApiClient::new(&mock_server.uri(), "tok");
     let payload = serde_json::json!({"staging_object_key": "key", "bundle_sha256": "sha256:abc"});
-    client.import("run-abc", &payload).await.unwrap();
+    client
+        .import(sample_board_run_id(), &payload)
+        .await
+        .unwrap();
 }
 
 #[tokio::test]
@@ -156,7 +175,9 @@ async fn test_fail_api() {
     let mock_server = MockServer::start().await;
 
     Mock::given(method("POST"))
-        .and(path("/api/v1/board-runs/run-xyz/fail"))
+        .and(path(
+            "/api/v1/board-runs/br_123e4567-e89b-12d3-a456-426614174111/fail",
+        ))
         .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({"ok": true})))
         .expect(1)
         .mount(&mock_server)
@@ -164,7 +185,7 @@ async fn test_fail_api() {
 
     let client = ApiClient::new(&mock_server.uri(), "tok");
     client
-        .fail("run-xyz", "error msg", "details here")
+        .fail(sample_board_run_id(), "error msg", "details here")
         .await
         .unwrap();
 }
@@ -208,7 +229,7 @@ async fn test_create_board_run_idempotent_no_bundle() {
     Mock::given(method("POST"))
         .and(path("/api/v1/board-runs"))
         .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-            "board_run_id": "br_existing-run",
+            "board_run_id": "br_123e4567-e89b-12d3-a456-426614174112",
             "status": "completed",
             "artifact_bundle": null
         })))
@@ -217,9 +238,12 @@ async fn test_create_board_run_idempotent_no_bundle() {
         .await;
 
     let client = ApiClient::new(&mock_server.uri(), "tok");
-    let payload = serde_json::json!({"board_project_id": "proj-1"});
+    let payload = serde_json::json!({"board_project_id": sample_board_project_id()});
     let resp = client.create_board_run(&payload).await.unwrap();
-    assert_eq!(resp.board_run_id, "br_existing-run");
-    assert_eq!(resp.status, "completed");
+    assert_eq!(
+        resp.board_run_id,
+        BoardRunId::from(Uuid::parse_str("123e4567-e89b-12d3-a456-426614174112").unwrap())
+    );
+    assert_eq!(resp.status, CreateBoardRunStatus::Completed);
     assert!(resp.artifact_bundle.is_none());
 }

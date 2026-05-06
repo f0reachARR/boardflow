@@ -1,5 +1,6 @@
 use boardflow_db::queries::{board_project, github_job};
 use boardflow_domain::models::github_job::GithubJob;
+use boardflow_domain::public_ids::{BoardProjectId, BoardRunId};
 use boardflow_github::{GitHubAppClient, GitHubClientError};
 use sqlx::PgPool;
 
@@ -49,9 +50,9 @@ pub async fn handle(
     let body = comment_body::issue_body(
         bp.github_repository_id,
         &bp.project_path,
-        board_project_id,
+        BoardProjectId::from(board_project_id),
         &config.app_domain,
-        bp.latest_completed_run_id,
+        bp.latest_completed_run_id.map(BoardRunId::from),
     );
 
     // Phase 2: Call GitHub API (no DB lock held, avoiding long lock hold).
@@ -140,7 +141,7 @@ pub async fn handle(
         job.repository_id,
         job.board_project_id,
         job.board_run_id,
-        "create_dashboard_comment",
+        boardflow_domain::models::github_job::GithubJobType::CreateDashboardComment,
         &serde_json::json!({}),
     )
     .await
@@ -196,7 +197,7 @@ fn handle_github_error(e: GitHubClientError, attempts: i32) -> HandlerResult {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use boardflow_domain::models::github_job::{GithubJob, GithubJobStatus};
+    use boardflow_domain::models::github_job::{GithubJob, GithubJobStatus, GithubJobType};
     use chrono::Utc;
     use uuid::Uuid;
 
@@ -207,7 +208,7 @@ mod tests {
             repository_id: Uuid::now_v7(),
             board_project_id,
             board_run_id: Some(Uuid::now_v7()),
-            r#type: "create_issue".into(),
+            r#type: GithubJobType::CreateIssue,
             payload_json: serde_json::json!({}),
             status: GithubJobStatus::Running,
             attempts: 1,

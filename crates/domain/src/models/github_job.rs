@@ -1,13 +1,45 @@
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, sqlx::Type)]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    serde::Serialize,
+    serde::Deserialize,
+    sqlx::Type,
+    utoipa::ToSchema,
+)]
 #[sqlx(type_name = "text", rename_all = "snake_case")]
+#[serde(rename_all = "snake_case")]
 pub enum GithubJobStatus {
     Pending,
     Running,
     Completed,
     Failed,
+}
+
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    serde::Serialize,
+    serde::Deserialize,
+    sqlx::Type,
+    utoipa::ToSchema,
+)]
+#[sqlx(type_name = "text", rename_all = "snake_case")]
+#[serde(rename_all = "snake_case")]
+pub enum GithubJobType {
+    ArtifactBundleImport,
+    CreateIssue,
+    CreateDashboardComment,
+    UpdateDashboardComment,
+    CreateRunResultComment,
 }
 
 #[derive(Debug, Clone, sqlx::FromRow, serde::Serialize, serde::Deserialize)]
@@ -17,7 +49,7 @@ pub struct GithubJob {
     pub repository_id: Uuid,
     pub board_project_id: Option<Uuid>,
     pub board_run_id: Option<Uuid>,
-    pub r#type: String,
+    pub r#type: GithubJobType,
     pub payload_json: serde_json::Value,
     pub status: GithubJobStatus,
     pub attempts: i32,

@@ -363,15 +363,23 @@ export interface components {
       items: components['schemas']['ApiTokenListItem'][];
       next_cursor?: string | null;
     };
+    /** @example ab_123e4567-e89b-12d3-a456-426614174000 */
+    ArtifactBundleId: string;
     ArtifactBundleInfo: {
       expires_at: string;
-      method: string;
+      method: components['schemas']['ArtifactBundleUploadMethod'];
       object_key: string;
-      upload_mode: string;
+      upload_mode: components['schemas']['ArtifactBundleUploadMode'];
       upload_url: string;
     };
+    /** @enum {string} */
+    ArtifactBundleUploadMethod: 'PUT';
+    /** @enum {string} */
+    ArtifactBundleUploadMode: 'staging_s3';
+    /** @example art_123e4567-e89b-12d3-a456-426614174000 */
+    ArtifactId: string;
     ArtifactListItem: {
-      artifact_id?: string | null;
+      artifact_id?: null | components['schemas']['ArtifactId'];
       content_type?: string | null;
       created_at?: string | null;
       filename?: string | null;
@@ -380,13 +388,15 @@ export interface components {
       /** Format: int64 */
       size_bytes?: number | null;
       source_path?: string | null;
-      status: string;
+      status: components['schemas']['ArtifactStatus'];
       status_reason?: string | null;
       type: components['schemas']['ArtifactType'];
     };
     ArtifactListResponse: {
       items: components['schemas']['ArtifactListItem'][];
     };
+    /** @enum {string} */
+    ArtifactStatus: 'available' | 'missing' | 'failed' | 'skipped';
     ArtifactSummary: {
       /** Format: int64 */
       available: number;
@@ -418,36 +428,40 @@ export interface components {
       | 'erc_report'
       | 'drc_report';
     BoardProjectDetailResponse: {
-      board_project_id: string;
+      board_project_id: components['schemas']['BoardProjectId'];
       created_at: string;
       display_name: string;
       /** Format: int32 */
       issue_number?: number | null;
       issue_url?: string | null;
-      latest_completed_run_id?: string | null;
+      latest_completed_run_id?: null | components['schemas']['BoardRunId'];
       latest_tree_hash?: string | null;
       project_dir: string;
       project_path: string;
       recreate_issue_on_update: boolean;
       repository: components['schemas']['RepositoryRef'];
-      state: string;
+      state: components['schemas']['BoardProjectState'];
       updated_at: string;
     };
+    /** @example bp_123e4567-e89b-12d3-a456-426614174000 */
+    BoardProjectId: string;
     BoardProjectListItem: {
-      board_project_id: string;
+      board_project_id: components['schemas']['BoardProjectId'];
       display_name: string;
       issue_url?: string | null;
-      latest_completed_run_id?: string | null;
+      latest_completed_run_id?: null | components['schemas']['BoardRunId'];
       latest_tree_hash?: string | null;
       project_dir: string;
       project_path: string;
-      state: string;
+      state: components['schemas']['BoardProjectState'];
       updated_at: string;
     };
+    /** @enum {string} */
+    BoardProjectState: 'detected' | 'processing' | 'failed' | 'timed_out' | 'completed';
     BoardRunDetailResponse: {
       artifact_summary: components['schemas']['ArtifactSummary'];
-      board_project_id: string;
-      board_run_id: string;
+      board_project_id: components['schemas']['BoardProjectId'];
+      board_run_id: components['schemas']['BoardRunId'];
       branch: string;
       checks: components['schemas']['CheckInfo'][];
       commit_sha: string;
@@ -456,50 +470,60 @@ export interface components {
       github_run_attempt: string;
       github_run_id: string;
       ref: string;
-      status: string;
+      status: components['schemas']['BoardRunStatus'];
       tree_hash?: string | null;
     };
     BoardRunDiffResponse: {
-      base_board_run_id?: string | null;
-      board_run_id: string;
+      base_board_run_id?: null | components['schemas']['BoardRunId'];
+      board_run_id: components['schemas']['BoardRunId'];
       created_at: string;
       error_message?: string | null;
       metadata?: null | components['schemas']['DiffMetadataResponse'];
-      status: string;
+      status: components['schemas']['BoardRunDiffStatus'];
       summary?: unknown;
     };
+    /** @enum {string} */
+    BoardRunDiffStatus: 'ready' | 'no_baseline' | 'unavailable' | 'failed';
+    /** @example br_123e4567-e89b-12d3-a456-426614174000 */
+    BoardRunId: string;
     BoardRunListItem: {
-      board_run_id: string;
+      board_run_id: components['schemas']['BoardRunId'];
       branch: string;
       commit_sha: string;
       completed_at?: string | null;
       created_at: string;
       /** Format: int32 */
       drc_errors: number;
-      drc_status?: string | null;
+      drc_status?: null | components['schemas']['CheckStatus'];
       /** Format: int32 */
       drc_warnings: number;
       /** Format: int32 */
       erc_errors: number;
-      erc_status?: string | null;
+      erc_status?: null | components['schemas']['CheckStatus'];
       /** Format: int32 */
       erc_warnings: number;
       github_run_attempt: string;
       github_run_id: string;
       ref: string;
-      status: string;
+      status: components['schemas']['BoardRunStatus'];
       tree_hash?: string | null;
     };
+    /** @enum {string} */
+    BoardRunStatus: 'created' | 'uploading' | 'importing' | 'completed' | 'failed' | 'timed_out';
     CheckInfo: {
       /** Format: int32 */
       error_count: number;
-      kind: string;
+      kind: components['schemas']['CheckKind'];
       /** Format: int32 */
       notice_count: number;
-      status: string;
+      status: components['schemas']['RunCheckStatus'];
       /** Format: int32 */
       warning_count: number;
     };
+    /** @enum {string} */
+    CheckKind: 'erc' | 'drc';
+    /** @enum {string} */
+    CheckStatus: 'passed' | 'failed' | 'skipped';
     CoordinateMmResponse: {
       /** Format: double */
       x: number;
@@ -516,7 +540,7 @@ export interface components {
       token: string;
     };
     CreateBoardRunRequest: {
-      board_project_id: string;
+      board_project_id: components['schemas']['BoardProjectId'];
       branch: string;
       commit_sha: string;
       github_run_attempt: string;
@@ -527,9 +551,11 @@ export interface components {
     };
     CreateBoardRunResponse: {
       artifact_bundle?: null | components['schemas']['ArtifactBundleInfo'];
-      board_run_id: string;
-      status: string;
+      board_run_id: components['schemas']['BoardRunId'];
+      status: components['schemas']['CreateBoardRunStatus'];
     };
+    /** @enum {string} */
+    CreateBoardRunStatus: 'created' | 'importing' | 'completed' | 'failed' | 'timed_out';
     DiffMetadataResponse: {
       artifacts_summary?: unknown;
       bom_summary?: unknown;
@@ -538,23 +564,35 @@ export interface components {
       previews?: unknown;
     };
     ErrorBody: {
-      code: string;
+      code: components['schemas']['ErrorCode'];
       details?: unknown;
       message: string;
       request_id: string;
     };
+    /** @enum {string} */
+    ErrorCode:
+      | 'unauthorized'
+      | 'forbidden'
+      | 'validation_failed'
+      | 'not_found'
+      | 'conflict'
+      | 'gone'
+      | 'rate_limited'
+      | 'internal_error';
     ErrorResponse: {
       error: components['schemas']['ErrorBody'];
     };
     FailBoardRunRequest: {
       error: components['schemas']['FailErrorInfo'];
-      status: string;
+      status: components['schemas']['FailBoardRunStatus'];
     };
     FailBoardRunResponse: {
-      board_run_id: string;
+      board_run_id: components['schemas']['BoardRunId'];
       failed_at: string;
-      status: string;
+      status: components['schemas']['FailBoardRunStatus'];
     };
+    /** @enum {string} */
+    FailBoardRunStatus: 'failed';
     FailErrorInfo: {
       details?: unknown;
       message: string;
@@ -565,12 +603,14 @@ export interface components {
       pcb_layer?: string | null;
       pos_mm?: null | components['schemas']['CoordinateMmResponse'];
       rule_code?: string | null;
-      severity: string;
+      severity: components['schemas']['FindingSeverity'];
       sheet_path?: string | null;
-      subject_kind?: string | null;
+      subject_kind?: null | components['schemas']['SubjectKind'];
       subject_ref?: string | null;
       title?: string | null;
     };
+    /** @enum {string} */
+    FindingSeverity: 'error' | 'warning' | 'notice';
     HealthResponse: {
       status: string;
     };
@@ -581,9 +621,11 @@ export interface components {
       staging_object_key: string;
     };
     ImportArtifactBundleResponse: {
-      bundle_id: string;
-      status: string;
+      bundle_id: components['schemas']['ArtifactBundleId'];
+      status: components['schemas']['ImportArtifactBundleStatus'];
     };
+    /** @enum {string} */
+    ImportArtifactBundleStatus: 'queued' | 'running' | 'completed' | 'failed';
     MeResponse: {
       github_avatar_url?: string | null;
       github_login: string;
@@ -592,14 +634,14 @@ export interface components {
     PaginatedResponse_BoardProjectListItem: {
       has_more: boolean;
       items: {
-        board_project_id: string;
+        board_project_id: components['schemas']['BoardProjectId'];
         display_name: string;
         issue_url?: string | null;
-        latest_completed_run_id?: string | null;
+        latest_completed_run_id?: null | components['schemas']['BoardRunId'];
         latest_tree_hash?: string | null;
         project_dir: string;
         project_path: string;
-        state: string;
+        state: components['schemas']['BoardProjectState'];
         updated_at: string;
       }[];
       next_cursor?: string | null;
@@ -607,25 +649,25 @@ export interface components {
     PaginatedResponse_BoardRunListItem: {
       has_more: boolean;
       items: {
-        board_run_id: string;
+        board_run_id: components['schemas']['BoardRunId'];
         branch: string;
         commit_sha: string;
         completed_at?: string | null;
         created_at: string;
         /** Format: int32 */
         drc_errors: number;
-        drc_status?: string | null;
+        drc_status?: null | components['schemas']['CheckStatus'];
         /** Format: int32 */
         drc_warnings: number;
         /** Format: int32 */
         erc_errors: number;
-        erc_status?: string | null;
+        erc_status?: null | components['schemas']['CheckStatus'];
         /** Format: int32 */
         erc_warnings: number;
         github_run_attempt: string;
         github_run_id: string;
         ref: string;
-        status: string;
+        status: components['schemas']['BoardRunStatus'];
         tree_hash?: string | null;
       }[];
       next_cursor?: string | null;
@@ -638,9 +680,9 @@ export interface components {
         pcb_layer?: string | null;
         pos_mm?: null | components['schemas']['CoordinateMmResponse'];
         rule_code?: string | null;
-        severity: string;
+        severity: components['schemas']['FindingSeverity'];
         sheet_path?: string | null;
-        subject_kind?: string | null;
+        subject_kind?: null | components['schemas']['SubjectKind'];
         subject_ref?: string | null;
         title?: string | null;
       }[];
@@ -653,7 +695,7 @@ export interface components {
         board_project_count: number;
         github_repository_id: string;
         installation_id: string;
-        latest_run_status?: string | null;
+        latest_run_status?: null | components['schemas']['BoardRunStatus'];
         name: string;
         owner: string;
         updated_at: string;
@@ -687,9 +729,9 @@ export interface components {
       tree_hash: string;
     };
     PlanProjectOutput: {
-      board_project_id: string;
+      board_project_id?: null | components['schemas']['BoardProjectId'];
       decision: components['schemas']['PlanDecision'];
-      latest_completed_run_id?: string | null;
+      latest_completed_run_id?: null | components['schemas']['BoardRunId'];
       project_path: string;
       reason: components['schemas']['PlanReason'];
     };
@@ -743,7 +785,7 @@ export interface components {
       board_project_count: number;
       github_repository_id: string;
       installation_id: string;
-      latest_run_status?: string | null;
+      latest_run_status?: null | components['schemas']['BoardRunStatus'];
       name: string;
       owner: string;
       updated_at: string;
@@ -753,10 +795,16 @@ export interface components {
       name: string;
       owner: string;
     };
+    /** @enum {string} */
+    RunCheckStatus: 'passed' | 'failed' | 'skipped';
+    /** @enum {string} */
+    SubjectKind: 'schematic' | 'pcb' | 'net' | 'footprint' | 'symbol';
+    /** @enum {string} */
+    ViewerAvailabilityStatus: 'available' | 'partial' | 'skipped' | 'failed' | 'missing';
     ViewerDownload: {
-      artifact_id?: string | null;
+      artifact_id?: null | components['schemas']['ArtifactId'];
       artifact_type: components['schemas']['ArtifactType'];
-      status: string;
+      status: components['schemas']['ArtifactStatus'];
       status_reason?: string | null;
       url?: string | null;
     };
@@ -769,15 +817,17 @@ export interface components {
       schematic: components['schemas']['ViewerStatus'];
     };
     ViewerSource: {
-      artifact_id?: string | null;
+      artifact_id?: null | components['schemas']['ArtifactId'];
       artifact_type?: null | components['schemas']['ArtifactType'];
-      kind?: string | null;
+      kind?: null | components['schemas']['ViewerSourceKind'];
       name?: string | null;
       source_path?: string | null;
       url?: string | null;
     };
+    /** @enum {string} */
+    ViewerSourceKind: 'project' | 'schematic' | 'board';
     ViewerSourcesResponse: {
-      board_run_id: string;
+      board_run_id: components['schemas']['BoardRunId'];
       expires_at: string;
       viewers: components['schemas']['ViewerMap'];
     };
@@ -786,7 +836,7 @@ export interface components {
       iframe_url?: string | null;
       primary?: null | components['schemas']['ViewerSource'];
       sources?: components['schemas']['ViewerSource'][] | null;
-      status: string;
+      status: components['schemas']['ViewerAvailabilityStatus'];
     };
   };
   responses: never;
