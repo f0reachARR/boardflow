@@ -190,7 +190,7 @@ async fn create_test_artifact(
     .bind(artifact_type)
     .bind(status)
     .bind(if status == "available" {
-        Some(format!("{}.file", artifact_type))
+        Some(test_artifact_filename(artifact_type))
     } else {
         None
     })
@@ -202,6 +202,29 @@ async fn create_test_artifact(
     .await
     .unwrap();
     id
+}
+
+fn test_artifact_filename(artifact_type: ArtifactType) -> String {
+    match artifact_type {
+        ArtifactType::KicadPro => "project.kicad_pro".to_string(),
+        ArtifactType::KicadSch => "main.kicad_sch".to_string(),
+        ArtifactType::KicadPcb => "board.kicad_pcb".to_string(),
+        ArtifactType::KicadWks => "drawing.kicad_wks".to_string(),
+        ArtifactType::SchematicPdf => "schematic.pdf".to_string(),
+        ArtifactType::PcbPdf => "board.pdf".to_string(),
+        ArtifactType::PcbTopSvg => "pcb-top.svg".to_string(),
+        ArtifactType::PcbBottomSvg => "pcb-bottom.svg".to_string(),
+        ArtifactType::RenderTopPng => "render-top.png".to_string(),
+        ArtifactType::RenderBottomPng => "render-bottom.png".to_string(),
+        ArtifactType::Ibom => "ibom.html".to_string(),
+        ArtifactType::BomCsv => "bom.csv".to_string(),
+        ArtifactType::PositionCsv => "position.csv".to_string(),
+        ArtifactType::GerberZip => "gerber.zip".to_string(),
+        ArtifactType::DrillZip => "drill.zip".to_string(),
+        ArtifactType::FabricationZip => "fabrication.zip".to_string(),
+        ArtifactType::ErcReport => "erc-report.rpt".to_string(),
+        ArtifactType::DrcReport => "drc-report.rpt".to_string(),
+    }
 }
 
 async fn create_test_run_check(
@@ -1115,6 +1138,12 @@ async fn test_get_viewer_sources_all_available() {
     for src in kicanvas_sources {
         let url = src["url"].as_str().unwrap();
         assert!(url.contains("/proxy/artifacts/"));
+        assert!(
+            url.contains("/project.kicad_pro?token=")
+                || url.contains("/main.kicad_sch?token=")
+                || url.contains("/board.kicad_pcb?token="),
+            "KiCanvas URL should expose a KiCad filename, got: {url}"
+        );
         assert!(url.contains("?token="));
         // Token should not be "placeholder"
         assert!(!url.contains("token=placeholder"));
@@ -1326,6 +1355,12 @@ async fn test_get_viewer_sources_returns_absolute_url_with_custom_base() {
         assert!(
             url.starts_with("https://artifacts.boardflow.example.com/proxy/artifacts/art_"),
             "URL should be absolute with configured base, got: {url}"
+        );
+        assert!(
+            url.contains("/project.kicad_pro?token=")
+                || url.contains("/main.kicad_sch?token=")
+                || url.contains("/board.kicad_pcb?token="),
+            "KiCanvas URL should expose a KiCad filename, got: {url}"
         );
         assert!(url.contains("?token="));
     }

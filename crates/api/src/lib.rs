@@ -91,6 +91,10 @@ pub fn create_app_with_config(
             axum::routing::get(routes::proxy::get_artifact),
         )
         .route(
+            "/proxy/artifacts/{artifact_id}/{filename}",
+            axum::routing::get(routes::proxy::get_artifact_with_filename),
+        )
+        .route(
             "/api/v1/github/webhook",
             axum::routing::post(routes::webhook::github_webhook),
         )

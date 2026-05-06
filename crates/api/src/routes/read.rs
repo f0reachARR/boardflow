@@ -1168,6 +1168,19 @@ pub async fn get_viewer_sources(
             token
         )
     };
+    let proxy_url_with_filename = |a: &Artifact| -> String {
+        let token = crate::artifact_token::generate_artifact_token(a.id, user_id, secret);
+        match a.filename.as_deref() {
+            Some(filename) => format!(
+                "{}/proxy/artifacts/{}/{}?token={}",
+                artifact_base_url.0,
+                ArtifactId::from(a.id),
+                urlencoding::encode(filename),
+                token
+            ),
+            None => proxy_url(a),
+        }
+    };
 
     // KiCanvas viewer: needs kicad_pro, kicad_sch, kicad_pcb
     let kicanvas = {
@@ -1191,7 +1204,7 @@ pub async fn get_viewer_sources(
                     kind: Some(ViewerSourceKind::Project),
                     name: a.filename.clone(),
                     source_path: a.source_path.clone(),
-                    url: Some(proxy_url(a)),
+                    url: Some(proxy_url_with_filename(a)),
                 });
             }
             if let Some(a) = sch.filter(|a| a.status == ArtifactStatus::Available) {
@@ -1201,7 +1214,7 @@ pub async fn get_viewer_sources(
                     kind: Some(ViewerSourceKind::Schematic),
                     name: a.filename.clone(),
                     source_path: a.source_path.clone(),
-                    url: Some(proxy_url(a)),
+                    url: Some(proxy_url_with_filename(a)),
                 });
             }
             if let Some(a) = pcb.filter(|a| a.status == ArtifactStatus::Available) {
@@ -1211,7 +1224,7 @@ pub async fn get_viewer_sources(
                     kind: Some(ViewerSourceKind::Board),
                     name: a.filename.clone(),
                     source_path: a.source_path.clone(),
-                    url: Some(proxy_url(a)),
+                    url: Some(proxy_url_with_filename(a)),
                 });
             }
             Some(srcs)
