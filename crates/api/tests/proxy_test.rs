@@ -147,7 +147,7 @@ async fn create_test_artifact(
     .bind(artifact_type)
     .bind(status)
     .bind(if status == "available" {
-        Some(format!("{}.file", artifact_type))
+        Some(test_artifact_filename(artifact_type))
     } else {
         None
     })
@@ -159,6 +159,29 @@ async fn create_test_artifact(
     .await
     .unwrap();
     id
+}
+
+fn test_artifact_filename(artifact_type: ArtifactType) -> String {
+    match artifact_type {
+        ArtifactType::KicadPro => "project.kicad_pro".to_string(),
+        ArtifactType::KicadSch => "main.kicad_sch".to_string(),
+        ArtifactType::KicadPcb => "board.kicad_pcb".to_string(),
+        ArtifactType::KicadWks => "drawing.kicad_wks".to_string(),
+        ArtifactType::SchematicPdf => "schematic.pdf".to_string(),
+        ArtifactType::PcbPdf => "board.pdf".to_string(),
+        ArtifactType::PcbTopSvg => "pcb-top.svg".to_string(),
+        ArtifactType::PcbBottomSvg => "pcb-bottom.svg".to_string(),
+        ArtifactType::RenderTopPng => "render-top.png".to_string(),
+        ArtifactType::RenderBottomPng => "render-bottom.png".to_string(),
+        ArtifactType::Ibom => "ibom.html".to_string(),
+        ArtifactType::BomCsv => "bom.csv".to_string(),
+        ArtifactType::PositionCsv => "position.csv".to_string(),
+        ArtifactType::GerberZip => "gerber.zip".to_string(),
+        ArtifactType::DrillZip => "drill.zip".to_string(),
+        ArtifactType::FabricationZip => "fabrication.zip".to_string(),
+        ArtifactType::ErcReport => "erc-report.rpt".to_string(),
+        ArtifactType::DrcReport => "drc-report.rpt".to_string(),
+    }
 }
 
 // ─── Test: missing token → 401 ──────────────────────────────────────────────
@@ -523,6 +546,64 @@ async fn test_proxy_viewer_sources_url_format() {
     let body = response.into_body().collect().await.unwrap().to_bytes();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     // "storage not configured" means we got past auth and DB lookup successfully
+    assert_eq!(json["error"]["message"], "storage not configured");
+}
+
+#[tokio::test]
+#[serial]
+async fn test_proxy_filename_alias_route_reaches_artifact() {
+    let Some(pool) = setup_pool().await else {
+        return;
+    };
+    let app = create_proxy_test_app(pool.clone());
+
+    let user_id = create_test_user(&pool).await;
+    let repo_id = create_test_repository(&pool).await;
+    let project_id = create_test_board_project(&pool, repo_id).await;
+    let run_id = create_test_board_run(&pool, project_id).await;
+    let artifact_id =
+        create_test_artifact(&pool, run_id, "available", ArtifactType::KicadSch).await;
+
+    let token = generate_artifact_token(artifact_id, user_id, TEST_SECRET);
+    let url = format!("/proxy/artifacts/art_{artifact_id}/main.kicad_sch?token={token}");
+
+    let response = app
+        .oneshot(Request::builder().uri(&url).body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    let body = response.into_body().collect().await.unwrap().to_bytes();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["error"]["message"], "storage not configured");
+}
+
+#[tokio::test]
+#[serial]
+async fn test_proxy_filename_alias_ignores_filename_mismatch() {
+    let Some(pool) = setup_pool().await else {
+        return;
+    };
+    let app = create_proxy_test_app(pool.clone());
+
+    let user_id = create_test_user(&pool).await;
+    let repo_id = create_test_repository(&pool).await;
+    let project_id = create_test_board_project(&pool, repo_id).await;
+    let run_id = create_test_board_run(&pool, project_id).await;
+    let artifact_id =
+        create_test_artifact(&pool, run_id, "available", ArtifactType::KicadSch).await;
+
+    let token = generate_artifact_token(artifact_id, user_id, TEST_SECRET);
+    let url = format!("/proxy/artifacts/art_{artifact_id}/wrong-name.kicad_pcb?token={token}");
+
+    let response = app
+        .oneshot(Request::builder().uri(&url).body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    let body = response.into_body().collect().await.unwrap().to_bytes();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["error"]["message"], "storage not configured");
 }
 

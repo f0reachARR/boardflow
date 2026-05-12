@@ -105,7 +105,12 @@ export function KiCanvasViewer({ sources }: KiCanvasViewerProps) {
         style={{ width: '100%', height: '600px', display: 'block' }}
       >
         {kicanvasSources.map((source) => (
-          <kicanvas-source key={`${source.type}:${source.name}`} src={source.url} />
+          <kicanvas-source
+            key={source.url ?? `${source.type}:${source.name}`}
+            src={source.url}
+            type={source.type}
+            name={source.name}
+          />
         ))}
       </kicanvas-embed>
     </Box>

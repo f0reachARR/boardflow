@@ -29,6 +29,54 @@ pub async fn get_artifact(
     Path(artifact_id_str): Path<String>,
     Query(query): Query<ProxyQuery>,
 ) -> Result<Response<Body>, AppError> {
+    get_artifact_inner(
+        pool,
+        s3_client,
+        secret,
+        final_bucket,
+        app_domain,
+        request_id,
+        artifact_id_str,
+        query,
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+pub async fn get_artifact_with_filename(
+    State(pool): State<PgPool>,
+    Extension(s3_client): Extension<Option<aws_sdk_s3::Client>>,
+    Extension(secret): Extension<ArtifactSecret>,
+    Extension(final_bucket): Extension<FinalBucket>,
+    Extension(app_domain): Extension<AppDomain>,
+    Extension(RequestId(request_id)): Extension<RequestId>,
+    Path((artifact_id_str, _filename)): Path<(String, String)>,
+    Query(query): Query<ProxyQuery>,
+) -> Result<Response<Body>, AppError> {
+    get_artifact_inner(
+        pool,
+        s3_client,
+        secret,
+        final_bucket,
+        app_domain,
+        request_id,
+        artifact_id_str,
+        query,
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn get_artifact_inner(
+    pool: PgPool,
+    s3_client: Option<aws_sdk_s3::Client>,
+    secret: ArtifactSecret,
+    final_bucket: FinalBucket,
+    app_domain: AppDomain,
+    request_id: String,
+    artifact_id_str: String,
+    query: ProxyQuery,
+) -> Result<Response<Body>, AppError> {
     // Validate token
     let token = query.token.as_deref().unwrap_or("");
     if token.is_empty() {
