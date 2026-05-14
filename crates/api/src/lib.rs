@@ -4,6 +4,7 @@ pub mod error;
 pub mod extractors;
 pub mod github_access;
 pub mod middleware;
+pub mod pagination;
 pub mod routes;
 
 use std::sync::Arc;
