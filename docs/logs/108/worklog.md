@@ -472,3 +472,111 @@ export const routes = {
 
 - なし。純粋なコード移動・抽出のみで挙動変更なし。
 - breadcrumb共通化は後続Issue候補。
+
+---
+
+## レビューフェーズ（2026-05-14）
+
+### レビュー結果
+
+- `git diff main...HEAD` を確認し、Issue #108 の変更範囲は計画どおり `boardflow/src/lib/routes.ts` の新規作成と 13 ファイルの呼び出し側置換に限定されていることを確認
+- `boardflow/src/lib/routes.ts` の 9 関数は既存の URL 構造と完全一致し、末尾スラッシュの追加・削除や path segment の変更はなし
+- `boardflow/src/**` から `/login` および `/repositories` 系の内部ルート直書きを検索し、対象パターンの置換漏れは `routes.ts` 自身を除いて未検出
+- 変更対象 14 ファイルのエラー確認で新規の型エラー・診断は未検出
+- `pnpm typecheck` / `pnpm lint` / `pnpm build` の実行結果は実装ログ記録と整合
+
+### 指摘事項
+
+- blocking な指摘なし
+
+### 必須修正
+
+- なし
+
+### 任意改善
+
+- `routes.ts` に対する軽量なユニットテストを追加すると、将来 URL 構造を変更した際の回帰検知がしやすくなる。ただし今回のスコープでは必須ではない
+- breadcrumb の前半階層は引き続き複数画面で重複しているため、後続 Issue として builder 化を検討する余地あり
+
+### テスト不足
+
+- ブラウザ上での遷移確認や route helper 単体テストは未実施。ただし今回は純粋な文字列抽出であり、静的検証中心でも妥当
+
+### ドキュメント確認
+
+- `docs/spec.md` と矛盾する変更なし
+- `docs/external/` 配下に本 Issue 固有の追加確認が必要な research 文書は見当たらず、既存実装方針との不整合も未検出
+
+### PR/完了結果
+
+- `pr_ready: true`
+
+### 残リスク
+
+- `routes.ts` は文字列連結のみで入力値のエンコードや正規化を行わないが、これは既存実装と同等であり、新たなセキュリティリスクは増えていない
+- 将来 route 構造を変更する際、helper 関数の戻り値に対する自動回帰検知は現状ビルド依存のため、単体テストがない分だけ検知粒度は限定される
+
+---
+
+## ドキュメント確認フェーズ（2026-05-14）
+
+### 確認対象
+
+- `docs/frontend/summary.md`
+- `docs/spec.md`
+- `docs/technology.md`
+- `README.md`
+- `AGENTS.md`
+- `docs/external/` 配下の関連有無
+- `docs/logs/108/worklog.md`
+
+### 確認結果
+
+- `docs/frontend/summary.md` はフロントエンドの責務、画面構成、データ取得方針を記述する文書であり、今回の `routes.ts` 導入は内部リファクタリングに留まるため追記不要
+- `AGENTS.md` の frontend セクションはディレクトリ構成と主要コマンドの指示が中心で、`src/lib/routes.ts` のような実装補助モジュール追加を記載すべき粒度ではないため更新不要
+- `docs/spec.md` はプロダクト仕様書であり、URL 生成ヘルパー抽出による仕様変更はないため更新不要
+- `docs/technology.md` は全体技術方針の文書であり、ルーティング文字列集約はアーキテクチャ方針変更に当たらないため更新不要
+- `README.md` への導入手順・運用手順の追記は不要
+- `CONTRIBUTING.md` はリポジトリ内に存在せず、今回の Issue #108 の完了条件にも含まれないため不足ドキュメント扱いにはしない
+- `docs/external/` 配下で今回の Issue に紐づく外部調査メモは不要。research 成果物サマリの「外部調査ドキュメント更新なし」と整合
+- `docs/logs/108/worklog.md` には調査、計画、実装、レビューの各フェーズが記録済みであり、今回の追記でドキュメント確認フェーズも補完完了
+
+### 判定
+
+- `docs_ready: true`
+
+### 必須修正
+
+- なし
+
+### 任意改善
+
+- PR 本文に「挙動変更なし」「内部リファクタリングのみ」を明記すると、レビュアーが確認観点を絞りやすい
+- 将来 `src/lib/` 配下の横断ユーティリティが増えた段階で、frontend ガイドに「共通ルート helper を置く」程度の軽い規約を追加する余地はある
+
+### 残リスク
+
+- 現時点では route helper の存在を説明する恒久ドキュメントはないが、今回の変更規模と性質では更新コストの方が高い
+- breadcrumb 重複解消までは扱っていないため、URL helper 導入の意図を後続 Issue 文脈なしに把握しにくい可能性は残る
+
+---
+
+## PR作成フェーズ（2026-05-14）
+
+### 事前確認
+
+- review: `pr_ready: true`（blocking 指摘なし）
+- docs: `docs_ready: true`（ドキュメント更新不要）
+- 未コミット変更: `docs/logs/108/worklog.md`（レビュー・ドキュメント確認フェーズの追記）→ 本フェーズ追記後にまとめてコミット
+
+### PR作成結果
+
+- タイトル: `refactor: centralize frontend route builders in routes.ts`
+- ブランチ: \`feature/issue-108-route-helpers\` → \`main\`
+- Closes #108
+- PR URL: （作成後に記録）
+
+### 残リスク
+
+- `routes.ts` に対するユニットテストは未追加（純粋な文字列関数であり静的検証で代替）
+- breadcrumb共通化は後続 Issue 候補として残存
