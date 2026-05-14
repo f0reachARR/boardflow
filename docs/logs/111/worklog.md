@@ -553,6 +553,39 @@ page.tsx
 ### 根拠
 
 - `wc -l boardflow/src/components/diff/diff-content.tsx` の結果: **95行**
+
+---
+
+## ドキュメント再確認フェーズ（2026-05-14）
+
+### 対象 Issue
+
+- Issue ID: `#111`
+- ブランチ: `refactor/issue-111-diff-content-split`
+
+### 確認内容
+
+- `docs/logs/111/worklog.md` の行数修正 3 箇所を再確認
+- `boardflow/src/components/diff/diff-content.tsx` の実行行数を `wc -l` で再確認
+- `docs/`、`README.md`、`AGENTS.md` 内の関連記述を検索し、同種の行数記載の更新漏れを確認
+
+### 確認結果
+
+- `docs/logs/111/worklog.md` の以下 3 箇所は、実装実態の **95行** と一致している
+  - 受け入れ条件: `データ取得 + ページ構成のみに薄くなっている（実績: 95行）`
+  - 実装説明: `約95行に縮小（データ取得 + Breadcrumb + セクション配置のみ）`
+  - 実装テーブル: `470行 → 95行`
+- `boardflow/src/components/diff/diff-content.tsx` の `wc -l` 結果は **95行**
+- 今回の Issue #111 に関して、`docs/logs/111/worklog.md` 以外の関連ドキュメントに追加の更新漏れは見当たらない
+- worklog 内の過去レビュー節にある不一致指摘は、時系列上のレビュー記録として残っており、末尾の修正記録と今回の再確認結果で解消済みと判断できる
+
+### 判定
+
+- `docs_ready: true`
+
+### 指摘事項
+
+- なし
 - コード変更は不要（レビューで `pr_ready: true` 判定済み）
 
 ### 残リスク
