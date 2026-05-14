@@ -467,7 +467,7 @@ pub use test_doubles::{
 4. 旧 `github_access.rs` を削除
 5. `cargo fmt --all -- --check` → パス
 6. `cargo clippy --workspace --all-targets -- -D warnings` → パス
-7. `cargo test --workspace` → 全テスト通過（config_testのみ環境変数依存の既知失敗）
+7. `cargo test --workspace` → `config_test` を除き通過（`config_test` は `.env` ファイル存在下で `dotenvy` が `DATABASE_URL` を再設定し失敗、本Issue無関係の環境依存問題）
 
 ### 設計上の変更点
 
@@ -492,8 +492,8 @@ pub use test_doubles::{
 
 - `cargo fmt --all -- --check`: パス
 - `cargo clippy --workspace --all-targets -- -D warnings`: パス（警告なし）
-- `cargo test --workspace`: 全テスト通過
-  - `config_test` のみ `DATABASE_URL` 未設定で失敗（既知、本Issue無関係）
+- `cargo test --workspace`: `config_test` を除き通過
+  - `config_test` は `.env` ファイル存在時に `dotenvy` が `DATABASE_URL` を再設定するため失敗（本Issue無関係の環境依存問題、後日修正済み）
   - `api_token_test`: 15/15 パス
   - `github_cache_test`: テストスイートに含まれ全パス
   - `read_api_test`: テストスイートに含まれ全パス
@@ -510,3 +510,98 @@ pub use test_doubles::{
 ### 更新した作業ログパス
 
 `docs/logs/101/worklog.md`
+
+---
+
+## レビュー結果（2026-05-14 review agent）
+
+### 総評
+
+Issue #101 の主目的である `github_access.rs` の責務別分割は、コード上は概ね適切に実施されている。`types.rs` / `real.rs` / `cached.rs` / `installation_sync.rs` / `test_doubles.rs` / `mod.rs` への切り出しは、元の `crates/api/src/github_access.rs` からの純粋移動として読め、GitHub access 判定ロジックや fallback sync の分岐自体に変更は確認できなかった。
+
+一方で、ユーザー要望と受け入れ条件に含まれていた `cargo test --workspace` 通過は、現行ブランチで満たせていない。実際に `mise exec -- cargo test -p boardflow-api --test config_test` を再実行すると失敗し、実装概要とテスト結果の記述にある「全テスト通過」は事実と一致していない。このため、PR ready 判定は `false` とする。
+
+### 調査結果
+
+- Issue 本文確認: module 分割のみを対象とし、`boardflow-github` への移動は別PRでよいという前提は守られている。
+- 元実装比較: `git show b8dc6ed^:crates/api/src/github_access.rs` と現行の各分割ファイルを比較し、access 判定・cache・fallback sync・test double の主要ロジックは一致していた。
+- 公開API互換: `crates/api/src/github_access/mod.rs` の `pub use` で旧公開シンボルは再エクスポートされており、`crates/api/src/lib.rs` と既存 integration test の import は維持されている。
+- 不要コード確認: 旧 `crates/api/src/github_access.rs` は削除済みで、削除漏れは見当たらない。
+
+### テスト結果
+
+- `mise exec -- cargo fmt --all -- --check`: pass
+- `mise exec -- cargo clippy --workspace --all-targets -- -D warnings`: pass
+- `mise exec -- cargo test -p boardflow-api --test github_cache_test --test api_token_test --test read_api_test --test proxy_test`: pass
+- `mise exec -- cargo test -p boardflow-api --test config_test`: fail
+  - `crates/api/tests/config_test.rs` の `test_app_config_from_env` が `DATABASE_URL` 未設定時エラー期待で失敗
+
+### 指摘事項
+
+1. major: 受け入れ条件の `cargo test --workspace` を満たしていないのに、実装概要とテスト結果で「全テスト通過」と記録している。レビュー時点で `mise exec -- cargo test -p boardflow-api --test config_test` は再現性をもって失敗しており、PR 判定の根拠として不正確。Issue の完了条件と worklog の記録を一致させる必要がある。
+
+### 必須修正
+
+1. `docs/logs/101/worklog.md` のテスト結果と実装概要から「全テスト通過」という表現を修正し、少なくとも `config_test` 失敗を明記すること。
+2. ユーザー要望を厳密に満たすなら、`cargo test --workspace` が通る状態を作ってから再レビューに回すこと。もし Issue #101 のスコープ外として扱うなら、その根拠と未達条件を worklog / PR 説明に明記すること。
+
+### 任意改善
+
+1. `mod.rs` の再エクスポート互換を将来壊しにくくするため、`boardflow_api::github_access::*` の代表 import をまとめてコンパイル確認する薄い回帰テストがあると保守性が上がる。
+
+### テスト不足
+
+1. 分割自体の回帰は既存の `github_cache_test`, `api_token_test`, `read_api_test`, `proxy_test` で十分広く覆えている。
+2. ただし Issue 受け入れ条件としては workspace 全体成功が未確認ではなく、実測で未達。
+
+### ドキュメント確認
+
+- `docs/spec.md`: 本Issueは内部 module 分割であり、仕様変更は不要。整合している。
+- `README.md`: `github_access` のファイル構造に依存する記述はなく、更新不要。
+- `docs/external/` と過去 worklog に旧パス記載は残るが、これは歴史的記録であり今回の修正対象ではない。
+
+### plan / research / docs との不整合
+
+1. 計画・実装概要では `cargo test --workspace` を完了条件としていたが、レビュー実測では未達。
+2. 実装概要には `config_test` を「既知失敗で無視」と記しているが、ユーザー要望では無視ではなく通過が要求されている。
+3. 計画表では `installation_sync.rs` に sync 定数を置く想定だったが、実装は `cached.rs` から `pub(super)` 定数を参照する形になっている。これは挙動差ではなく設計上の軽微な差分で、問題なし。
+
+### PR/完了結果
+
+- `pr_ready: false`
+- 理由: コード分割自体に重大なロジック変更は見当たらないが、Issue に明記された検証条件 `cargo test --workspace` を現行ブランチが満たしておらず、worklog の成功主張も不正確なため。
+
+### 残リスク
+
+- `config_test` 失敗を「既知別件」として扱う運用が続くと、今後も Issue の完了条件と検証記録が乖離しやすい。
+- 今回の github_access 分割自体は安全に見えるが、最終マージ判定で必要なのはコード品質だけでなく、記録された検証結果の正確性である。
+
+---
+
+## レビュー指摘修正（2026-05-14）
+
+### 修正内容
+
+レビューで指摘された `config_test` 失敗の修正とworklog記述の正確化を実施。
+
+#### 1. `crates/api/tests/config_test.rs` の修正
+
+**原因**: テストは `std::env::remove_var("DATABASE_URL")` で環境変数を削除するが、`AppConfig::from_env()` 内部で `dotenvy::dotenv()` がプロジェクトルートの `.env` ファイルから `DATABASE_URL` を再読み込みしてしまい、「未設定時はエラー」のアサーションが失敗していた。
+
+**修正**: テスト開始時にカレントディレクトリを `std::env::temp_dir()` に変更し、`dotenvy::dotenv()` が `.env` を見つけられないようにした。テスト終了時に元のディレクトリに復帰。`serial_test::serial` による直列実行のため、ディレクトリ変更は安全。ロジック変更なし。
+
+#### 2. worklog の記述修正
+
+- 実装概要の「全テスト通過（config_testのみ環境変数依存の既知失敗）」→ 正確な表現に修正
+- テスト結果の「全テスト通過」→ `config_test` 失敗を明記する表現に修正
+
+### テスト結果
+
+- `cargo fmt --all -- --check`: パス
+- `cargo clippy --workspace --all-targets -- -D warnings`: パス
+- `cargo test --workspace`: **全テスト通過**（`config_test` 含む）
+- `cargo test -p boardflow-api --test config_test`: 1 passed, 0 failed
+
+### 残リスク
+
+- なし。`config_test` の `.env` 読み込み問題は解消済み。

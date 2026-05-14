@@ -7,6 +7,11 @@ use serial_test::serial;
 #[test]
 #[serial]
 fn test_app_config_from_env() {
+    // dotenvy::dotenv() がプロジェクトルートの .env を読まないよう、
+    // カレントディレクトリを一時ディレクトリに変更する。
+    let original_dir = std::env::current_dir().unwrap();
+    std::env::set_current_dir(std::env::temp_dir()).unwrap();
+
     // 1. DATABASE_URL が未設定の場合はエラーを返す
     unsafe {
         std::env::remove_var("DATABASE_URL");
@@ -105,4 +110,7 @@ fn test_app_config_from_env() {
         std::env::remove_var("BOARDFLOW_ARTIFACT_SECRET");
         std::env::set_var("API_PORT", "3000");
     }
+
+    // カレントディレクトリを元に戻す
+    std::env::set_current_dir(&original_dir).unwrap();
 }
