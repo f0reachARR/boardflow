@@ -1,0 +1,14 @@
+mod cached;
+mod installation_sync;
+mod real;
+mod test_doubles;
+mod types;
+
+// 外部公開API — 既存の `use boardflow_api::github_access::*` が壊れないように全て再エクスポート
+pub use cached::CachedGithubAccessChecker;
+pub use real::RealGithubAccessChecker;
+pub use test_doubles::{
+    AllowAllGithubAccessChecker, DenyAllGithubAccessChecker, RateLimitedGithubAccessChecker,
+    TokenExpiredGithubAccessChecker, UpstreamErrorGithubAccessChecker,
+};
+pub use types::{AccessError, AccessResult, DynGithubAccessChecker, GithubAccessChecker};
