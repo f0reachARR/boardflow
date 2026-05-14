@@ -379,3 +379,109 @@ pub(super) fn pos_mm_to_um(pos: &CoordinateMm) -> (i32, i32)
 
 1. **import固有のユニットテスト未追加**: normalize関数にはユニットテスト追加可能だが、受け入れ条件外のためスキップ
 2. **persist.rs の行数**: 435行と大きいが、全てのDB永続化を1ファイルに集約する設計方針に従っている
+
+---
+
+## レビューフェーズ (review agent)
+
+### レビュー観点
+
+- Issue #100 の実装差分のみを対象に確認
+- 対象ファイル: `crates/worker/src/handlers/import/mod.rs`
+- 対象ファイル: `crates/worker/src/handlers/import/s3_ops.rs`
+- 対象ファイル: `crates/worker/src/handlers/import/persist.rs`
+- 対象ファイル: `crates/worker/src/handlers/import/normalize.rs`
+- 対象ファイル: `crates/worker/src/handlers/mod.rs`
+- 比較元: `main` ブランチの `crates/worker/src/handlers/import.rs`
+- 追加確認: `git diff main -- crates/worker/src/handlers/import.rs crates/worker/src/handlers/import crates/worker/src/handlers/mod.rs`
+
+### 確認結果
+
+- `process_import_job` の制御フローは旧実装と同順序を維持している
+    1. payload検証
+    2. bundle取得 + `mark_importing`
+    3. staging bucket から download
+    4. SHA256 検証
+    5. bundle extract
+    6. final bucket へ upload
+    7. `pool.begin()`
+    8. artifact 永続化
+    9. check / finding 永続化
+    10. snapshot / diff 永続化
+    11. board_run / board_project / bundle / job 完了化
+    12. follow-up job enqueue
+    13. `tx.commit()`
+- transaction 境界は維持されている
+- `pool.begin()` / `tx.commit()` は `import/mod.rs` の `process_import_job` 内のみ
+- `persist.rs` 内の関数はすべて `&mut Transaction<'_, Postgres>` を受け取り、自前で begin / commit していない
+- DB 書き込み順序は旧 `import.rs` と一致している
+- `handle_import_failure` の分岐、`MAX_ATTEMPTS` 判定、terminal failure / retryable failure の処理は変更されていない
+- `normalize.rs` への抽出は純粋関数化のみで、severity / subject_kind / 座標変換の結果値は旧実装と同一
+- `UploadedArtifact` と `CheckSummary` の配置は計画からずれているが、公開範囲はどちらも `pub(super)` に制限されており、外部 API 拡大はない
+- `crates/worker/src/handlers/mod.rs` の `pub mod import;` はディレクトリモジュール構成でも正しく解決されるため変更不要
+- `git diff main` 上で意図しないロジック変更は確認できなかった
+
+### 判定
+
+- `pr_ready: true`
+- 重大な指摘事項なし
+- 挙動変更、transaction 境界の崩れ、DB 書き込み順序の変更、エラーハンドリングの変化は確認されなかった
+
+### 任意改善
+
+1. `persist.rs` は依然として大きいため、将来的に review しやすさを優先するなら findings 永続化と snapshot / diff 永続化をさらに分ける余地はある。ただし Issue #100 の「挙動変更なし」方針の範囲では現状維持が妥当。
+2. Git 上は `import.rs -> import/persist.rs` の rename として認識されており、オーケストレーション部分の履歴追跡はやや追いづらい。履歴保全を重視する場合は、将来の整理時に rename 戦略を見直す余地がある。
+
+### 確認済みテストとドキュメント
+
+- 実装ログに記載された `cargo fmt --all -- --check` と `cargo clippy --workspace --all-targets -- -D warnings` の結果は、今回レビューした差分内容と整合している
+- `cargo test --workspace` については、Issue #100 の差分自体では import 系の挙動変更は見当たらず、記録された `config_test` 失敗は本 Issue のリファクタリングとは無関係な環境依存として扱うのが妥当
+- 仕様書 `docs/spec.md` と矛盾する挙動変更は見当たらない
+- 追加の仕様ドキュメント更新は不要。変更内容は worklog のみで十分
+
+### レビュー残リスク
+
+1. import handler 専用テストがないため、今回の「挙動不変」確認はコード比較と既存 E2E テスト前提になる
+2. `persist.rs` に DB 永続化責務が集約されており、今後の変更では再び肥大化しやすい
+
+---
+
+## ドキュメント確認フェーズ (docs agent)
+
+### Issueまでの経緯
+
+- 対象は Issue #100 のみ。
+- review agent 判定は `pr_ready: true` で、今回の差分は `crates/worker/src/handlers/import.rs` のディレクトリモジュール化と責務分割に限定されている。
+- docs agent では、既存ドキュメントがこの分割後の実装と矛盾していないか、また旧パスへの直接参照が残っていないかを確認した。
+
+### 調査結果
+
+- 確認対象:
+    - `AGENTS.md`
+    - `README.md`
+    - `docs/spec.md`
+    - `docs/technology.md`
+    - `docs/backend/summary.md`
+    - `docs/backend/api.md`
+    - `docs/` 配下の関連文書と `docs/logs/`
+- 現行実装は `crates/worker/src/handlers/import/mod.rs` がオーケストレーター、`s3_ops.rs` が S3 操作、`persist.rs` が DB 永続化、`normalize.rs` が純関数を担当しており、transaction 境界は `process_import_job()` に維持されている。
+- `AGENTS.md`、`README.md`、`docs/technology.md` は worker の内部ファイル構成に踏み込んでおらず、Issue #100 により更新が必要な記述はなかった。
+- `docs/spec.md`、`docs/backend/summary.md`、`docs/backend/api.md` は artifact import を API 受理後に worker が検証・保存・完了処理する、という責務境界と段階を記述しており、今回の分割後実装と整合している。
+- 公開ドキュメント本体では `crates/worker/src/handlers/import.rs` への直接参照は見つからなかった。
+- `docs/logs/20/worklog.md`、`docs/logs/22/worklog.md`、`docs/logs/26/worklog.md`、`docs/logs/34/worklog.md`、`docs/logs/61/worklog.md`、`docs/logs/73/worklog.md`、および本 Issue の過去ログには旧パス参照が残っているが、いずれも当時の実装・レビュー文脈を記録した履歴情報であり、現行仕様や運用手順を誤案内する用途の文書ではない。
+
+### ドキュメント確認
+
+- `docs_ready: true`
+- 必須修正なし。
+- 任意改善として、将来 `docs/logs/` を横断検索してコード参照を辿る運用が増える場合は、旧パス参照に「現在は `crates/worker/src/handlers/import/`」という注記を加える余地はある。ただし Issue #100 の PR 作成条件としては不要。
+
+### PR/完了結果
+
+- Issue #100 について、公開ドキュメントの追加更新は不要。
+- PR には「worker import handler を `import/` 配下へ分割したが、仕様・API・運用手順の変更はないためドキュメント更新は worklog のみ」と記載すれば十分。
+
+### 残リスク
+
+1. `docs/logs/` 配下には旧パス参照が履歴として残るため、ファイル参照を機械的にたどると現行パスとの差異で迷う可能性はある。
+2. 将来 worker の import フロー自体を変更する場合は、今回「更新不要」と判断した `docs/spec.md` と `docs/backend/summary.md` を再確認する必要がある。
