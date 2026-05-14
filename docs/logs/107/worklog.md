@@ -692,3 +692,18 @@ export function CheckBadge({ status }: { status: string | null | undefined }) {
 ### 残リスク
 
 - `docs/logs/107/worklog.md` は時系列ログとして途中案も残しているため、過去節だけを抜粋して読むと最終状態と食い違って見える可能性がある。PR本文や完了報告では本節の「最終確定状態」を参照すること。
+
+## PR / 完了結果 (2026-05-14)
+
+- PR #117 を作成: https://github.com/f0reachARR/boardflow/pull/117
+- タイトル: `refactor(frontend): consolidate format helpers (closes #107)`
+- ベースブランチ: `main`
+- ブランチ: `refactor/issue-107-consolidate-format-helpers`
+- コミット:
+  - `07c4859` refactor: consolidate format helpers into shared modules (#107)
+  - `e574721` fix: revert formatBytes to KB-only, remove unused checkBadgeColor
+  - `6d33569` docs: update worklog for #107 with review/docs results
+
+### 残リスク
+
+- `formatDateTime`/`formatDate` はランタイムロケール依存のため、SSR とクライアントでロケールが異なる場合にハイドレーションミスマッチが発生しうる（既存の挙動と同一で新たなリスクではない）
