@@ -5,66 +5,15 @@ import Link from 'next/link';
 import { Breadcrumb } from '@/components/ui/breadcrumb';
 import { $api } from '@/lib/api/react-query';
 import type { DiffSummary } from '@/lib/api/schema-types';
-
-function diffStatusColor(status: string): string {
-  switch (status) {
-    case 'ready':
-      return 'green';
-    case 'no_baseline':
-      return 'gray';
-    case 'unavailable':
-      return 'orange';
-    case 'failed':
-      return 'red';
-    default:
-      return 'gray';
-  }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function isFileChanges(
-  v: unknown,
-): v is { added: number; removed: number; changed: number; unchanged: number } {
-  return (
-    isRecord(v) &&
-    typeof v.added === 'number' &&
-    typeof v.removed === 'number' &&
-    typeof v.changed === 'number' &&
-    typeof v.unchanged === 'number'
-  );
-}
-
-function isBomChanges(v: unknown): v is { added: number; removed: number; changed: number } {
-  return (
-    isRecord(v) &&
-    typeof v.added === 'number' &&
-    typeof v.removed === 'number' &&
-    typeof v.changed === 'number'
-  );
-}
-
-function isCheckEntry(
-  v: unknown,
-): v is { status_change: string; error_delta: number; warning_delta: number } {
-  return (
-    isRecord(v) &&
-    typeof v.status_change === 'string' &&
-    typeof v.error_delta === 'number' &&
-    typeof v.warning_delta === 'number'
-  );
-}
-
-function isArtifactChanges(v: unknown): v is { added: number; removed: number; changed: number } {
-  return (
-    isRecord(v) &&
-    typeof v.added === 'number' &&
-    typeof v.removed === 'number' &&
-    typeof v.changed === 'number'
-  );
-}
+import {
+  isArtifactChanges,
+  isBomChanges,
+  isCheckEntry,
+  isFileChanges,
+  isRecord,
+} from '@/lib/domain/guards';
+import { diffStatusColor } from '@/lib/domain/status';
+import { formatDateTime, shortId } from '@/lib/format';
 
 interface Props {
   repositoryId: string;
@@ -101,7 +50,7 @@ export function DiffContent({ repositoryId, boardProjectId, boardRunId }: Props)
             },
             { label: 'Runs', href: `/repositories/${repositoryId}/boards/${boardProjectId}/runs` },
             {
-              label: boardRunId.slice(0, 8),
+              label: shortId(boardRunId),
               href: `/repositories/${repositoryId}/boards/${boardProjectId}/runs/${boardRunId}`,
             },
             { label: 'Diff' },
@@ -126,7 +75,7 @@ export function DiffContent({ repositoryId, boardProjectId, boardRunId }: Props)
                   href={`/repositories/${repositoryId}/boards/${boardProjectId}/runs/${diff.base_board_run_id}`}
                 >
                   <Text as='span' color='blue.600' _hover={{ textDecoration: 'underline' }}>
-                    {diff.base_board_run_id.slice(0, 8)}
+                    {shortId(diff.base_board_run_id)}
                   </Text>
                 </Link>
               </Text>
@@ -137,11 +86,11 @@ export function DiffContent({ repositoryId, boardProjectId, boardRunId }: Props)
                 href={`/repositories/${repositoryId}/boards/${boardProjectId}/runs/${boardRunId}`}
               >
                 <Text as='span' color='blue.600' _hover={{ textDecoration: 'underline' }}>
-                  {boardRunId.slice(0, 8)}
+                  {shortId(boardRunId)}
                 </Text>
               </Link>
             </Text>
-            <Text>Created {new Date(diff.created_at).toLocaleString()}</Text>
+            <Text>Created {formatDateTime(diff.created_at)}</Text>
           </HStack>
         </Box>
 
@@ -500,7 +449,7 @@ function PreviewLinksSection({
               Current run:{' '}
               <Link href={currentRunUrl}>
                 <Text as='span' color='blue.600' _hover={{ textDecoration: 'underline' }}>
-                  {boardRunId.slice(0, 8)}
+                  {shortId(boardRunId)}
                 </Text>
               </Link>
             </Text>
@@ -509,7 +458,7 @@ function PreviewLinksSection({
                 Base run:{' '}
                 <Link href={baseRunUrl}>
                   <Text as='span' color='blue.600' _hover={{ textDecoration: 'underline' }}>
-                    {baseRunId.slice(0, 8)}
+                    {shortId(baseRunId)}
                   </Text>
                 </Link>
               </Text>

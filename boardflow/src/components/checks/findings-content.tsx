@@ -4,6 +4,7 @@ import { Badge, Box, Heading, HStack, Table, Text } from '@chakra-ui/react';
 import Link from 'next/link';
 import { Breadcrumb } from '@/components/ui/breadcrumb';
 import { $api } from '@/lib/api/react-query';
+import { shortId } from '@/lib/format';
 
 function severityColor(severity: string): string {
   switch (severity) {
@@ -88,7 +89,7 @@ export function FindingsContent({
             },
             { label: 'Runs', href: `/repositories/${repositoryId}/boards/${boardProjectId}/runs` },
             {
-              label: boardRunId.slice(0, 8),
+              label: shortId(boardRunId),
               href: `/repositories/${repositoryId}/boards/${boardProjectId}/runs/${boardRunId}`,
             },
             { label: `${checkKind.toUpperCase()} Findings` },

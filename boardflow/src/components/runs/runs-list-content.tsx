@@ -3,39 +3,10 @@
 import { Badge, Box, Heading, HStack, Table, Text } from '@chakra-ui/react';
 import Link from 'next/link';
 import { Breadcrumb } from '@/components/ui/breadcrumb';
+import { CheckBadge } from '@/components/ui/check-badge';
 import { $api } from '@/lib/api/react-query';
-
-function statusColor(status: string): string {
-  switch (status) {
-    case 'completed':
-      return 'green';
-    case 'failed':
-      return 'red';
-    case 'timed_out':
-      return 'orange';
-    case 'created':
-    case 'uploading':
-    case 'importing':
-      return 'blue';
-    default:
-      return 'gray';
-  }
-}
-
-function checkBadge(status: string | null | undefined) {
-  if (!status)
-    return (
-      <Text color='gray.400' fontSize='sm'>
-        —
-      </Text>
-    );
-  const color = status === 'passed' ? 'green' : status === 'failed' ? 'red' : 'gray';
-  return (
-    <Badge colorPalette={color} size='sm'>
-      {status}
-    </Badge>
-  );
-}
+import { boardRunStatusColor } from '@/lib/domain/status';
+import { formatDateTime, shortSha } from '@/lib/format';
 
 interface Props {
   repositoryId: string;
@@ -102,12 +73,12 @@ export function RunsListContent({ repositoryId, boardProjectId }: Props) {
                   <Link
                     href={`/repositories/${repositoryId}/boards/${boardProjectId}/runs/${run.board_run_id}`}
                   >
-                    <Badge colorPalette={statusColor(run.status)}>{run.status}</Badge>
+                    <Badge colorPalette={boardRunStatusColor(run.status)}>{run.status}</Badge>
                   </Link>
                 </Table.Cell>
                 <Table.Cell>
                   <Text fontFamily='mono' fontSize='sm'>
-                    {run.commit_sha.slice(0, 7)}
+                    {shortSha(run.commit_sha)}
                   </Text>
                 </Table.Cell>
                 <Table.Cell>
@@ -115,7 +86,7 @@ export function RunsListContent({ repositoryId, boardProjectId }: Props) {
                 </Table.Cell>
                 <Table.Cell>
                   <HStack gap={1}>
-                    {checkBadge(run.erc_status)}
+                    <CheckBadge status={run.erc_status} />
                     {run.erc_errors != null && run.erc_errors > 0 && (
                       <Text fontSize='xs' color='red.500'>
                         {run.erc_errors}E
@@ -130,7 +101,7 @@ export function RunsListContent({ repositoryId, boardProjectId }: Props) {
                 </Table.Cell>
                 <Table.Cell>
                   <HStack gap={1}>
-                    {checkBadge(run.drc_status)}
+                    <CheckBadge status={run.drc_status} />
                     {run.drc_errors != null && run.drc_errors > 0 && (
                       <Text fontSize='xs' color='red.500'>
                         {run.drc_errors}E
@@ -145,7 +116,7 @@ export function RunsListContent({ repositoryId, boardProjectId }: Props) {
                 </Table.Cell>
                 <Table.Cell>
                   <Text fontSize='sm' color='gray.600'>
-                    {new Date(run.created_at).toLocaleString()}
+                    {formatDateTime(run.created_at)}
                   </Text>
                 </Table.Cell>
               </Table.Row>
