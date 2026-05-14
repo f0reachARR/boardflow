@@ -591,3 +591,25 @@ page.tsx
 ### 残リスク
 
 - なし
+
+---
+
+## PR作成フェーズ（2026-05-14）
+
+### PR作成結果
+
+- PR URL: https://github.com/f0reachARR/boardflow/pull/125
+- PRタイトル: `refactor: split DiffContent into section components (#111)`
+- ベースブランチ: `main` ← `refactor/issue-111-diff-content-split`
+- Closes #111
+
+### PR作成前確認
+
+- `pr_ready: true`（reviewエージェント）
+- `docs_ready: true`（docsエージェント）
+- 未コミット変更（worklog修正）をコミット: `88e99f4`
+- ブランチをリモートへプッシュ済み
+
+### 残リスク
+
+- なし
