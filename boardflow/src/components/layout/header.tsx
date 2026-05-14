@@ -3,6 +3,7 @@
 import { Box, Flex, Heading, Image, Text } from '@chakra-ui/react';
 import { LogOut, User } from 'lucide-react';
 import type { CurrentUser } from '@/lib/auth';
+import { routes } from '@/lib/routes';
 
 interface HeaderProps {
   user: CurrentUser | null;
@@ -52,7 +53,7 @@ export function Header({ user }: HeaderProps) {
             title='Logout'
             onClick={async () => {
               await fetch('/api/v1/auth/logout', { method: 'POST' });
-              window.location.href = '/login';
+              window.location.href = routes.login();
             }}
           >
             <LogOut size={18} />

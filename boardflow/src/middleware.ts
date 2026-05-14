@@ -1,7 +1,8 @@
 import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
+import { routes } from '@/lib/routes';
 
-const PUBLIC_PATHS = ['/login'];
+const PUBLIC_PATHS = [routes.login()];
 
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
@@ -10,9 +11,9 @@ export function middleware(request: NextRequest) {
   // Root redirect
   if (pathname === '/') {
     if (session) {
-      return NextResponse.redirect(new URL('/repositories', request.url));
+      return NextResponse.redirect(new URL(routes.repositories(), request.url));
     }
-    return NextResponse.redirect(new URL('/login', request.url));
+    return NextResponse.redirect(new URL(routes.login(), request.url));
   }
 
   // Public paths always accessible (no session check for /login to prevent redirect loop)
@@ -22,7 +23,7 @@ export function middleware(request: NextRequest) {
 
   // Unauthenticated → redirect to login with redirect_to
   if (!session) {
-    const loginUrl = new URL('/login', request.url);
+    const loginUrl = new URL(routes.login(), request.url);
     const redirectTo = pathname + request.nextUrl.search;
     if (redirectTo !== '/') {
       loginUrl.searchParams.set('redirect_to', redirectTo);

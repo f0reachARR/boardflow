@@ -14,6 +14,7 @@ import {
 } from '@/lib/domain/guards';
 import { diffStatusColor } from '@/lib/domain/status';
 import { formatDateTime, shortId } from '@/lib/format';
+import { routes } from '@/lib/routes';
 
 interface Props {
   repositoryId: string;
@@ -39,19 +40,19 @@ export function DiffContent({ repositoryId, boardProjectId, boardRunId }: Props)
       {project && (
         <Breadcrumb
           items={[
-            { label: 'Repositories', href: '/repositories' },
+            { label: 'Repositories', href: routes.repositories() },
             {
               label: `${project.repository.owner}/${project.repository.name}`,
-              href: `/repositories/${repositoryId}`,
+              href: routes.repository(repositoryId),
             },
             {
               label: project.display_name,
-              href: `/repositories/${repositoryId}/boards/${boardProjectId}`,
+              href: routes.board(repositoryId, boardProjectId),
             },
-            { label: 'Runs', href: `/repositories/${repositoryId}/boards/${boardProjectId}/runs` },
+            { label: 'Runs', href: routes.runs(repositoryId, boardProjectId) },
             {
               label: shortId(boardRunId),
-              href: `/repositories/${repositoryId}/boards/${boardProjectId}/runs/${boardRunId}`,
+              href: routes.run(repositoryId, boardProjectId, boardRunId),
             },
             { label: 'Diff' },
           ]}
@@ -71,9 +72,7 @@ export function DiffContent({ repositoryId, boardProjectId, boardRunId }: Props)
             {diff.base_board_run_id && (
               <Text>
                 Compared to:{' '}
-                <Link
-                  href={`/repositories/${repositoryId}/boards/${boardProjectId}/runs/${diff.base_board_run_id}`}
-                >
+                <Link href={routes.run(repositoryId, boardProjectId, diff.base_board_run_id)}>
                   <Text as='span' color='blue.600' _hover={{ textDecoration: 'underline' }}>
                     {shortId(diff.base_board_run_id)}
                   </Text>
@@ -82,9 +81,7 @@ export function DiffContent({ repositoryId, boardProjectId, boardRunId }: Props)
             )}
             <Text>
               Current:{' '}
-              <Link
-                href={`/repositories/${repositoryId}/boards/${boardProjectId}/runs/${boardRunId}`}
-              >
+              <Link href={routes.run(repositoryId, boardProjectId, boardRunId)}>
                 <Text as='span' color='blue.600' _hover={{ textDecoration: 'underline' }}>
                   {shortId(boardRunId)}
                 </Text>
@@ -432,10 +429,8 @@ function PreviewLinksSection({
 
   if (previewEntries.length === 0) return null;
 
-  const currentRunUrl = `/repositories/${repositoryId}/boards/${boardProjectId}/runs/${boardRunId}`;
-  const baseRunUrl = baseRunId
-    ? `/repositories/${repositoryId}/boards/${boardProjectId}/runs/${baseRunId}`
-    : null;
+  const currentRunUrl = routes.run(repositoryId, boardProjectId, boardRunId);
+  const baseRunUrl = baseRunId ? routes.run(repositoryId, boardProjectId, baseRunId) : null;
 
   return (
     <Box>

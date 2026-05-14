@@ -15,6 +15,7 @@ import {
 } from '@/lib/domain/guards';
 import { artifactStatusColor, boardRunStatusColor, checkStatusColor } from '@/lib/domain/status';
 import { formatBytes, formatDateTime, shortId, shortSha } from '@/lib/format';
+import { routes } from '@/lib/routes';
 
 interface Props {
   repositoryId: string;
@@ -73,16 +74,16 @@ export function RunDetailContent({ repositoryId, boardProjectId, boardRunId }: P
       {project && (
         <Breadcrumb
           items={[
-            { label: 'Repositories', href: '/repositories' },
+            { label: 'Repositories', href: routes.repositories() },
             {
               label: `${project.repository.owner}/${project.repository.name}`,
-              href: `/repositories/${repositoryId}`,
+              href: routes.repository(repositoryId),
             },
             {
               label: project.display_name,
-              href: `/repositories/${repositoryId}/boards/${boardProjectId}`,
+              href: routes.board(repositoryId, boardProjectId),
             },
-            { label: 'Runs', href: `/repositories/${repositoryId}/boards/${boardProjectId}/runs` },
+            { label: 'Runs', href: routes.runs(repositoryId, boardProjectId) },
             { label: shortId(boardRunId) },
           ]}
         />
@@ -142,7 +143,7 @@ export function RunDetailContent({ repositoryId, boardProjectId, boardRunId }: P
                   </HStack>
                   {check.error_count + check.warning_count + check.notice_count > 0 && (
                     <Link
-                      href={`/repositories/${repositoryId}/boards/${boardProjectId}/runs/${boardRunId}/checks/${check.kind}`}
+                      href={routes.runChecks(repositoryId, boardProjectId, boardRunId, check.kind)}
                     >
                       <Text
                         color='blue.600'
@@ -251,7 +252,7 @@ export function RunDetailContent({ repositoryId, boardProjectId, boardRunId }: P
                         <Text fontSize='sm' color='gray.600'>
                           Compared to run:{' '}
                           <Link
-                            href={`/repositories/${repositoryId}/boards/${boardProjectId}/runs/${diff.base_board_run_id}`}
+                            href={routes.run(repositoryId, boardProjectId, diff.base_board_run_id)}
                           >
                             <Text
                               as='span'
@@ -324,9 +325,7 @@ export function RunDetailContent({ repositoryId, boardProjectId, boardRunId }: P
                           Artifact changes: data format not recognized
                         </Text>
                       )}
-                      <Link
-                        href={`/repositories/${repositoryId}/boards/${boardProjectId}/runs/${boardRunId}/diff`}
-                      >
+                      <Link href={routes.runDiff(repositoryId, boardProjectId, boardRunId)}>
                         <Text
                           color='blue.600'
                           fontSize='sm'

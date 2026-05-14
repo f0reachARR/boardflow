@@ -3,6 +3,7 @@
 import { Box, Heading, VStack } from '@chakra-ui/react';
 import { Breadcrumb } from '@/components/ui/breadcrumb';
 import { $api } from '@/lib/api/react-query';
+import { routes } from '@/lib/routes';
 import { TokenList } from './token-list';
 
 interface Props {
@@ -22,8 +23,8 @@ export function TokensPageContent({ repositoryId }: Props) {
     <Box>
       <Breadcrumb
         items={[
-          { label: 'Repositories', href: '/repositories' },
-          { label: `${repo.owner}/${repo.name}`, href: `/repositories/${repositoryId}` },
+          { label: 'Repositories', href: routes.repositories() },
+          { label: `${repo.owner}/${repo.name}`, href: routes.repository(repositoryId) },
           { label: 'API Tokens' },
         ]}
       />

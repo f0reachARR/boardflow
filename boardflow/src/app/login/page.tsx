@@ -2,6 +2,7 @@ import { Box, Button, Heading, Text, VStack } from '@chakra-ui/react';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { getCurrentUser } from '@/lib/auth';
+import { routes } from '@/lib/routes';
 
 export default async function LoginPage({
   searchParams,
@@ -11,7 +12,7 @@ export default async function LoginPage({
   const user = await getCurrentUser();
 
   if (user) {
-    redirect('/repositories');
+    redirect(routes.repositories());
   }
 
   const params = await searchParams;

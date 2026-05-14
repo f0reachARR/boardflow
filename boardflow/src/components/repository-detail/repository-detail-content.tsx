@@ -7,6 +7,7 @@ import { Breadcrumb } from '@/components/ui/breadcrumb';
 import { $api } from '@/lib/api/react-query';
 import { projectStateColor } from '@/lib/domain/status';
 import { formatDate } from '@/lib/format';
+import { routes } from '@/lib/routes';
 
 interface Props {
   repositoryId: string;
@@ -35,7 +36,7 @@ export function RepositoryDetailContent({ repositoryId }: Props) {
     <Box>
       <Breadcrumb
         items={[
-          { label: 'Repositories', href: '/repositories' },
+          { label: 'Repositories', href: routes.repositories() },
           { label: `${repo.owner}/${repo.name}` },
         ]}
       />
@@ -63,7 +64,7 @@ export function RepositoryDetailContent({ repositoryId }: Props) {
           <Heading size='md' mb={4}>
             Settings
           </Heading>
-          <Link href={`/repositories/${repositoryId}/settings/tokens`}>
+          <Link href={routes.repositoryTokens(repositoryId)}>
             <HStack gap={2} color='blue.600' _hover={{ textDecoration: 'underline' }}>
               <Key size={16} />
               <Text fontWeight='medium'>API Tokens</Text>
@@ -92,9 +93,7 @@ export function RepositoryDetailContent({ repositoryId }: Props) {
                 {projects.map((project) => (
                   <Table.Row key={project.board_project_id}>
                     <Table.Cell>
-                      <Link
-                        href={`/repositories/${repositoryId}/boards/${project.board_project_id}`}
-                      >
+                      <Link href={routes.board(repositoryId, project.board_project_id)}>
                         <Text
                           color='blue.600'
                           fontWeight='medium'

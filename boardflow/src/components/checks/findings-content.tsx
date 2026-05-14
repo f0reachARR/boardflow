@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { Breadcrumb } from '@/components/ui/breadcrumb';
 import { $api } from '@/lib/api/react-query';
 import { shortId } from '@/lib/format';
+import { routes } from '@/lib/routes';
 
 function severityColor(severity: string): string {
   switch (severity) {
@@ -71,26 +72,26 @@ export function FindingsContent({
   const findings = findingsData.items;
   const hasMore = findingsData.has_more;
 
-  const basePath = `/repositories/${repositoryId}/boards/${boardProjectId}/runs/${boardRunId}/checks/${checkKind}`;
+  const basePath = routes.runChecks(repositoryId, boardProjectId, boardRunId, checkKind);
 
   return (
     <Box>
       {project && (
         <Breadcrumb
           items={[
-            { label: 'Repositories', href: '/repositories' },
+            { label: 'Repositories', href: routes.repositories() },
             {
               label: `${project.repository.owner}/${project.repository.name}`,
-              href: `/repositories/${repositoryId}`,
+              href: routes.repository(repositoryId),
             },
             {
               label: project.display_name,
-              href: `/repositories/${repositoryId}/boards/${boardProjectId}`,
+              href: routes.board(repositoryId, boardProjectId),
             },
-            { label: 'Runs', href: `/repositories/${repositoryId}/boards/${boardProjectId}/runs` },
+            { label: 'Runs', href: routes.runs(repositoryId, boardProjectId) },
             {
               label: shortId(boardRunId),
-              href: `/repositories/${repositoryId}/boards/${boardProjectId}/runs/${boardRunId}`,
+              href: routes.run(repositoryId, boardProjectId, boardRunId),
             },
             { label: `${checkKind.toUpperCase()} Findings` },
           ]}

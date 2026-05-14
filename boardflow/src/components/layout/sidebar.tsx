@@ -4,8 +4,9 @@ import { Box, Text, VStack } from '@chakra-ui/react';
 import { FolderGit2 } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { routes } from '@/lib/routes';
 
-const NAV_ITEMS = [{ href: '/repositories', label: 'Repositories', icon: FolderGit2 }];
+const NAV_ITEMS = [{ href: routes.repositories(), label: 'Repositories', icon: FolderGit2 }];
 
 export function Sidebar() {
   const pathname = usePathname();

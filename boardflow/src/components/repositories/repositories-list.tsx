@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { $api } from '@/lib/api/react-query';
 import { boardRunStatusColor } from '@/lib/domain/status';
 import { formatDate } from '@/lib/format';
+import { routes } from '@/lib/routes';
 
 export function RepositoriesList() {
   const { data } = $api.useSuspenseQuery('get', '/api/v1/repositories', {
@@ -46,7 +47,7 @@ export function RepositoriesList() {
                 }
               >
                 <Table.Cell>
-                  <Link href={`/repositories/${repo.github_repository_id}`}>
+                  <Link href={routes.repository(repo.github_repository_id)}>
                     <Text
                       color='blue.600'
                       fontWeight='medium'

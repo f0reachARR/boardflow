@@ -7,6 +7,7 @@ import { CheckBadge } from '@/components/ui/check-badge';
 import { $api } from '@/lib/api/react-query';
 import { boardRunStatusColor } from '@/lib/domain/status';
 import { formatDateTime, shortSha } from '@/lib/format';
+import { routes } from '@/lib/routes';
 
 interface Props {
   repositoryId: string;
@@ -36,10 +37,10 @@ export function BoardProjectDetailContent({ repositoryId, boardProjectId }: Prop
     <Box>
       <Breadcrumb
         items={[
-          { label: 'Repositories', href: '/repositories' },
+          { label: 'Repositories', href: routes.repositories() },
           {
             label: `${project.repository.owner}/${project.repository.name}`,
-            href: `/repositories/${repositoryId}`,
+            href: routes.repository(repositoryId),
           },
           { label: project.display_name },
         ]}
@@ -61,7 +62,7 @@ export function BoardProjectDetailContent({ repositoryId, boardProjectId }: Prop
           <VStack align='stretch' gap={3}>
             <HStack justify='space-between'>
               <Text fontWeight='medium'>Repository</Text>
-              <Link href={`/repositories/${repositoryId}`}>
+              <Link href={routes.repository(repositoryId)}>
                 <Text color='blue.600' _hover={{ textDecoration: 'underline' }}>
                   {project.repository.owner}/{project.repository.name}
                 </Text>
@@ -87,7 +88,7 @@ export function BoardProjectDetailContent({ repositoryId, boardProjectId }: Prop
               <HStack justify='space-between'>
                 <Text fontWeight='medium'>Latest Completed Run</Text>
                 <Link
-                  href={`/repositories/${repositoryId}/boards/${boardProjectId}/runs/${project.latest_completed_run_id}`}
+                  href={routes.run(repositoryId, boardProjectId, project.latest_completed_run_id)}
                 >
                   <Text color='blue.600' _hover={{ textDecoration: 'underline' }}>
                     {project.latest_completed_run_id}
@@ -128,9 +129,7 @@ export function BoardProjectDetailContent({ repositoryId, boardProjectId }: Prop
                 {recentRuns.map((run) => (
                   <Table.Row key={run.board_run_id}>
                     <Table.Cell>
-                      <Link
-                        href={`/repositories/${repositoryId}/boards/${boardProjectId}/runs/${run.board_run_id}`}
-                      >
+                      <Link href={routes.run(repositoryId, boardProjectId, run.board_run_id)}>
                         <Badge colorPalette={boardRunStatusColor(run.status)}>{run.status}</Badge>
                       </Link>
                     </Table.Cell>
@@ -185,7 +184,7 @@ export function BoardProjectDetailContent({ repositoryId, boardProjectId }: Prop
         </Box>
 
         <Box>
-          <Link href={`/repositories/${repositoryId}/boards/${boardProjectId}/runs`}>
+          <Link href={routes.runs(repositoryId, boardProjectId)}>
             <Box
               display='inline-flex'
               alignItems='center'
