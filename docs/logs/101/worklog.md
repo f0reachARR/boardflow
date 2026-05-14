@@ -605,3 +605,107 @@ Issue #101 の主目的である `github_access.rs` の責務別分割は、コ�
 ### 残リスク
 
 - なし。`config_test` の `.env` 読み込み問題は解消済み。
+
+---
+
+## 再レビュー結果（2026-05-14 review agent, follow-up）
+
+### 総評
+
+前回指摘の2点は解消を確認した。`crates/api/tests/config_test.rs` の修正により、プロジェクトルートの `.env` が `AppConfig::from_env()` に再注入される問題は再現しなくなり、`cargo test --workspace` も実測で全パスした。`docs/logs/101/worklog.md` の記述も現状の実測と整合している。
+
+### 調査結果
+
+- `AppConfig::from_env()` は `boardflow_config::load_dotenv()` を通じて `dotenvy::dotenv()` を呼び、カレントディレクトリから親方向に `.env` を探索する実装である。
+- `config_test` は開始時にカレントディレクトリを `std::env::temp_dir()` へ移し、終了時に元のディレクトリへ戻しているため、ワークスペース直下の `.env` に影響されない。
+- `config_test` は integration test バイナリ内の単一テストであり、`#[serial]` も付いている。今回の `set_current_dir` は process-global ではあるが、現状のテスト構成では他テストへの実害は確認できなかった。
+
+### テスト結果
+
+- `mise exec -- cargo fmt --all -- --check`: pass
+- `mise exec -- cargo clippy --workspace --all-targets -- -D warnings`: pass
+- `export DATABASE_URL=postgres://boardflow:boardflow@localhost:5432/boardflow && mise exec -- cargo test --workspace`: pass
+- `crates/api/tests/config_test.rs`: 1 passed, 0 failed
+
+### レビュー結果
+
+- `pr_ready: true`
+
+### 指摘事項
+
+- なし
+
+### 任意改善
+
+- 将来 `config_test.rs` に複数テストを増やす場合は、カレントディレクトリ復元を panic-safe にする小さな guard を入れると保守性は上がる。ただし現時点では PR blocker ではない。
+
+### テスト不足
+
+- なし。Issue の受け入れ条件として要求された `fmt` / `clippy` / `cargo test --workspace` は再実測で満たした。
+
+### ドキュメント確認
+
+- `docs/spec.md`: 本Issueは内部リファクタリングであり、仕様変更は不要。整合している。
+- `docs/logs/101/worklog.md`: 現在のテスト結果と記述の不整合は解消済み。
+
+### plan / research / docs との不整合
+
+- なし。最終状態は「ロジック変更なしの純粋なコード移動・分割」と一致している。
+
+### PR/完了結果
+
+- PR作成可
+
+### 残リスク
+
+- `std::env::set_current_dir` は process-global state なので、将来同一 test binary 内で同種のテストが増えた場合は guard 導入や補助関数化を検討したほうがよい。
+
+---
+
+## ドキュメント確認（2026-05-14 docs agent）
+
+### 総評
+
+Issue #101 は `github_access.rs` の責務別分割に限定された内部リファクタリングであり、仕様・API 契約・運用手順に変更はない。`AGENTS.md`、`docs/spec.md`、`docs/backend/api.md`、`docs/backend/summary.md`、`README.md` の関連記述を確認した範囲では、今回の実装内容と矛盾する記述は見当たらなかった。
+
+### 判定
+
+- `docs_ready: true`
+
+### 必須修正
+
+- なし
+
+### 任意改善
+
+- `docs/external/github-app-octocrab.md` に `crates/api/src/github_access.rs` への旧パス参照が 1 箇所残っている。今回の PR blocker ではないが、次回この外部調査メモを更新する際に `crates/api/src/github_access/mod.rs` もしくは `crates/api/src/github_access/` へ表現を直すと正確性が上がる。
+
+### 不整合のあるドキュメント
+
+- `docs/external/github-app-octocrab.md` — 外部調査メモ内の説明文に旧ファイルパス `crates/api/src/github_access.rs` が残っている。
+
+### 不足しているドキュメント
+
+- なし。内部モジュール分割のみで、公開仕様・利用手順・プロジェクト構造説明の更新は不要。
+
+### 外部調査メモに関する指摘
+
+- 今回の Issue 自体に追加の外部調査は不要。
+- 既存メモ `docs/external/github-app-octocrab.md` の旧パス参照は歴史的文脈としては読めるが、現行構成との厳密な一致はしていない。
+
+### 確認結果
+
+- `AGENTS.md`: crate / frontend 単位の構造説明であり、`github_access` の単一ファイル構成には依存していないため更新不要。
+- `docs/backend/api.md`: installation repos fallback sync や read API 認可の説明は実装責務と一致しており、分割後も更新不要。
+- `docs/backend/summary.md`: `CachedGithubAccessChecker` による可視性判定という責務説明は維持されており、ファイル分割の影響なし。
+- `docs/spec.md`: プロダクト仕様書であり、内部モジュール構成に依存する記述なし。
+- `README.md`: `github_access` の実装ファイル配置に依存する案内なし。
+- `docs/logs/101/worklog.md`: 実装概要、テスト結果、再レビュー結果と整合しており、Issue #101 の経緯として十分な記録になっている。
+
+### PR/完了結果
+
+- docs 観点では PR 作成可
+
+### 更新した作業ログパス
+
+- `docs/logs/101/worklog.md`
