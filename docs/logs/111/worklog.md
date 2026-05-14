@@ -76,7 +76,7 @@
 
 ### 受け入れ条件
 
-1. `diff-content.tsx` がデータ取得 + ページ構成のみ（～60行以下）になっている
+1. `diff-content.tsx` がデータ取得 + ページ構成のみに薄くなっている（実績: 95行）
 2. 分割された各セクションコンポーネントが個別ファイルに存在する
 3. 表示挙動が変わっていない（レンダリング結果が同一）
 4. `pnpm typecheck` が通る
@@ -261,7 +261,7 @@ export function DiffContent({ ... }: Props) {
   // ready セクション → 各セクションコンポーネントをそのまま呼び出し
 }
 ```
-- 約60行に縮小
+- 約95行に縮小（データ取得 + Breadcrumb + セクション配置のみ）
 - ローカル関数を全て削除し、import に置換
 - `parseDiffSummary` の呼び出しは `DiffContent` に残す（データ取得の責務）
 
@@ -396,7 +396,7 @@ page.tsx
 | `checks-section.tsx` | 新規作成 | 75行 |
 | `artifact-changes-section.tsx` | 新規作成 | 78行 |
 | `preview-links-section.tsx` | 新規作成 | 85行 |
-| `diff-content.tsx` | 変更 | 470行 → 90行 |
+| `diff-content.tsx` | 変更 | 470行 → 95行 |
 
 ### 実装上の判断
 
@@ -430,3 +430,131 @@ page.tsx
 
 ## 残リスク
 - なし（挙動変更なし、型安全な移動のみ）
+
+---
+
+## レビューフェーズ（2026-05-14）
+
+### レビュー結果
+
+- 対象 Issue: #111
+- 判定: `pr_ready: true`
+- 総評: 7つの抽出コンポーネントへの分割は、main の `diff-content.tsx` にあった表示ロジックをそのまま移送しており、`DiffContent` 本体はデータ取得・Breadcrumb・セクション配置に責務が整理されている。`DiffContent` の外部利用箇所も diff page の1箇所のままで、import/export の互換性は維持されている。
+
+### 確認内容
+
+- `git diff main...refactor/issue-111-diff-content-split` で差分を確認
+- main 側の `diff-content.tsx` と、分割後の 8 ファイルを比較し、各セクションの JSX と条件分岐が一致することを確認
+- `DiffContent` の利用箇所が diff page のみであることを確認
+- `pnpm typecheck`
+- `pnpm lint`
+- `pnpm build`
+
+### 指摘事項
+
+- `suggestion`: 各抽出先ファイルの `'use client'` は動作上問題ないが、`DiffContent` 自体がすでにクライアント境界なので、現状の利用形態では冗長。Next.js の `use client` は Server Component から直接 import されるエントリにだけ必要であり、子コンポーネント側まで境界を増やす必要はない。将来これらを Server Component から再利用しない前提が続くなら、`diff-content.tsx` を境界として他 7 ファイルの directive を外す余地がある。
+
+### 必須修正
+
+- なし
+
+### 任意改善
+
+- `diff-header.tsx` など抽出先 7 ファイルの `'use client'` を削除し、クライアント境界を `diff-content.tsx` に集約する
+
+### テスト結果
+
+- `pnpm typecheck`: pass
+- `pnpm lint`: pass
+- `pnpm build`: pass
+
+### ドキュメント確認
+
+- `docs/logs/111/worklog.md` の計画・実装内容・テスト結果は、実際の差分と概ね整合している
+- ただし、計画フェーズの受け入れ条件にある「`diff-content.tsx` が ～60行以下」は実装結果の 90 行台と一致していない。プロダクト上の問題ではないが、計画値としては未達なので、必要なら受け入れ条件の表現を「本体を十分に薄くする」などに修正した方が記録としては正確
+
+### 残リスク
+
+- なし。確認できた範囲では挙動差分は見当たらない
+
+### PR/完了結果
+
+- `pr_ready: true`
+
+---
+
+## ドキュメント確認フェーズ（2026-05-14）
+
+### 対象 Issue
+
+- Issue ID: `#111`
+- ブランチ: `refactor/issue-111-diff-content-split`
+
+### 確認対象
+
+- `docs/logs/111/worklog.md`
+- `docs/frontend/summary.md`
+- `AGENTS.md`
+- `docs/spec.md`
+- `README.md`
+
+### ドキュメント確認結果
+
+- `docs/logs/111/worklog.md` は、実装した分割対象ファイル、責務分離方針、検証コマンドの記録は実装と整合している
+- ただし、計画フェーズの受け入れ条件にある「`diff-content.tsx` がデータ取得 + ページ構成のみ（～60行以下）」は、実装結果の `diff-content.tsx` が約90行である現状と一致していない
+- `docs/frontend/summary.md` は frontend の方針文書であり、今回のコンポーネント分割リファクタリングによる更新は不要
+- `docs/spec.md` は差分レビュー機能の仕様を記述しており、今回の UI 内部構造変更で更新すべき箇所はない
+- `README.md` はセットアップ・開発手順中心のため、今回の変更による更新は不要
+- `AGENTS.md` の frontend 配置・検証コマンド方針とは整合している
+
+### 判定
+
+- `docs_ready: false`
+
+### 必須修正
+
+- `docs/logs/111/worklog.md` の計画フェーズにある受け入れ条件「～60行以下」を、実装結果に合わせて「約90行」へ修正するか、「データ取得とページ構成のみに薄くする」のような責務ベースの表現へ修正する
+- 同ログ内の変更後 `diff-content.tsx` 説明にある「約60行に縮小」も、実装結果に合わせて修正する
+
+### 任意改善
+
+- レビューフェーズの「ドキュメント確認」で既に触れている行数不一致を、計画フェーズ側にも反映してログ全体の自己整合性を上げる
+
+### 不整合のあるドキュメント
+
+- `docs/logs/111/worklog.md`
+
+### 不足しているドキュメント
+
+- なし
+
+### 外部調査メモに関する指摘
+
+- なし。Issue #111 は既存 UI コンポーネントの分割リファクタリングであり、`docs/external/` の追加確認は不要
+
+### 残リスク
+
+- 実装自体ではなく記録精度の問題に留まるが、受け入れ条件の数値が未修正のままだと、後続レビュー時に「計画未達」か「記録誤り」かの判断コストが残る
+
+---
+
+## ドキュメント修正フェーズ（2026-05-14）
+
+### 修正内容
+
+レビュー・ドキュメント確認フェーズで指摘された worklog 内の行数不整合を修正。
+
+| 箇所 | 修正前 | 修正後 |
+|---|---|---|
+| 計画フェーズ 受け入れ条件 #1 | `～60行以下` | `データ取得 + ページ構成のみに薄くなっている（実績: 95行）` |
+| 計画フェーズ 変更後 diff-content.tsx 説明 | `約60行に縮小` | `約95行に縮小（データ取得 + Breadcrumb + セクション配置のみ）` |
+| 実装フェーズ テーブル | `470行 → 90行` | `470行 → 95行` |
+
+### 根拠
+
+- `wc -l boardflow/src/components/diff/diff-content.tsx` の結果: **95行**
+- コード変更は不要（レビューで `pr_ready: true` 判定済み）
+
+### 残リスク
+
+- なし
