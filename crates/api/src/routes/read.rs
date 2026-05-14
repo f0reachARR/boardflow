@@ -1,8 +1,6 @@
 use axum::extract::{Path, Query, State};
 use axum::{Extension, Json};
-use base64::Engine;
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use utoipa::{IntoParams, ToSchema};
@@ -19,58 +17,13 @@ use boardflow_domain::public_ids::{ArtifactId, BoardProjectId, BoardRunId};
 use crate::error::{AppError, RequestId};
 use crate::extractors::AuthenticatedSession;
 use crate::github_access::{AccessError, AccessResult, DynGithubAccessChecker};
+use crate::pagination::{
+    PaginatedResponse, PaginationParams, decode_findings_cursor, encode_cursor,
+    encode_findings_cursor, encode_repository_cursor,
+};
 use crate::{ArtifactBaseUrl, ArtifactSecret};
 
-// ─── Cursor encoding/decoding ────────────────────────────────────────────────
-
-#[derive(Debug, Serialize, Deserialize)]
-struct CursorPayload {
-    ts: String,
-    id: String,
-}
-
-fn encode_cursor(ts: &DateTime<Utc>, id: &Uuid) -> String {
-    let payload = CursorPayload {
-        ts: ts.to_rfc3339(),
-        id: id.to_string(),
-    };
-    let json = serde_json::to_string(&payload).unwrap();
-    URL_SAFE_NO_PAD.encode(json.as_bytes())
-}
-
-fn decode_cursor(cursor: &str) -> Option<(DateTime<Utc>, Uuid)> {
-    let bytes = URL_SAFE_NO_PAD.decode(cursor).ok()?;
-    let payload: CursorPayload = serde_json::from_slice(&bytes).ok()?;
-    let ts = DateTime::parse_from_rfc3339(&payload.ts).ok()?.to_utc();
-    let id = Uuid::parse_str(&payload.id).ok()?;
-    Some((ts, id))
-}
-
-// Repository cursor uses github_repository_id as tie-breaker
-#[derive(Debug, Serialize, Deserialize)]
-struct RepositoryCursorPayload {
-    ts: String,
-    gid: String,
-}
-
-fn encode_repository_cursor(ts: &DateTime<Utc>, github_repository_id: i64) -> String {
-    let payload = RepositoryCursorPayload {
-        ts: ts.to_rfc3339(),
-        gid: github_repository_id.to_string(),
-    };
-    let json = serde_json::to_string(&payload).unwrap();
-    URL_SAFE_NO_PAD.encode(json.as_bytes())
-}
-
-fn decode_repository_cursor(cursor: &str) -> Option<(DateTime<Utc>, i64)> {
-    let bytes = URL_SAFE_NO_PAD.decode(cursor).ok()?;
-    let payload: RepositoryCursorPayload = serde_json::from_slice(&bytes).ok()?;
-    let ts = DateTime::parse_from_rfc3339(&payload.ts).ok()?.to_utc();
-    let gid: i64 = payload.gid.parse().ok()?;
-    Some((ts, gid))
-}
-
-// ─── Query parameters ────────────────────────────────────────────────────────
+// ─── Access helpers ──────────────────────────────────────────────────────────
 
 // Helper: convert AccessResult::Denied/Error to AppError
 pub fn access_result_to_error(
@@ -208,48 +161,7 @@ fn parse_finding_severity(value: &str) -> Option<FindingSeverity> {
     }
 }
 
-#[derive(Debug, Deserialize, IntoParams)]
-pub struct PaginationParams {
-    #[param(default = 50, minimum = 1, maximum = 100)]
-    pub limit: Option<i64>,
-    pub cursor: Option<String>,
-}
-
-impl PaginationParams {
-    fn effective_limit(&self) -> i64 {
-        self.limit.unwrap_or(50).clamp(1, 100)
-    }
-
-    fn decoded_cursor(&self, request_id: &str) -> Result<Option<(DateTime<Utc>, Uuid)>, AppError> {
-        match &self.cursor {
-            None => Ok(None),
-            Some(c) => decode_cursor(c)
-                .map(Some)
-                .ok_or_else(|| AppError::validation_failed("invalid cursor", request_id)),
-        }
-    }
-
-    fn decoded_repository_cursor(
-        &self,
-        request_id: &str,
-    ) -> Result<Option<(DateTime<Utc>, i64)>, AppError> {
-        match &self.cursor {
-            None => Ok(None),
-            Some(c) => decode_repository_cursor(c)
-                .map(Some)
-                .ok_or_else(|| AppError::validation_failed("invalid cursor", request_id)),
-        }
-    }
-}
-
 // ─── Response types ──────────────────────────────────────────────────────────
-
-#[derive(Debug, Serialize, ToSchema)]
-pub struct PaginatedResponse<T: Serialize> {
-    pub items: Vec<T>,
-    pub next_cursor: Option<String>,
-    pub has_more: bool,
-}
 
 // Repository responses
 #[derive(Debug, Serialize, ToSchema)]
@@ -1572,30 +1484,6 @@ pub async fn get_board_run_diff(
         error_message: diff.error_message,
         created_at: diff.created_at.to_rfc3339(),
     }))
-}
-
-// ─── Findings cursor encoding/decoding ───────────────────────────────────────
-
-#[derive(Debug, Serialize, Deserialize)]
-struct FindingsCursorPayload {
-    si: i32,
-    id: String,
-}
-
-fn encode_findings_cursor(sort_index: i32, id: &Uuid) -> String {
-    let payload = FindingsCursorPayload {
-        si: sort_index,
-        id: id.to_string(),
-    };
-    let json = serde_json::to_string(&payload).unwrap();
-    URL_SAFE_NO_PAD.encode(json.as_bytes())
-}
-
-fn decode_findings_cursor(cursor: &str) -> Option<(i32, Uuid)> {
-    let bytes = URL_SAFE_NO_PAD.decode(cursor).ok()?;
-    let payload: FindingsCursorPayload = serde_json::from_slice(&bytes).ok()?;
-    let id = Uuid::parse_str(&payload.id).ok()?;
-    Some((payload.si, id))
 }
 
 // ─── Findings query parameters ───────────────────────────────────────────────

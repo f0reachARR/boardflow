@@ -1,19 +1,18 @@
 use axum::extract::rejection::JsonRejection;
 use axum::extract::{Path, Query, State};
 use axum::{Extension, Json};
-use base64::Engine;
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use chrono::{DateTime, Utc};
+use chrono::DateTime;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::PgPool;
-use utoipa::{IntoParams, ToSchema};
+use utoipa::ToSchema;
 use uuid::Uuid;
 
 use crate::error::{AppError, RequestId};
 use crate::extractors::AuthenticatedSession;
 use crate::github_access::DynGithubAccessChecker;
+use crate::pagination::{PaginatedResponse, PaginationParams, encode_cursor};
 use crate::routes::read::access_result_to_error;
 
 // ─── Request / Response types ────────────────────────────────────────────────
@@ -41,51 +40,12 @@ pub struct ApiTokenListItem {
 }
 
 #[derive(Debug, Serialize, ToSchema)]
-pub struct ApiTokenListResponse {
-    pub items: Vec<ApiTokenListItem>,
-    pub next_cursor: Option<String>,
-    pub has_more: bool,
-}
-
-#[derive(Debug, Serialize, ToSchema)]
 pub struct ApiTokenDetailResponse {
     pub id: String,
     pub name: String,
     pub created_at: String,
     pub last_used_at: Option<String>,
     pub revoked_at: Option<String>,
-}
-
-#[derive(Debug, Deserialize, IntoParams)]
-pub struct ApiTokenPaginationParams {
-    #[param(default = 50, minimum = 1, maximum = 100)]
-    pub limit: Option<i64>,
-    pub cursor: Option<String>,
-}
-
-// ─── Cursor helpers ──────────────────────────────────────────────────────────
-
-#[derive(Debug, Serialize, Deserialize)]
-struct CursorPayload {
-    ts: String,
-    id: String,
-}
-
-fn encode_cursor(ts: &DateTime<Utc>, id: &Uuid) -> String {
-    let payload = CursorPayload {
-        ts: ts.to_rfc3339(),
-        id: id.to_string(),
-    };
-    let json = serde_json::to_string(&payload).unwrap();
-    URL_SAFE_NO_PAD.encode(json.as_bytes())
-}
-
-fn decode_cursor(cursor: &str) -> Option<(DateTime<Utc>, Uuid)> {
-    let bytes = URL_SAFE_NO_PAD.decode(cursor).ok()?;
-    let payload: CursorPayload = serde_json::from_slice(&bytes).ok()?;
-    let ts = DateTime::parse_from_rfc3339(&payload.ts).ok()?.to_utc();
-    let id = Uuid::parse_str(&payload.id).ok()?;
-    Some((ts, id))
 }
 
 // ─── Token generation ────────────────────────────────────────────────────────
@@ -191,10 +151,10 @@ pub async fn create_api_token(
     path = "/api/v1/repositories/{github_repository_id}/api-tokens",
     params(
         ("github_repository_id" = i64, Path, description = "GitHub repository ID"),
-        ApiTokenPaginationParams
+        PaginationParams
     ),
     responses(
-        (status = 200, description = "Token list", body = ApiTokenListResponse),
+        (status = 200, description = "Token list", body = PaginatedResponse<ApiTokenListItem>),
         (status = 400, description = "Validation error", body = crate::error::ErrorResponse),
         (status = 401, description = "Unauthorized", body = crate::error::ErrorResponse),
         (status = 404, description = "Not found", body = crate::error::ErrorResponse),
@@ -206,8 +166,8 @@ pub async fn list_api_tokens(
     Extension(access_checker): Extension<DynGithubAccessChecker>,
     State(pool): State<PgPool>,
     Path(github_repository_id): Path<i64>,
-    Query(params): Query<ApiTokenPaginationParams>,
-) -> Result<Json<ApiTokenListResponse>, AppError> {
+    Query(params): Query<PaginationParams>,
+) -> Result<Json<PaginatedResponse<ApiTokenListItem>>, AppError> {
     // Lookup repository
     let repo = boardflow_db::queries::repository::find_by_github_id(&pool, github_repository_id)
         .await
@@ -226,14 +186,8 @@ pub async fn list_api_tokens(
     }
 
     // Pagination
-    let limit = params.limit.unwrap_or(50).clamp(1, 100);
-    let cursor = match &params.cursor {
-        None => None,
-        Some(c) => Some(
-            decode_cursor(c)
-                .ok_or_else(|| AppError::validation_failed("invalid cursor", &request_id))?,
-        ),
-    };
+    let limit = params.effective_limit();
+    let cursor = params.decoded_cursor(&request_id)?;
 
     let tokens =
         boardflow_db::queries::api_token::list_by_repository_id(&pool, repo.id, limit + 1, cursor)
@@ -268,7 +222,7 @@ pub async fn list_api_tokens(
         None
     };
 
-    Ok(Json(ApiTokenListResponse {
+    Ok(Json(PaginatedResponse {
         items,
         next_cursor,
         has_more,

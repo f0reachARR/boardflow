@@ -1,6 +1,5 @@
 ---
 source: crates/api/tests/openapi_schema_test.rs
-assertion_line: 9
 expression: json
 ---
 {
@@ -994,7 +993,7 @@ expression: json
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiTokenListResponse"
+                  "$ref": "#/components/schemas/PaginatedResponse_ApiTokenListItem"
                 }
               }
             }
@@ -1392,30 +1391,6 @@ expression: json
             "type": "string"
           },
           "revoked_at": {
-            "type": [
-              "string",
-              "null"
-            ]
-          }
-        }
-      },
-      "ApiTokenListResponse": {
-        "type": "object",
-        "required": [
-          "items",
-          "has_more"
-        ],
-        "properties": {
-          "has_more": {
-            "type": "boolean"
-          },
-          "items": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/ApiTokenListItem"
-            }
-          },
-          "next_cursor": {
             "type": [
               "string",
               "null"
@@ -2411,6 +2386,58 @@ expression: json
           },
           "user_id": {
             "type": "string"
+          }
+        }
+      },
+      "PaginatedResponse_ApiTokenListItem": {
+        "type": "object",
+        "required": [
+          "items",
+          "has_more"
+        ],
+        "properties": {
+          "has_more": {
+            "type": "boolean"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "id",
+                "name",
+                "created_at"
+              ],
+              "properties": {
+                "created_at": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "last_used_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "name": {
+                  "type": "string"
+                },
+                "revoked_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              }
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       },

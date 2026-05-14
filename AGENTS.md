@@ -11,10 +11,10 @@
 Run backend commands from the repository root:
 
 - `mise exec -- cargo run -p boardflow-api` starts the API on port `3000`.
-- `cargo fmt --all -- --check` verifies Rust formatting.
-- `cargo clippy --workspace --all-targets -- -D warnings` runs the CI lint gate.
-- `cargo test --workspace` runs unit tests.
-- `cargo test --workspace -- --ignored` runs DB-backed integration tests.
+- `mise exec -- cargo fmt --all -- --check` verifies Rust formatting.
+- `mise exec -- cargo clippy --workspace --all-targets -- -D warnings` runs the CI lint gate.
+- `mise exec -- cargo test --workspace` runs unit tests.
+- `mise exec -- cargo test --workspace -- --ignored` runs DB-backed integration tests.
 
 Run frontend commands from `boardflow/`:
 
