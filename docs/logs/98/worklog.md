@@ -410,3 +410,82 @@ pub mod pagination;
 
 - 現時点では `pr_ready: false`
 - `pnpm generate:api` 実施と生成差分確認後に再レビュー不要で PR 化可能
+
+---
+
+## 2026-05-14: 再レビューフェーズ
+
+### 対象
+
+- Issue ID: #98
+- 確認依頼: 前回レビュー指摘の解消確認
+
+### 確認結果
+
+1. `boardflow/src/lib/api/schema.d.ts` の API token list 応答型は `ApiTokenListResponse` ではなく `PaginatedResponse_ApiTokenListItem` になっていることを確認
+2. frontend 配下で `ApiTokenListResponse` の残参照がないことを確認
+3. OpenAPI snapshot 側も `PaginatedResponse_ApiTokenListItem` を参照しており、backend と frontend の型名は現状態で整合
+4. 前回レビューで指摘したブロッキング項目と任意改善項目は、現状態ではいずれも解消済みと判断
+
+### 参照した成果物
+
+- `crates/api/tests/snapshots/openapi_schema_test__openapi_schema.snap`
+- `boardflow/src/lib/api/schema.d.ts`
+- `docs/backend/api.md`
+- `docs/spec.md`
+
+### レビュー結果
+
+- 総評: 変更は Issue #98 の目的に対して一貫しており、前回のレビュー指摘は解消済み。pagination 共通化と OpenAPI 由来の frontend 型名変更も現状態で揃っている。
+- PR 判定: `pr_ready: true`
+
+### テスト結果の扱い
+
+- `pnpm typecheck` PASS は今回の確認依頼に対して十分な裏付けと判断
+- backend 側は OpenAPI snapshot と実装の整合を確認
+- なお、会話コンテキスト上の `config_test` 失敗は `DATABASE_URL` を export した状態に依存する既知の別件であり、Issue #98 の差分に起因する指摘ではない
+
+### 残リスク
+
+1. `boardflow/src/lib/api/schema.d.ts` は generated file であり、今回は内容整合を確認できたが、将来の API 変更時は `pnpm generate:api` の正式再生成を継続すべき
+
+### PR/完了結果
+
+- `pr_ready: true`
+
+---
+
+## 2026-05-14: ドキュメント確認フェーズ
+
+### 対象
+
+- Issue ID: #98
+- 確認対象: `docs/backend/api.md`, `docs/backend/summary.md`, `docs/spec.md`, `docs/technology.md`, `AGENTS.md`, `docs/logs/98/worklog.md`
+
+### 確認結果
+
+1. `docs/backend/api.md` は cursor pagination の共通契約をレスポンス形状ベースで定義しており、`PaginatedResponse<T>` への共通化および `ApiTokenListResponse` からの型統合後も記述変更は不要。
+2. `docs/backend/summary.md` は crate 単位の構成説明に留まっており、`crates/api/src/pagination.rs` の追加を個別に列挙する責務ではないため更新不要。
+3. `docs/spec.md` と `docs/technology.md` は pagination の実装詳細や Rust モジュール分割ではなく、仕様・技術方針レベルの記述に留まっているため今回の内部リファクタリングでは不整合なし。
+4. `AGENTS.md` の backend コマンド記述は `mise exec --` 前提に更新済みで、今回の確認観点と矛盾しない。
+5. `docs/logs/98/worklog.md` は research / 計画 / 実装 / review の経緯に加え、frontend 型名整合まで記録されている。今回のドキュメント確認フェーズを追記して時系列の完全性を補完した。
+
+### ドキュメント観点の判定
+
+- `docs_ready: true`
+
+### 必須修正
+
+- なし
+
+### 任意改善
+
+- なし
+
+### 残リスク
+
+1. `boardflow/src/lib/api/schema.d.ts` は generated file のため、今後 API 契約を変更する Issue では手動整合ではなく `pnpm generate:api` による正式再生成を継続すること。
+
+### 更新ファイル
+
+- `docs/logs/98/worklog.md` — ドキュメント確認結果を追記
