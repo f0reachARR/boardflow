@@ -625,3 +625,51 @@ mise exec -- cargo test --workspace
 
 1. `tree_hash` が `process_project` と `create_board_run` の2箇所で計算される冗長性は現行コードの動作をそのまま維持するため変更しない
 2. `ArtifactEntry` の `serde_json::to_value().unwrap()` パターンは現行コードのまま（パニックリスクは元から存在するが本 Issue の scope 外）
+
+---
+
+## 実装フェーズ
+
+### 実施日: 2026-05-14
+
+### 実装手順
+
+1. **ブランチ作成**: main から `refactor/issue-102-split-runner` を作成
+2. **runner.rs → runner/mod.rs 変換**: ディレクトリ作成、ファイル移動、`cargo check` 確認 → コミット
+3. **サブモジュール5ファイル作成 + mod.rs 書き換え**: 一括で実施
+
+### 作成したファイル
+
+| ファイル | 責務 | 主な公開シンボル |
+|---------|------|----------------|
+| `runner/project_discovery.rs` | プロジェクト検出・検証 | `ValidProject`, `discover_and_validate()`, `build_plan_files()` |
+| `runner/plan.rs` | Plan APIリクエスト構築 | `build_plan_request()` |
+| `runner/artifact_pipeline.rs` | KiCad export全ステップ | `ArtifactEntry`, `run_artifact_pipeline()` |
+| `runner/manifest_builder.rs` | diff metadata + manifest | `build_diff_and_manifest()`, `build_manifest_checks()` |
+| `runner/submission.rs` | Board run作成 + bundle送信 | `create_board_run()`, `submit_bundle()` |
+
+### mod.rs の変更
+
+- `run()` と `process_project()` を薄いオーケストレーターとして維持
+- 旧コード1309行 → mod.rs 206行 + サブモジュール合計約1050行
+
+### テスト結果
+
+- `cargo fmt --all -- --check` → パス
+- `cargo clippy --workspace --all-targets -- -D warnings` → パス
+- `cargo test -p boardflow-action-runner` → 全テストパス
+  - api_test: 8 passed, 1 ignored
+  - bundle_test: 13 passed
+  - inputs_test: 8 passed
+  - summary_test: 6 passed
+- `cargo test --workspace` → action-runner 全パス。kicad クレートの既存テスト1件 (`export_pcb_pdf_rejects_empty_output_file`) が fail だが本Issue対象外
+- config_test の DATABASE_URL 依存失敗はこの実行では発生せず
+
+### ドキュメント更新
+
+- `docs/logs/102/worklog.md` を更新（本ファイル）
+- 内部リファクタリングのため spec/API ドキュメントの変更は不要
+
+### 残リスク
+
+- なし。純粋なロジック移動であり、挙動変更なし。
