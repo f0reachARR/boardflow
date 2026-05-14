@@ -81,14 +81,3 @@ export function projectStateColor(state: BoardProjectState | string): string {
       return 'gray';
   }
 }
-
-export function checkBadgeColor(status: RunCheckStatus | string): string {
-  switch (status) {
-    case 'passed':
-      return 'green.solid';
-    case 'failed':
-      return 'red.solid';
-    default:
-      return 'gray.solid';
-  }
-}
