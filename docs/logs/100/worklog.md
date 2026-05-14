@@ -485,3 +485,21 @@ pub(super) fn pos_mm_to_um(pos: &CoordinateMm) -> (i32, i32)
 
 1. `docs/logs/` 配下には旧パス参照が履歴として残るため、ファイル参照を機械的にたどると現行パスとの差異で迷う可能性はある。
 2. 将来 worker の import フロー自体を変更する場合は、今回「更新不要」と判断した `docs/spec.md` と `docs/backend/summary.md` を再確認する必要がある。
+
+---
+
+## PR作成フェーズ (pr agent)
+
+### PR/完了結果
+
+- PR作成: **完了**
+- PR URL: https://github.com/f0reachARR/boardflow/pull/121
+- タイトル: `refactor: split import handler into sub-modules (#100)`
+- ブランチ: `refactor/issue-100-split-import-handler` → `main`
+- 備考: `refactor` ラベルがリポジトリに未登録のためラベルなしで作成
+
+### 残リスク
+
+1. import handler 専用テストがないため、挙動不変の確認はコード比較と既存 E2E テスト（`test_import_api`）前提
+2. `persist.rs` が435行と大きいが、DB永続化の集約という設計方針に従っている
+3. `docs/logs/` 配下には旧パス参照が履歴として残る（履歴文書のため更新不要）
