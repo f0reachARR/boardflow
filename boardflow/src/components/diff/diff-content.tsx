@@ -4,14 +4,8 @@ import { Badge, Box, Heading, HStack, Text, VStack } from '@chakra-ui/react';
 import Link from 'next/link';
 import { Breadcrumb } from '@/components/ui/breadcrumb';
 import { $api } from '@/lib/api/react-query';
-import type { DiffSummary } from '@/lib/api/schema-types';
-import {
-  isArtifactChanges,
-  isBomChanges,
-  isCheckEntry,
-  isFileChanges,
-  isRecord,
-} from '@/lib/domain/guards';
+import { type ParsedDiffSummary, parseDiffSummary } from '@/lib/domain/diff-summary';
+import { isRecord } from '@/lib/domain/guards';
 import { diffStatusColor } from '@/lib/domain/status';
 import { formatDateTime, shortId } from '@/lib/format';
 import { routes } from '@/lib/routes';
@@ -116,30 +110,26 @@ export function DiffContent({ repositoryId, boardProjectId, boardRunId }: Props)
           </Box>
         )}
 
-        {diff.status === 'ready' && diff.summary != null && (
-          <>
-            <FileChangesSection
-              summary={diff.summary as DiffSummary}
-              metadata={diff.metadata ?? null}
-            />
-            <BomChangesSection
-              summary={diff.summary as DiffSummary}
-              metadata={diff.metadata ?? null}
-            />
-            <ChecksSection summary={diff.summary as DiffSummary} />
-            <ArtifactChangesSection
-              summary={diff.summary as DiffSummary}
-              metadata={diff.metadata ?? null}
-            />
-            <PreviewLinksSection
-              metadata={diff.metadata ?? null}
-              repositoryId={repositoryId}
-              boardProjectId={boardProjectId}
-              boardRunId={boardRunId}
-              baseRunId={diff.base_board_run_id ?? null}
-            />
-          </>
-        )}
+        {diff.status === 'ready' &&
+          diff.summary != null &&
+          (() => {
+            const summary = parseDiffSummary(diff.summary);
+            return (
+              <>
+                <FileChangesSection summary={summary} metadata={diff.metadata ?? null} />
+                <BomChangesSection summary={summary} metadata={diff.metadata ?? null} />
+                <ChecksSection summary={summary} />
+                <ArtifactChangesSection summary={summary} metadata={diff.metadata ?? null} />
+                <PreviewLinksSection
+                  metadata={diff.metadata ?? null}
+                  repositoryId={repositoryId}
+                  boardProjectId={boardProjectId}
+                  boardRunId={boardRunId}
+                  baseRunId={diff.base_board_run_id ?? null}
+                />
+              </>
+            );
+          })()}
       </VStack>
     </Box>
   );
@@ -149,10 +139,10 @@ function FileChangesSection({
   summary,
   metadata,
 }: {
-  summary: DiffSummary;
+  summary: ParsedDiffSummary;
   metadata: Record<string, unknown> | null;
 }) {
-  if (!isFileChanges(summary.file_changes)) {
+  if (!summary.fileChanges) {
     return (
       <Box>
         <Heading size='md' mb={3}>
@@ -167,7 +157,7 @@ function FileChangesSection({
     );
   }
 
-  const { added, removed, changed, unchanged } = summary.file_changes;
+  const { added, removed, changed, unchanged } = summary.fileChanges;
 
   const fileHashesRaw = metadata?.file_hashes;
   const fileHashes = isRecord(fileHashesRaw) ? fileHashesRaw : null;
@@ -222,10 +212,10 @@ function BomChangesSection({
   summary,
   metadata,
 }: {
-  summary: DiffSummary;
+  summary: ParsedDiffSummary;
   metadata: Record<string, unknown> | null;
 }) {
-  if (!isBomChanges(summary.bom_changes)) {
+  if (!summary.bomChanges) {
     return (
       <Box>
         <Heading size='md' mb={3}>
@@ -240,7 +230,7 @@ function BomChangesSection({
     );
   }
 
-  const { added, removed, changed } = summary.bom_changes;
+  const { added, removed, changed } = summary.bomChanges;
 
   const bomRaw = metadata?.bom_summary;
   const hasBomData = bomRaw != null;
@@ -266,8 +256,8 @@ function BomChangesSection({
   );
 }
 
-function ChecksSection({ summary }: { summary: DiffSummary }) {
-  if (!isRecord(summary.checks)) {
+function ChecksSection({ summary }: { summary: ParsedDiffSummary }) {
+  if (summary.checks === null) {
     return (
       <Box>
         <Heading size='md' mb={3}>
@@ -281,14 +271,7 @@ function ChecksSection({ summary }: { summary: DiffSummary }) {
       </Box>
     );
   }
-
-  const validChecks = Object.entries(summary.checks).filter(
-    (
-      entry,
-    ): entry is [string, { status_change: string; error_delta: number; warning_delta: number }] =>
-      isCheckEntry(entry[1]),
-  );
-  if (validChecks.length === 0) return null;
+  if (summary.checks.length === 0) return null;
 
   return (
     <Box>
@@ -296,7 +279,7 @@ function ChecksSection({ summary }: { summary: DiffSummary }) {
         ERC/DRC Checks
       </Heading>
       <HStack gap={4} flexWrap='wrap'>
-        {validChecks.map(([kind, check]) => (
+        {summary.checks.map(([kind, check]) => (
           <Box key={kind} borderWidth='1px' borderRadius='md' p={4} bg='white' minW='200px'>
             <Text fontWeight='bold' textTransform='uppercase' mb={2}>
               {kind}
@@ -341,10 +324,10 @@ function ArtifactChangesSection({
   summary,
   metadata,
 }: {
-  summary: DiffSummary;
+  summary: ParsedDiffSummary;
   metadata: Record<string, unknown> | null;
 }) {
-  if (!isArtifactChanges(summary.artifacts)) {
+  if (!summary.artifactChanges) {
     return (
       <Box>
         <Heading size='md' mb={3}>
@@ -359,7 +342,7 @@ function ArtifactChangesSection({
     );
   }
 
-  const { added, removed, changed } = summary.artifacts;
+  const { added, removed, changed } = summary.artifactChanges;
 
   const artifactsRaw = metadata?.artifacts_summary;
   const artifactsSummary = isRecord(artifactsRaw) ? artifactsRaw : null;
