@@ -1,146 +1,38 @@
-use boardflow_artifact::{
-    ArtifactError, download_bundle, extract_bundle, upload_artifact, verify_sha256,
-};
+use boardflow_artifact::{ArtifactError, BundleManifest};
 use boardflow_db::queries::{
     artifact, artifact_bundle, board_project, board_run, diff, github_job, run_check,
     run_check_finding, snapshot,
 };
 use boardflow_domain::models::github_job::{GithubJob, GithubJobType};
-use boardflow_jobs::{BASE_BACKOFF_SECS, MAX_ATTEMPTS};
-use serde::Deserialize;
-use sqlx::PgPool;
+use sqlx::Postgres;
 use uuid::Uuid;
 
-use crate::config::WorkerConfig;
+use super::normalize;
+use super::s3_ops::UploadedArtifact;
 
-#[derive(Debug, Deserialize)]
-struct ImportPayload {
-    staging_object_key: String,
-    bundle_sha256: String,
-    #[allow(dead_code)]
-    bundle_size_bytes: i64,
+/// Accumulated ERC/DRC check statistics returned by [`persist_checks_and_findings`].
+pub(super) struct CheckSummary {
+    pub erc_status: Option<&'static str>,
+    pub erc_errors: i32,
+    pub erc_warnings: i32,
+    pub drc_status: Option<&'static str>,
+    pub drc_errors: i32,
+    pub drc_warnings: i32,
 }
 
-pub async fn handle(
-    pool: &PgPool,
-    s3_client: &aws_sdk_s3::Client,
-    config: &WorkerConfig,
-    job: &GithubJob,
-) -> super::HandlerResult {
-    match process_import_job(pool, s3_client, config, job).await {
-        Ok(()) => super::HandlerResult::Completed,
-        Err(e) => {
-            tracing::error!(job_id = %job.id, error = %e, "Import job failed");
-            handle_import_failure(pool, job, &e.to_string()).await;
-            // Already handled mark_failed/reschedule inside handle_import_failure
-            // Return Completed to avoid double-handling in dispatcher
-            super::HandlerResult::Completed
-        }
-    }
-}
-
-async fn process_import_job(
-    pool: &PgPool,
-    s3_client: &aws_sdk_s3::Client,
-    config: &WorkerConfig,
-    job: &GithubJob,
+/// Insert artifact records for both available and non-available entries in the manifest.
+pub(super) async fn persist_artifacts(
+    tx: &mut sqlx::Transaction<'_, Postgres>,
+    board_run_id: Uuid,
+    bundle_id: Uuid,
+    manifest: &BundleManifest,
+    uploaded: &[UploadedArtifact],
 ) -> Result<(), ArtifactError> {
-    let payload: ImportPayload = serde_json::from_value(job.payload_json.clone())
-        .map_err(|e| ArtifactError::Manifest(format!("invalid job payload: {e}")))?;
-
-    let board_run_id = job
-        .board_run_id
-        .ok_or_else(|| ArtifactError::Manifest("job missing board_run_id".into()))?;
-    let board_project_id = job
-        .board_project_id
-        .ok_or_else(|| ArtifactError::Manifest("job missing board_project_id".into()))?;
-
-    // Find the artifact bundle
-    let bundle = artifact_bundle::find_by_board_run_id(pool, board_run_id)
-        .await
-        .map_err(|e| ArtifactError::S3(e.to_string()))?
-        .ok_or_else(|| ArtifactError::Manifest("artifact bundle not found".into()))?;
-
-    // Update bundle status to importing
-    artifact_bundle::mark_importing(pool, bundle.id)
-        .await
-        .map_err(|e| ArtifactError::S3(e.to_string()))?;
-
-    // === Pre-transaction: S3 operations ===
-
-    // Step 1: Download bundle from S3
-    tracing::info!(key = %payload.staging_object_key, "Downloading bundle from S3");
-    let data = download_bundle(
-        s3_client,
-        &config.s3.staging_bucket,
-        &payload.staging_object_key,
-    )
-    .await?;
-
-    // Step 2: Verify SHA256
-    verify_sha256(&data, &payload.bundle_sha256)?;
-
-    // Step 3: Extract bundle
-    tracing::info!("Extracting bundle");
-    let (manifest, extracted_artifacts) = extract_bundle(&data)?;
-
-    // Step 4: Upload artifacts to final bucket (before transaction)
-    tracing::info!(
-        count = extracted_artifacts.len(),
-        "Uploading artifacts to final bucket"
-    );
-
-    // Prepare upload results for use inside transaction
-    struct UploadedArtifact {
-        storage_key: String,
-        sha256: String,
-        size: i64,
-        manifest_idx: usize,
-    }
-    let mut uploaded: Vec<UploadedArtifact> = Vec::new();
-
-    for (idx, manifest_entry) in manifest.artifacts.iter().enumerate() {
-        if manifest_entry.status != "available" {
-            continue;
-        }
-        let storage_key = format!(
-            "artifacts/{board_run_id}/{}/{}",
-            manifest_entry.r#type, manifest_entry.filename
-        );
-
-        if let Some(extracted) = extracted_artifacts
-            .iter()
-            .find(|a| manifest_entry.source_path.as_deref() == Some(&a.path))
-        {
-            upload_artifact(
-                s3_client,
-                &config.s3.final_bucket,
-                &storage_key,
-                extracted.data.clone(),
-                &manifest_entry.content_type,
-            )
-            .await?;
-
-            uploaded.push(UploadedArtifact {
-                storage_key,
-                sha256: extracted.sha256.clone(),
-                size: extracted.data.len() as i64,
-                manifest_idx: idx,
-            });
-        }
-    }
-
-    // === Transaction: all DB writes ===
-    let mut tx = pool
-        .begin()
-        .await
-        .map_err(|e| ArtifactError::S3(e.to_string()))?;
-
     // Insert artifacts (available ones that were uploaded)
-    for up in &uploaded {
+    for up in uploaded {
         let manifest_entry = &manifest.artifacts[up.manifest_idx];
         artifact::insert(
-            &mut *tx,
+            &mut **tx,
             Uuid::now_v7(),
             board_run_id,
             manifest_entry.r#type,
@@ -153,7 +45,7 @@ async fn process_import_job(
             Some(&up.sha256),
             Some(up.size),
             None,
-            Some(bundle.id),
+            Some(bundle_id),
         )
         .await
         .map_err(|e| ArtifactError::S3(e.to_string()))?;
@@ -165,7 +57,7 @@ async fn process_import_job(
             continue;
         }
         artifact::insert(
-            &mut *tx,
+            &mut **tx,
             Uuid::now_v7(),
             board_run_id,
             manifest_entry.r#type,
@@ -178,13 +70,21 @@ async fn process_import_job(
             None,
             None,
             manifest_entry.status_reason.as_deref(),
-            Some(bundle.id),
+            Some(bundle_id),
         )
         .await
         .map_err(|e| ArtifactError::S3(e.to_string()))?;
     }
 
-    // Step 5: Save run checks (ERC/DRC)
+    Ok(())
+}
+
+/// Insert run-check and finding records, returning accumulated ERC/DRC summary.
+pub(super) async fn persist_checks_and_findings(
+    tx: &mut sqlx::Transaction<'_, Postgres>,
+    board_run_id: Uuid,
+    manifest: &BundleManifest,
+) -> Result<CheckSummary, ArtifactError> {
     let mut erc_status: Option<&str> = None;
     let mut erc_errors = 0i32;
     let mut erc_warnings = 0i32;
@@ -195,7 +95,7 @@ async fn process_import_job(
     for check in &manifest.checks {
         let check_id = Uuid::now_v7();
         run_check::insert(
-            &mut *tx,
+            &mut **tx,
             check_id,
             board_run_id,
             &check.kind,
@@ -215,29 +115,24 @@ async fn process_import_job(
             match serde_json::from_value::<boardflow_artifact::ManifestFinding>(raw_finding.clone())
             {
                 Ok(finding) => {
-                    // Normalize severity to pass DB CHECK constraint
-                    let severity = match finding.severity.as_str() {
-                        "error" | "warning" | "notice" => finding.severity.as_str(),
-                        _ => "notice",
-                    };
+                    let severity = normalize::normalize_severity(finding.severity.as_str());
 
-                    // Normalize subject_kind to pass DB CHECK constraint
-                    let subject_kind = finding.subject_kind.as_deref().and_then(|sk| match sk {
-                        "schematic" | "pcb" | "net" | "footprint" | "symbol" => Some(sk),
-                        _ => None,
-                    });
+                    let subject_kind = finding
+                        .subject_kind
+                        .as_deref()
+                        .and_then(normalize::normalize_subject_kind);
 
-                    let x_um = finding
+                    let (x_um, y_um) = finding
                         .pos_mm
                         .as_ref()
-                        .map(|p| (p.x * 1000.0).round() as i32);
-                    let y_um = finding
-                        .pos_mm
-                        .as_ref()
-                        .map(|p| (p.y * 1000.0).round() as i32);
+                        .map(|p| {
+                            let (x, y) = normalize::pos_mm_to_um(p);
+                            (Some(x), Some(y))
+                        })
+                        .unwrap_or((None, None));
 
                     if let Err(e) = run_check_finding::insert(
-                        &mut *tx,
+                        &mut **tx,
                         Uuid::now_v7(),
                         check_id,
                         severity,
@@ -272,7 +167,7 @@ async fn process_import_job(
                         "Failed to parse finding, storing raw payload"
                     );
                     if let Err(insert_err) = run_check_finding::insert(
-                        &mut *tx,
+                        &mut **tx,
                         Uuid::now_v7(),
                         check_id,
                         "notice",
@@ -329,11 +224,36 @@ async fn process_import_job(
         }
     }
 
-    // Step 6: Create snapshot
+    Ok(CheckSummary {
+        erc_status: erc_status.map(|s| match s {
+            "passed" => "passed",
+            "failed" => "failed",
+            _ => "skipped",
+        }),
+        erc_errors,
+        erc_warnings,
+        drc_status: drc_status.map(|s| match s {
+            "passed" => "passed",
+            "failed" => "failed",
+            _ => "skipped",
+        }),
+        drc_errors,
+        drc_warnings,
+    })
+}
+
+/// Insert snapshot, diff-metadata, and diff records.
+pub(super) async fn persist_snapshot_and_diff(
+    tx: &mut sqlx::Transaction<'_, Postgres>,
+    board_project_id: Uuid,
+    board_run_id: Uuid,
+    manifest: &BundleManifest,
+) -> Result<(), ArtifactError> {
+    // Create snapshot
     let file_hashes_json = serde_json::to_value(&manifest.files)
         .map_err(|e| ArtifactError::Manifest(e.to_string()))?;
     snapshot::insert(
-        &mut *tx,
+        &mut **tx,
         Uuid::now_v7(),
         board_project_id,
         board_run_id,
@@ -344,10 +264,10 @@ async fn process_import_job(
     .await
     .map_err(|e| ArtifactError::S3(e.to_string()))?;
 
-    // Step 7: Save diff metadata
+    // Save diff metadata
     if let Some(ref dm) = manifest.diff_metadata {
         diff::insert_diff_metadata(
-            &mut *tx,
+            &mut **tx,
             Uuid::now_v7(),
             board_run_id,
             dm.file_hashes.as_ref(),
@@ -360,8 +280,8 @@ async fn process_import_job(
         .map_err(|e| ArtifactError::S3(e.to_string()))?;
     }
 
-    // Step 8: Resolve baseline and create diff record
-    let bp = board_project::find_by_id(&mut *tx, board_project_id)
+    // Resolve baseline and create diff record
+    let bp = board_project::find_by_id(&mut **tx, board_project_id)
         .await
         .map_err(|e| ArtifactError::S3(e.to_string()))?;
     let base_run_id = bp.and_then(|p| p.latest_completed_run_id);
@@ -383,7 +303,7 @@ async fn process_import_job(
     };
 
     diff::insert_diff(
-        &mut *tx,
+        &mut **tx,
         Uuid::now_v7(),
         board_run_id,
         base_run_id,
@@ -393,44 +313,65 @@ async fn process_import_job(
     .await
     .map_err(|e| ArtifactError::S3(e.to_string()))?;
 
-    // Step 9: Mark board_run as completed
+    Ok(())
+}
+
+/// Mark the board-run, board-project, artifact-bundle, and github-job as completed.
+pub(super) async fn complete_run(
+    tx: &mut sqlx::Transaction<'_, Postgres>,
+    board_project_id: Uuid,
+    board_run_id: Uuid,
+    bundle_id: Uuid,
+    job_id: Uuid,
+    tree_hash: &str,
+    check_summary: &CheckSummary,
+) -> Result<(), ArtifactError> {
+    // Mark board_run as completed
     board_run::mark_completed(
-        &mut *tx,
+        &mut **tx,
         board_run_id,
-        erc_status,
-        erc_errors,
-        erc_warnings,
-        drc_status,
-        drc_errors,
-        drc_warnings,
+        check_summary.erc_status,
+        check_summary.erc_errors,
+        check_summary.erc_warnings,
+        check_summary.drc_status,
+        check_summary.drc_errors,
+        check_summary.drc_warnings,
     )
     .await
     .map_err(|e| ArtifactError::S3(e.to_string()))?;
 
-    // Step 10: Update board_project latest_completed_run_id
+    // Update board_project latest_completed_run_id
     board_project::update_latest_completed_run(
-        &mut *tx,
+        &mut **tx,
         board_project_id,
         board_run_id,
-        &manifest.tree_hash,
+        tree_hash,
     )
     .await
     .map_err(|e| ArtifactError::S3(e.to_string()))?;
 
-    // Step 11: Mark bundle as completed
-    artifact_bundle::mark_completed(&mut *tx, bundle.id)
+    // Mark bundle as completed
+    artifact_bundle::mark_completed(&mut **tx, bundle_id)
         .await
         .map_err(|e| ArtifactError::S3(e.to_string()))?;
 
-    // Step 12: Mark job as completed
-    github_job::mark_completed(&mut *tx, job.id)
+    // Mark job as completed
+    github_job::mark_completed(&mut **tx, job_id)
         .await
         .map_err(|e| ArtifactError::S3(e.to_string()))?;
 
-    // Step 13: Enqueue follow-up jobs
+    Ok(())
+}
 
+/// Enqueue follow-up jobs (create-issue, dashboard-comment, run-result-comment).
+pub(super) async fn enqueue_follow_up_jobs(
+    tx: &mut sqlx::Transaction<'_, Postgres>,
+    job: &GithubJob,
+    board_project_id: Uuid,
+    board_run_id: Uuid,
+) -> Result<(), ArtifactError> {
     // 1. Issue sync: if board_project has no issue_number, enqueue create_issue
-    let bp_for_jobs = board_project::find_by_id(&mut *tx, board_project_id)
+    let bp_for_jobs = board_project::find_by_id(&mut **tx, board_project_id)
         .await
         .map_err(|e| ArtifactError::S3(e.to_string()))?;
 
@@ -440,7 +381,7 @@ async fn process_import_job(
         .is_none()
     {
         let _ = github_job::enqueue(
-            &mut *tx,
+            &mut **tx,
             Uuid::now_v7(),
             job.installation_id,
             job.repository_id,
@@ -464,7 +405,7 @@ async fn process_import_job(
         GithubJobType::CreateDashboardComment
     };
     let _ = github_job::enqueue(
-        &mut *tx,
+        &mut **tx,
         Uuid::now_v7(),
         job.installation_id,
         job.repository_id,
@@ -478,7 +419,7 @@ async fn process_import_job(
 
     // 3. Run result comment
     let _ = github_job::enqueue(
-        &mut *tx,
+        &mut **tx,
         Uuid::now_v7(),
         job.installation_id,
         job.repository_id,
@@ -490,30 +431,5 @@ async fn process_import_job(
     .await
     .map_err(|e| ArtifactError::S3(e.to_string()))?;
 
-    // Commit transaction
-    tx.commit()
-        .await
-        .map_err(|e| ArtifactError::S3(e.to_string()))?;
-
-    tracing::info!(job_id = %job.id, board_run_id = %board_run_id, "Import job completed successfully");
     Ok(())
-}
-
-async fn handle_import_failure(pool: &PgPool, job: &GithubJob, error_message: &str) {
-    if job.attempts >= MAX_ATTEMPTS {
-        // Terminal failure — mark bundle and run as failed
-        if let Some(board_run_id) = job.board_run_id {
-            if let Ok(Some(bundle)) =
-                artifact_bundle::find_by_board_run_id(pool, board_run_id).await
-            {
-                let _ = artifact_bundle::mark_failed(pool, bundle.id, error_message).await;
-            }
-            let _ = board_run::mark_failed(pool, board_run_id).await;
-        }
-        let _ = github_job::mark_failed(pool, job.id, error_message).await;
-    } else {
-        // Retryable — reschedule job, keep bundle in 'importing' state
-        let backoff = BASE_BACKOFF_SECS * 3_f64.powi(job.attempts);
-        let _ = github_job::reschedule(pool, job.id, error_message, backoff).await;
-    }
 }
