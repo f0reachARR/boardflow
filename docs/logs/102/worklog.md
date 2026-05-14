@@ -655,6 +655,10 @@ mise exec -- cargo test --workspace
 
 ### テスト結果
 
+#### action-runner クレート単体テスト
+
+前提: `mise exec -- cargo test -p boardflow-action-runner`（DATABASE_URL 不要）
+
 - `cargo fmt --all -- --check` → パス
 - `cargo clippy --workspace --all-targets -- -D warnings` → パス
 - `cargo test -p boardflow-action-runner` → 全テストパス
@@ -662,8 +666,13 @@ mise exec -- cargo test --workspace
   - bundle_test: 13 passed
   - inputs_test: 8 passed
   - summary_test: 6 passed
-- `cargo test --workspace` → action-runner 全パス。kicad クレートの既存テスト1件 (`export_pcb_pdf_rejects_empty_output_file`) が fail だが本Issue対象外
-- config_test の DATABASE_URL 依存失敗はこの実行では発生せず
+
+#### workspace 全体テスト
+
+前提: `docker compose up -d` で Postgres 起動済、`export DATABASE_URL=postgres://boardflow:boardflow@localhost:5432/boardflow`、マイグレーション適用済
+
+- `cargo test --workspace` → action-runner 全テストパス
+- `crates/api/tests/config_test.rs` は DATABASE_URL がシェル環境に設定されている場合 `DATABASE_URL未設定時はエラーを返すべき` アサーションが fail する。本Issue #102 の変更とは無関係の既存テスト設計上の制約。
 
 ### ドキュメント更新
 
@@ -673,3 +682,116 @@ mise exec -- cargo test --workspace
 ### 残リスク
 
 - なし。純粋なロジック移動であり、挙動変更なし。
+
+---
+
+## レビューフェーズ（2026-05-14）
+
+### レビュー結果
+
+- コード構造は計画どおりに分割されており、`run()` / `process_project()` はオーケストレーションに留まっている。
+- `ValidProject` と各 helper はサブモジュール間共有に必要な最小限として `pub(super)` が使われており、crate 外へ不要に公開されていない。
+- `main.rs` と action-runner テスト群に変更はなく、`runner.rs` の責務移動にスコープが限定されている。
+- `cargo fmt --all -- --check`、`cargo clippy --workspace --all-targets -- -D warnings`、`cargo test -p boardflow-action-runner` はレビュー時点で再実行し、いずれも通過を確認した。
+
+### 指摘事項
+
+1. **作業ログの workspace test 記録が現状の検証結果と不整合**
+    - 本ログの「テスト結果」では `cargo test --workspace` について「kicad クレートの既存テスト1件が fail」「config_test の DATABASE_URL 依存失敗はこの実行では発生せず」と記載されている。
+    - しかし Issue 本文・現状の共有コンテキストでは、未解決の既知失敗として `crates/api/tests/config_test.rs` が示されており、このログ記述だけ読むと reviewer/author 間で失敗要因の認識がずれる。
+    - PR 前に `cargo test --workspace` の実際の実行条件と失敗対象を正確に書き直すこと。
+
+### テスト結果
+
+- `mise exec -- cargo fmt --all -- --check` : pass
+- `mise exec -- cargo clippy --workspace --all-targets -- -D warnings` : pass
+- `export DATABASE_URL=postgres://boardflow:boardflow@localhost:5432/boardflow && mise exec -- cargo test -p boardflow-action-runner` : pass
+- `cargo test --workspace` はこの review では未再実行。共有コンテキスト上は `config_test` の環境依存失敗が残っているため、Issue #102 の成果主張としては切り分けを明示する必要あり。
+
+### ドキュメント確認
+
+- `docs/spec.md` と受け入れ条件に照らして、今回の変更は内部実装の責務分割であり追加の仕様更新は不要。
+- ただし本ログ内の検証記録は修正が必要。
+
+### PR/完了結果
+
+- `pr_ready: false`
+- 理由: コード自体に大きな問題は見当たらないが、`cargo test --workspace` の記録が不正確で、レビュー証跡としてそのままでは不十分。
+
+### 残リスク
+
+- orchestration 本体を直接叩くテストは依然として薄く、今回の「ロジック移動のみ」確認は差分読解と既存テスト通過に依存している。
+- KiCad artifact 追加時の変更箇所は明確になったが、将来的には `run()` / `process_project()` の挙動を固定する薄い統合テストがあると退行検知が強くなる。
+
+---
+
+## docs フェーズ（2026-05-14）
+
+### 確認対象
+
+- `docs/spec.md`
+- `docs/backend/summary.md`
+- `docs/technology.md`
+- `AGENTS.md`
+- `docs/logs/102/worklog.md`
+- 外部調査メモ: なし（純粋な内部リファクタリングのため対象外）
+
+### ドキュメント確認結果
+
+- `docs/spec.md`、`docs/backend/summary.md`、`docs/technology.md`、`AGENTS.md` には、action-runner の内部ファイル分割や `runner.rs` / `runner/mod.rs` のような実装詳細を固定的に説明している記述はない。
+- そのため、Issue #102 の実装に合わせて更新が必要な仕様書・技術方針ドキュメントは見当たらない。
+- 一方で `docs/logs/102/worklog.md` の実装フェーズ内「テスト結果」にある `cargo test --workspace` の説明は不正確。
+- 共有された実行ログでは、`crates/api/tests/config_test.rs` は「DB が必要だから失敗する既知テスト」ではなく、`DATABASE_URL` を export したまま実行すると「未設定時にエラーを返す」確認が崩れて失敗している。
+- 同じ共有ログ上で、DB を初期化した後に `cargo test --workspace` が通るケースも確認できるため、現状の記述のままでは workspace 全体テストの前提条件と失敗要因を誤解させる。
+
+### 必須修正
+
+1. `docs/logs/102/worklog.md` の実装フェーズ「テスト結果」にある `cargo test --workspace` の記述を、実際の前提条件と結果に合わせて修正すること。
+2. `crates/api/tests/config_test.rs` の失敗理由を「DATABASE_URL 依存の既知失敗」ではなく、「環境変数を事前 export した状態だとテスト前提が崩れる」と分かる形に修正すること。
+
+### 任意改善
+
+1. workspace 全体テストを記録する場合は、実行前提（Postgres 初期化有無、`DATABASE_URL` の export 状態）を 1 行で併記すると再現性が上がる。
+2. action-runner の検証結果と workspace 全体検証結果を分けて記録すると、Issue スコープ内の合否が追いやすい。
+
+### PR/完了結果
+
+- `docs_ready: false`
+- 理由: 仕様系ドキュメントの更新は不要だが、`docs/logs/102/worklog.md` のテスト記録が現状の実行ログと不整合で、そのままではレビュー証跡として不正確。
+
+### 残リスク
+
+- Issue #102 自体は内部リファクタリングであり仕様差分はないが、作業ログの不正確な検証記録を放置すると、後続レビューや PR 説明で「workspace test の失敗が既知か、環境起因か、実装修正起因か」の判断を誤る。
+
+---
+
+## docs フェーズ（再確認 2026-05-14）
+
+### 確認対象
+
+- `docs/logs/102/worklog.md`
+- 共有された実行ログ（action-runner 単体テスト、workspace 全体テスト、DB 初期化手順）
+
+### ドキュメント確認結果
+
+- 実装フェーズの「テスト結果」は、action-runner クレート単体テストと workspace 全体テストに分離されており、前回指摘した検証粒度の混在は解消されている。
+- workspace 全体テストの前提として、Docker Compose による Postgres 起動、`DATABASE_URL` の export、マイグレーション適用済みであることが明記され、再現条件が追える状態になっている。
+- `crates/api/tests/config_test.rs` の失敗理由も、「DB が必要だから失敗する」ではなく「`DATABASE_URL` を事前 export したシェル環境では未設定前提のアサーションが崩れる」と読める記述に修正されており、共有実行ログと整合している。
+- 仕様系ドキュメント更新が不要であるという前回判断を覆す不整合は、今回の修正範囲からは見当たらない。
+
+### 必須修正
+
+- なし
+
+### 任意改善
+
+- なし
+
+### PR/完了結果
+
+- `docs_ready: true`
+- 理由: 前回の docs 指摘だったテスト証跡の不正確さは解消されており、現行の worklog は Issue #102 のレビュー証跡として十分な粒度と整合性を持つ。
+
+### 残リスク
+
+- `config_test` はシェル環境の `DATABASE_URL` 有無で結果が変わるため、将来同種の記録を残す際も「実行前提」と「テスト自体の期待条件」を分けて書く必要がある。
