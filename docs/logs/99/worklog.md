@@ -616,3 +616,7 @@ use sqlx::PgPool;
 ### 残リスク
 
 - `config_test` がローカル環境の `.env` 読み込みにより失敗するケースあり（Issue #99 の差分起因ではない）
+
+### PR URL
+
+https://github.com/f0reachARR/boardflow/pull/120
