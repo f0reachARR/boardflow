@@ -331,3 +331,26 @@ pnpm build
 ### 残リスク
 
 - UI 仕様変更はない前提だが、PR本文未確認のため、実際にPRを作る際は更新ドキュメントが「worklog のみ」であることを明示しないと読み手に更新漏れと誤解される余地がある
+
+## PR/完了結果 (prフェーズ: 2026-05-14)
+
+### PRリンク
+
+https://github.com/f0reachARR/boardflow/pull/124
+
+### PR作成条件確認
+
+- review: `pr_ready: true` ✅
+- docs: `docs_ready: true` ✅
+- 未コミット変更: なし（worklogコミット後にpush）✅
+- テスト (pnpm lint / typecheck / build): PASS ✅
+
+### PR概要
+
+- タイトル: `refactor: split RunDetailContent into section components (#110)`
+- ベース: `main` ← `refactor/run-detail-sections`
+- Closes #110
+
+### 残リスク
+
+- UI の微細な崩れは静的検証・差分レビューでは検出できないが、表示ロジックは移動のみのため実質的リスクは低い
