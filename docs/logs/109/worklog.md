@@ -351,19 +351,105 @@ $ pnpm build → ✓ Compiled successfully in 2.7s, 全ページ生成成功
 ### ドキュメント確認
 
 - [docs/spec.md](docs/spec.md) と [docs/backend/api.md](docs/backend/api.md) を確認。Diff summary の JSON 形状に変更はなく、仕様書更新は不要。
-- リポジトリ直下に `CONTRIBUTING.md` は見当たらず、追加確認対象はなし。
 
-### plan / research / docs との不整合
+## 再レビュー結果 (2026-05-14)
 
-- 計画では「挙動変更は避け、純粋なコード移動・抽出に留める」としていたが、`ChecksSection` の malformed data 表示は実際には変わっている。
-- 実装ログ末尾の「挙動変更は最小」「残リスクなし」は、上記の受け入れ条件未達と整合していない。
+### 総評
 
-### PR/完了結果
+- 前回指摘だった ChecksSection の挙動差分は解消済み。
+- `parseDiffSummary()` への集約、`as DiffSummary` の除去、各コンポーネントからの個別 guard 呼び出し排除は受け入れ条件どおりに達成されている。
+- main との差分比較でも、`checks` が非 Record のときに [boardflow/src/components/diff/diff-content.tsx](boardflow/src/components/diff/diff-content.tsx#L260) で `Data format not recognized` を返し、Record だが有効エントリ 0 件のときのみ非表示とする旧挙動が復元されていることを確認した。
 
-- `pr_ready: false`
-- 受け入れ条件 1, 2, 3, 5 は満たしている。
-- 受け入れ条件 4 は `ChecksSection` の malformed data 表示差分により未達。
+### PR作成可否
+
+- `pr_ready: true`
+
+### レビュー結果
+
+- 指摘事項なし。
+
+### 必須修正
+
+- なし。
+
+### 任意改善
+
+- `parseDiffSummary()` の `checks` 3状態 (`null` / `[]` / entries) は今回の要件には合っているが、将来的に可読性をさらに上げるなら状態名を持つ discriminated union 化を検討してもよい。
+
+### テスト不足
+
+- `parseDiffSummary()` の単体テストは未整備のため、malformed な `summary` や `checks` の分岐は現状 UI 実装と型チェックに依存している。
+- 表示分岐の回帰を自動検知するフロントエンド表示テストは引き続き未整備。
+
+### ドキュメント更新漏れ
+
+- なし。 [docs/spec.md](docs/spec.md) と [docs/backend/api.md](docs/backend/api.md) の想定契約との不整合は見当たらない。
+
+### plan / research / docs との整合
+
+- `parseDiffSummary(raw: unknown)` は [boardflow/src/lib/domain/diff-summary.ts](boardflow/src/lib/domain/diff-summary.ts#L35) に存在する。
+- `as DiffSummary` は対象 2 コンポーネントから除去済み。
+- 対象 2 コンポーネントはともに `parseDiffSummary()` を利用しており、旧来の個別 guard 呼び出しは残っていない。
+- 受け入れ条件 5 の `pnpm lint`, `pnpm typecheck`, `pnpm build` は再実行で成功を確認した。
+
+### テスト結果
+
+```bash
+cd boardflow
+pnpm lint
+pnpm typecheck
+pnpm build
+```
+
+- `pnpm lint`: 成功
+- `pnpm typecheck`: 成功
+- `pnpm build`: 成功
+- 補足: Next.js 16.2.4 で `middleware` 廃止予定の警告は出るが、本 Issue の変更範囲とは無関係。
 
 ### 残リスク
 
-- 壊れた `checks` ペイロードを backend が返した場合、ユーザーは「データ形式異常」を認識できず、diff に checks が存在しないように見える。
+- 重大な残リスクはなし。未整備なのは malformed データ系の自動テストのみ。
+
+### 更新した作業ログパス
+
+- `docs/logs/109/worklog.md`
+- リポジトリ直下に `CONTRIBUTING.md` は見当たらず、追加確認対象はなし。
+
+## ドキュメント確認 (2026-05-14)
+
+### 確認対象
+
+- `docs/spec.md`
+- `docs/backend/api.md`
+- `docs/frontend/summary.md`
+- `AGENTS.md`
+- `docs/logs/109/worklog.md`
+
+### 確認結果
+
+- `docs/spec.md` は diff summary の利用目的と metadata の位置付けを記述しており、今回の内部リファクタリングと矛盾しない。
+- `docs/backend/api.md` は公開 API の `summary.file_changes` / `bom_changes` / `checks` / `artifacts` 形状を記述しているが、今回その API 契約自体は変更していないため更新不要。
+- `docs/frontend/summary.md` は diff をインラインエラーやフォールバック込みで扱う方針を記述しており、`parseDiffSummary()` への集約後も整合している。
+- `AGENTS.md` のビルド・検証コマンドや運用方針に変更はないため更新不要。
+- `docs/logs/109/worklog.md` は履歴として前回レビュー時の指摘を残してよいが、末尾に残っていた未解消扱いの記述は現状と矛盾するため削除し、最終状態をこのセクションで確定した。
+
+### 判定
+
+- `docs_ready: true`
+
+### 必須修正
+
+- なし。
+
+### 任意改善
+
+- なし。
+
+### 残リスク
+
+- 重大なドキュメント上の残リスクはなし。
+
+### PR/完了結果
+
+- `pr_ready: true`
+- 純粋な内部リファクタリングとして、仕様書・API仕様・フロントエンド方針書の追加更新は不要。
