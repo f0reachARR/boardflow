@@ -257,6 +257,20 @@ function BomChangesSection({
 }
 
 function ChecksSection({ summary }: { summary: ParsedDiffSummary }) {
+  if (summary.checks === null) {
+    return (
+      <Box>
+        <Heading size='md' mb={3}>
+          ERC/DRC Checks
+        </Heading>
+        <Box borderWidth='1px' borderRadius='md' p={4} bg='white'>
+          <Text fontSize='sm' color='gray.500'>
+            Data format not recognized
+          </Text>
+        </Box>
+      </Box>
+    );
+  }
   if (summary.checks.length === 0) return null;
 
   return (

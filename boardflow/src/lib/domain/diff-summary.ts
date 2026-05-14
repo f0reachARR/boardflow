@@ -28,7 +28,7 @@ export interface ArtifactChanges {
 export interface ParsedDiffSummary {
   fileChanges: FileChanges | null;
   bomChanges: BomChanges | null;
-  checks: [string, CheckEntry][];
+  checks: [string, CheckEntry][] | null;
   artifactChanges: ArtifactChanges | null;
 }
 
@@ -41,7 +41,7 @@ export function parseDiffSummary(raw: unknown): ParsedDiffSummary {
       ? Object.entries(obj.checks).filter((entry): entry is [string, CheckEntry] =>
           isCheckEntry(entry[1]),
         )
-      : [],
+      : null,
     artifactChanges: isArtifactChanges(obj.artifacts) ? obj.artifacts : null,
   };
 }

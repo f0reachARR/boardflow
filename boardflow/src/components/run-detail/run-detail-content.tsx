@@ -283,7 +283,7 @@ export function RunDetailContent({ repositoryId, boardProjectId, boardRunId }: P
                           BOM changes: data format not recognized
                         </Text>
                       )}
-                      {summary.checks.length > 0 && (
+                      {summary.checks != null && summary.checks.length > 0 && (
                         <HStack gap={4} fontSize='sm' flexWrap='wrap'>
                           <Text>Checks:</Text>
                           {summary.checks.map(([kind, check]) => (
