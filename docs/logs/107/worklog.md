@@ -541,3 +541,154 @@ export function CheckBadge({ status }: { status: string | null | undefined }) {
 - `statusColor` の gray→blue 統一により、`run-detail` 画面で in-progress 状態の Badge 色が変わる。意図通りだが UI 確認が推奨される。
 - `isFileChanges` 等の型ガードは DiffSummary の形状に依存しており、バックエンド側のレスポンス変更時に `guards.ts` を更新する必要がある。
 - `checkBadge` を共有コンポーネント化することで、将来的に片方だけの挙動を変えたい場合にコンポーネントの分岐が必要になる。現時点では同一仕様のため問題なし。
+
+## レビュー結果（2026-05-14）
+
+### 総評
+
+- 共通化の主目的は達成されており、日時・短縮ID・ステータス色・型ガードの重複除去は概ね正しく行われている。
+- `pnpm lint`, `pnpm typecheck`, `pnpm build` はローカルで再実行し、いずれも成功した。
+- ただし `formatBytes` に既存仕様からの逸脱があり、Issue本文の「既存の表示仕様は原則変えない」に反しているため、このままでは PR ready とは判断しない。
+
+### 指摘事項
+
+#### 必須修正
+
+1. `boardflow/src/lib/format.ts` の `formatBytes` が KB 固定表示だった旧仕様を MB/GB へ自動切替する実装に変わっている。旧 `run-detail-content.tsx` では `artifact.size_bytes ? \`${(artifact.size_bytes / 1024).toFixed(1)} KB\` : '—'` で常に KB 表示だったため、今回の共通化で表示仕様が変わっている。Issue #107 の許容された挙動変更は `run-detail-content.tsx` の in-progress 色を gray から blue に揃える点だけなので、`formatBytes` は旧仕様と等価な KB 表示へ戻すべき。
+
+#### 任意改善
+
+1. `boardflow/src/lib/domain/status.ts` の `checkBadgeColor` は現時点で未使用。`CheckBadge` も `checkStatusColor` を使っており、レビュー時点で呼び出し箇所はない。将来利用予定がないなら削除した方が API 面積を増やさずに済む。
+
+### テスト結果
+
+- `pnpm lint`: 成功
+- `pnpm typecheck`: 成功
+- `pnpm build`: 成功
+
+### ドキュメント確認
+
+- `docs/logs/107/worklog.md` では「表示上の挙動変更は `run-detail-content.tsx` の statusColor gray→blue 統一のみ」と記録されている一方、同ファイル内で `formatBytes` を KB/MB/GB 変換として実装したと記載されており、計画と実装説明の間に不整合がある。
+- `docs/spec.md` には今回の表示ユーティリティ集約に直接関係する仕様は見当たらなかった。
+
+### PR/完了結果
+
+- `pr_ready: false`
+
+### 残リスク
+
+- `formatBytes` の仕様逸脱を放置すると、アーティファクトサイズ表示が既存 UI 比較やスクリーンショット差分で意図せず変わる可能性がある。
+- `toLocaleString()` / `toLocaleDateString()` のロケール依存性は既存実装から継続している。共通化で新たな問題は増えていないが、将来的に SSR/Client 差分を厳密に避けたいなら別Issueで固定ロケール化を検討してよい。
+
+## レビュー指摘対応（2026-05-14）
+
+### 修正内容
+
+1. **`boardflow/src/lib/format.ts` — `formatBytes` を旧仕様と等価に修正**
+   - 変更前: KB/MB/GB への自動切り替え実装
+   - 変更後: 常に `(bytes / 1024).toFixed(1) KB` を返す（旧 `run-detail-content.tsx` と等価）
+
+2. **`boardflow/src/lib/domain/status.ts` — 未使用の `checkBadgeColor` を削除**
+   - grep確認済み: 定義のみで使用箇所なし
+   - 末尾の不要な空行も除去（Biome format対応）
+
+### 検証結果
+
+- `pnpm lint`: OK (69 files, 0 errors)
+- `pnpm typecheck`: OK
+- `pnpm build`: OK (Next.js 16.2.4 Turbopack — 全ルート正常生成)
+
+### コミット
+
+- `e574721` — `fix: revert formatBytes to KB-only, remove unused checkBadgeColor`
+
+### 残リスク
+
+- 上記2点以外のレビュー指摘はなし。PR ready。
+
+## 再レビュー結果（2026-05-14）
+
+### 対象
+
+- Issue #107
+- 前回レビュー指摘の再確認:
+  1. `formatBytes` が旧KB固定仕様と等価か
+  2. `checkBadgeColor` が削除されているか
+  3. 削除に伴う import/type エラーがないか
+  4. `pnpm lint`, `pnpm typecheck`, `pnpm build` が通るか
+
+### 確認結果
+
+1. `boardflow/src/lib/format.ts`
+  - `formatBytes(bytes: number): string { return `${(bytes / 1024).toFixed(1)} KB`; }`
+  - 旧 `run-detail-content.tsx` の KB 固定表示と等価であることを確認。
+
+2. `boardflow/src/lib/domain/status.ts`
+  - `checkBadgeColor` 定義は存在しないことを確認。
+
+3. 参照・import 整合性
+  - `@/lib/domain/status` の参照箇所を確認し、`checkBadgeColor` を import しているファイルは存在しない。
+  - `formatBytes` の利用箇所は `run-detail-content.tsx` のみで、呼び出し側の null ガードも既存どおり維持されている。
+
+4. 検証コマンド
+  - `pnpm lint`: OK
+  - `pnpm typecheck`: OK
+  - `pnpm build`: OK
+
+### レビュー結果
+
+- 前回の必須指摘は解消済み。
+- 前回の任意指摘も解消済み。
+- Issue #107 のレビュー観点では追加の指摘事項なし。
+
+### PR/完了結果
+
+- `pr_ready: true`
+
+### 残リスク
+
+- `pnpm build` 時に Next.js から `middleware` 廃止予定の警告は出るが、Issue #107 の変更範囲とは無関係。
+
+## ドキュメント確認（2026-05-14）
+
+### 対象
+
+- Issue #107
+- 確認対象: `AGENTS.md`, `docs/frontend/summary.md`, `docs/logs/107/worklog.md`, 関連実装ファイル
+
+### 確認結果
+
+1. **`AGENTS.md`**
+  - 更新不要。
+  - 記載内容はリポジトリ全体の構成と基本規約の粒度であり、今回追加された `boardflow/src/lib/domain/` や `boardflow/src/lib/format.ts` は既存の「`boardflow/` contains the Next.js frontend」「reusable UI under `boardflow/src/components`」「API client code under `boardflow/src/lib/api`」という整理と矛盾しない。
+
+2. **`docs/frontend/summary.md`**
+  - 更新不要。
+  - 今回の変更はフロントエンド内部の重複ヘルパー集約であり、画面責務、データ取得方式、認証、Artifact 表示方針、テスト方針といった技術方針そのものは変わっていない。
+
+3. **`docs/logs/107/worklog.md`**
+  - 追記が必要だったため、本節を追加。
+  - 途中経過として残っている以下の記述は、最終状態の要約として読むと不整合があるため、本節の内容を最終確定情報とする。
+    - `status.ts` を「ステータス色関数6つ」としている箇所
+    - `checkBadgeColor` が実装済みとして残っている箇所
+    - `formatBytes` を「KB/MB/GB変換」としている箇所
+
+### 最終確定状態
+
+- `boardflow/src/lib/domain/status.ts` の公開関数は **5つ**:
+  - `boardRunStatusColor`
+  - `checkStatusColor`
+  - `artifactStatusColor`
+  - `diffStatusColor`
+  - `projectStateColor`
+- `checkBadgeColor` はレビュー指摘対応で削除済み。
+- `boardflow/src/lib/format.ts` の `formatBytes` は **KB 固定表示** で、旧 `run-detail-content.tsx` と等価。
+- 許容された挙動変更は、Issue 本文どおり **`run-detail-content.tsx` の in-progress 系ステータス色が gray → blue に統一された点のみ**。
+
+### ドキュメント判定
+
+- `docs_ready: true`
+
+### 残リスク
+
+- `docs/logs/107/worklog.md` は時系列ログとして途中案も残しているため、過去節だけを抜粋して読むと最終状態と食い違って見える可能性がある。PR本文や完了報告では本節の「最終確定状態」を参照すること。
