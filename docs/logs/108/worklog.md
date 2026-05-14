@@ -574,7 +574,7 @@ export const routes = {
 - タイトル: `refactor: centralize frontend route builders in routes.ts`
 - ブランチ: \`feature/issue-108-route-helpers\` → \`main\`
 - Closes #108
-- PR URL: （作成後に記録）
+- PR URL: https://github.com/f0reachARR/boardflow/pull/118
 
 ### 残リスク
 
