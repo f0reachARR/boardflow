@@ -449,6 +449,64 @@ pub use test_doubles::{
 
 `refactor/issue-101-split-github-access`
 
+---
+
+## 実装（2026-05-14）
+
+### 実行ステップ
+
+1. `main` から `refactor/issue-101-split-github-access` ブランチを作成
+2. `crates/api/src/github_access.rs`（729行）を完全に読み取り、責務境界を特定
+3. 以下の6ファイルを作成し、元コードをそのままコピー（ロジック変更ゼロ）:
+   - `types.rs`: `AccessResult`, `AccessError`, `GithubAccessChecker` trait, `DynGithubAccessChecker`
+   - `real.rs`: `RealGithubAccessChecker` + `GithubAccessChecker` impl
+   - `test_doubles.rs`: 5つのmock実装
+   - `cached.rs`: `CachedGithubAccessChecker` struct + 定数 + trait impl + コンストラクタ群
+   - `installation_sync.rs`: `impl CachedGithubAccessChecker`（sync系メソッド）+ 関連struct
+   - `mod.rs`: 全サブモジュール宣言 + `pub use` 再エクスポート
+4. 旧 `github_access.rs` を削除
+5. `cargo fmt --all -- --check` → パス
+6. `cargo clippy --workspace --all-targets -- -D warnings` → パス
+7. `cargo test --workspace` → 全テスト通過（config_testのみ環境変数依存の既知失敗）
+
+### 設計上の変更点
+
+- `CachedGithubAccessChecker` のフィールドを `pub(super)` に変更（`installation_sync.rs` からアクセスするため）
+  - 外部可視性は不変（`pub(super)` = 同モジュール内のみ、外部crateや他モジュールからはアクセス不可）
+- cache定数（`CACHE_TYPE_REPO_IDS`, `CACHE_TTL_SECONDS` 等）を `pub(super)` に変更（`installation_sync.rs` で使用）
+- `maybe_sync_installation_repos` を `pub(super)` に変更（`cached.rs` の trait impl から呼び出すため）
+
+### 作成/変更/削除ファイル
+
+| 操作 | ファイル |
+|---|---|
+| 作成 | `crates/api/src/github_access/types.rs` |
+| 作成 | `crates/api/src/github_access/real.rs` |
+| 作成 | `crates/api/src/github_access/test_doubles.rs` |
+| 作成 | `crates/api/src/github_access/cached.rs` |
+| 作成 | `crates/api/src/github_access/installation_sync.rs` |
+| 作成 | `crates/api/src/github_access/mod.rs` |
+| 削除 | `crates/api/src/github_access.rs` |
+
+### テスト結果
+
+- `cargo fmt --all -- --check`: パス
+- `cargo clippy --workspace --all-targets -- -D warnings`: パス（警告なし）
+- `cargo test --workspace`: 全テスト通過
+  - `config_test` のみ `DATABASE_URL` 未設定で失敗（既知、本Issue無関係）
+  - `api_token_test`: 15/15 パス
+  - `github_cache_test`: テストスイートに含まれ全パス
+  - `read_api_test`: テストスイートに含まれ全パス
+  - `proxy_test`: テストスイートに含まれ全パス
+
+### コミット
+
+- `b8dc6ed` — `refactor: split github_access.rs into responsibility-based modules (#101)`
+
+### 残リスク
+
+なし。純粋なコード移動のみでロジック変更はゼロ。全外部import互換を `pub use` 再エクスポートで維持。
+
 ### 更新した作業ログパス
 
 `docs/logs/101/worklog.md`
