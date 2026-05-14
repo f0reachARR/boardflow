@@ -449,6 +449,23 @@ pnpm build
 
 - 重大なドキュメント上の残リスクはなし。
 
+## PR / 完了結果 (2026-05-14)
+
+### PR
+
+- **URL**: https://github.com/f0reachARR/boardflow/pull/119
+- **タイトル**: refactor: consolidate DiffSummary type guards and parsing (#109)
+- **ベースブランチ**: main ← refactor/issue-109-diff-summary
+- **Closes**: #109
+
+### 残リスク
+
+- `parseDiffSummary()` の自動テスト（vitest/jest）が未整備。フロントエンドのテスト基盤導入時に追加予定。
+
+### 更新した作業ログパス
+
+`docs/logs/109/worklog.md`
+
 ### PR/完了結果
 
 - `pr_ready: true`
