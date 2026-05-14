@@ -249,3 +249,85 @@ pnpm build
 
 ### 実装後の残リスク
 - なし。純粋なリファクタリングで挙動変更なし。
+
+## レビュー結果 (reviewフェーズ: 2026-05-14)
+
+### 総評
+
+- Issue #110 の目的である `RunDetailContent` の責務分離は達成されている
+- `run-detail-content.tsx` はデータ取得 + breadcrumb + セクション配置に整理され、表示ロジックの大半は意図した5コンポーネントへ移っている
+- `pnpm lint`, `pnpm typecheck`, `pnpm build` を再確認し、いずれも成功した
+- ベースとの差分確認でも、表示仕様は JSX の抽出が中心で、不必要な仕様変更は見当たらなかった
+
+### 指摘事項
+
+- blocking な指摘はなし
+
+### 必須修正
+
+- なし
+
+### 任意改善
+
+- `RunHeader` は [boardflow/src/components/run-detail/run-header.tsx](boardflow/src/components/run-detail/run-header.tsx) で `BoardRunDetail` 全体を受け取っており、他セクションほど厳密に props を絞ってはいない。計画とは整合しているため修正必須ではないが、将来的にさらに疎結合にするなら header 表示に必要なフィールドへ絞ってもよい
+- [boardflow/src/components/run-detail/run-detail-content.tsx](boardflow/src/components/run-detail/run-detail-content.tsx#L62) の `diffError` 取り出しには依然として型キャストが残っている。Issue の主目的は満たしているが、型安全性をもう一段上げる余地はある
+
+### テスト結果
+
+- `cd boardflow && pnpm lint` — PASS
+- `cd boardflow && pnpm typecheck` — PASS
+- `cd boardflow && pnpm build` — PASS
+
+### ドキュメント確認
+
+- [docs/spec.md](docs/spec.md) と Issue 本文の観点では、今回の変更は内部リファクタリングに留まり、仕様差分は確認されなかった
+- 更新対象として妥当だったのは本 worklog のみで、README などの追加更新は不要と判断した
+
+### PR/完了結果
+
+- `pr_ready: true`
+
+### 残リスク
+
+- 表示不変性の確認は差分レビューと静的検証が中心で、視覚回帰テストや画面確認ログはない。そのため UI の微細な崩れはレビュー上の残留リスクとして残る
+
+## ドキュメント確認 (docsフェーズ: 2026-05-14)
+
+### 総評
+
+- Issue #110 の変更は `RunDetailContent` の内部責務分割に留まり、仕様、API、運用手順、外部調査メモの更新を要する差分は確認されなかった
+- [AGENTS.md](AGENTS.md) の frontend 配置方針、命名、検証コマンドと今回の変更内容は整合している
+- [docs/frontend/summary.md](docs/frontend/summary.md) の画面責務・UI 方針とも矛盾はなく、追記必須の利用者向け仕様変更はない
+
+### docs_ready
+
+- `docs_ready: true`
+
+### 必須修正
+
+- なし
+
+### 任意改善
+
+- PR本文を作成する場合は、`.github/agents/pr.agent.md` の要件どおり、要件・調査結果・実装概要・テスト結果・更新ドキュメント・残リスク・review/docs 判定を明記するとよい
+
+### 不整合のあるドキュメント
+
+- なし
+
+### 不足しているドキュメント
+
+- なし
+
+### 外部調査メモに関する指摘
+
+- 外部調査不要という判断と実装内容に矛盾はない。新規ライブラリ導入や外部API変更がなく、`docs/external/` の追加更新は不要
+
+### PR/完了結果
+
+- PR本文案はワークスペース内で確認できず、本文そのもののレビューは未実施
+- ドキュメント観点では PR 作成に進めてよい
+
+### 残リスク
+
+- UI 仕様変更はない前提だが、PR本文未確認のため、実際にPRを作る際は更新ドキュメントが「worklog のみ」であることを明示しないと読み手に更新漏れと誤解される余地がある
