@@ -18,6 +18,10 @@ export type ViewerEntry = components['schemas']['ViewerStatus'];
 export type ViewerSource = components['schemas']['ViewerSource'];
 export type ViewerSourcesResponse = components['schemas']['ViewerSourcesResponse'];
 
+export type ArtifactSummary = components['schemas']['ArtifactSummary'];
+export type BoardRunDetail = components['schemas']['BoardRunDetailResponse'];
+export type CheckInfo = components['schemas']['CheckInfo'];
+
 /**
  * Frontend-defined shape for diff summary (backend returns as unknown JSON).
  * Fields are validated at runtime with type guards before access.
