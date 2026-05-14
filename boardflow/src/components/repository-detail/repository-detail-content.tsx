@@ -5,23 +5,8 @@ import { Key } from 'lucide-react';
 import Link from 'next/link';
 import { Breadcrumb } from '@/components/ui/breadcrumb';
 import { $api } from '@/lib/api/react-query';
-
-function stateColor(state: string): string {
-  switch (state) {
-    case 'completed':
-      return 'green';
-    case 'failed':
-      return 'red';
-    case 'timed_out':
-      return 'orange';
-    case 'processing':
-      return 'blue';
-    case 'detected':
-      return 'gray';
-    default:
-      return 'gray';
-  }
-}
+import { projectStateColor } from '@/lib/domain/status';
+import { formatDate } from '@/lib/format';
 
 interface Props {
   repositoryId: string;
@@ -63,7 +48,7 @@ export function RepositoryDetailContent({ repositoryId }: Props) {
           </HStack>
           <HStack gap={4} fontSize='sm' color='gray.600'>
             <Text>{repo.board_project_count} projects</Text>
-            <Text>Created {new Date(repo.created_at).toLocaleDateString()}</Text>
+            <Text>Created {formatDate(repo.created_at)}</Text>
             {repo.html_url && (
               <a href={repo.html_url} target='_blank' rel='noopener noreferrer'>
                 <Text color='blue.500' _hover={{ textDecoration: 'underline' }}>
@@ -121,7 +106,9 @@ export function RepositoryDetailContent({ repositoryId }: Props) {
                     </Table.Cell>
                     <Table.Cell>
                       <HStack gap={2}>
-                        <Badge colorPalette={stateColor(project.state)}>{project.state}</Badge>
+                        <Badge colorPalette={projectStateColor(project.state)}>
+                          {project.state}
+                        </Badge>
                         {project.state === 'timed_out' && (
                           <Text fontSize='xs' color='orange.600'>
                             (中断または未完了の可能性)
@@ -141,7 +128,7 @@ export function RepositoryDetailContent({ repositoryId }: Props) {
                     </Table.Cell>
                     <Table.Cell>
                       <Text fontSize='sm' color='gray.600'>
-                        {new Date(project.updated_at).toLocaleDateString()}
+                        {formatDate(project.updated_at)}
                       </Text>
                     </Table.Cell>
                   </Table.Row>

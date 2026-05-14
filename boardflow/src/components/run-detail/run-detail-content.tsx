@@ -6,90 +6,15 @@ import { ArtifactViewerSection } from '@/components/artifact-viewer/artifact-vie
 import { Breadcrumb } from '@/components/ui/breadcrumb';
 import { $api } from '@/lib/api/react-query';
 import type { Artifact, DiffResponse, DiffSummary, ViewerEntry } from '@/lib/api/schema-types';
-
-function statusColor(status: string): string {
-  switch (status) {
-    case 'completed':
-      return 'green';
-    case 'failed':
-      return 'red';
-    case 'timed_out':
-      return 'orange';
-    default:
-      return 'gray';
-  }
-}
-
-function checkStatusColor(status: string): string {
-  switch (status) {
-    case 'passed':
-      return 'green';
-    case 'failed':
-      return 'red';
-    default:
-      return 'gray';
-  }
-}
-
-function artifactStatusColor(status: string): string {
-  switch (status) {
-    case 'available':
-      return 'green';
-    case 'missing':
-      return 'orange';
-    case 'failed':
-      return 'red';
-    case 'skipped':
-      return 'gray';
-    default:
-      return 'gray';
-  }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function isFileChanges(
-  v: unknown,
-): v is { added: number; removed: number; changed: number; unchanged: number } {
-  return (
-    isRecord(v) &&
-    typeof v.added === 'number' &&
-    typeof v.removed === 'number' &&
-    typeof v.changed === 'number' &&
-    typeof v.unchanged === 'number'
-  );
-}
-
-function isBomChanges(v: unknown): v is { added: number; removed: number; changed: number } {
-  return (
-    isRecord(v) &&
-    typeof v.added === 'number' &&
-    typeof v.removed === 'number' &&
-    typeof v.changed === 'number'
-  );
-}
-
-function isCheckEntry(
-  v: unknown,
-): v is { status_change: string; error_delta: number; warning_delta: number } {
-  return (
-    isRecord(v) &&
-    typeof v.status_change === 'string' &&
-    typeof v.error_delta === 'number' &&
-    typeof v.warning_delta === 'number'
-  );
-}
-
-function isArtifactChanges(v: unknown): v is { added: number; removed: number; changed: number } {
-  return (
-    isRecord(v) &&
-    typeof v.added === 'number' &&
-    typeof v.removed === 'number' &&
-    typeof v.changed === 'number'
-  );
-}
+import {
+  isArtifactChanges,
+  isBomChanges,
+  isCheckEntry,
+  isFileChanges,
+  isRecord,
+} from '@/lib/domain/guards';
+import { artifactStatusColor, boardRunStatusColor, checkStatusColor } from '@/lib/domain/status';
+import { formatBytes, formatDateTime, shortId, shortSha } from '@/lib/format';
 
 interface Props {
   repositoryId: string;
@@ -158,7 +83,7 @@ export function RunDetailContent({ repositoryId, boardProjectId, boardRunId }: P
               href: `/repositories/${repositoryId}/boards/${boardProjectId}`,
             },
             { label: 'Runs', href: `/repositories/${repositoryId}/boards/${boardProjectId}/runs` },
-            { label: boardRunId.slice(0, 8) },
+            { label: shortId(boardRunId) },
           ]}
         />
       )}
@@ -167,17 +92,15 @@ export function RunDetailContent({ repositoryId, boardProjectId, boardRunId }: P
         <Box>
           <HStack gap={3} mb={2}>
             <Heading size='lg'>Run {run.board_run_id}</Heading>
-            <Badge colorPalette={statusColor(run.status)} size='lg'>
+            <Badge colorPalette={boardRunStatusColor(run.status)} size='lg'>
               {run.status}
             </Badge>
           </HStack>
           <HStack gap={4} fontSize='sm' color='gray.600'>
-            <Text fontFamily='mono'>{run.commit_sha.slice(0, 7)}</Text>
+            <Text fontFamily='mono'>{shortSha(run.commit_sha)}</Text>
             <Text>{run.branch}</Text>
-            <Text>Created {new Date(run.created_at).toLocaleString()}</Text>
-            {run.completed_at && (
-              <Text>Completed {new Date(run.completed_at).toLocaleString()}</Text>
-            )}
+            <Text>Created {formatDateTime(run.created_at)}</Text>
+            {run.completed_at && <Text>Completed {formatDateTime(run.completed_at)}</Text>}
           </HStack>
         </Box>
 
@@ -289,9 +212,7 @@ export function RunDetailContent({ repositoryId, boardProjectId, boardRunId }: P
                     </Table.Cell>
                     <Table.Cell>
                       <Text fontSize='sm' color='gray.600'>
-                        {artifact.size_bytes
-                          ? `${(artifact.size_bytes / 1024).toFixed(1)} KB`
-                          : '—'}
+                        {artifact.size_bytes ? formatBytes(artifact.size_bytes) : '—'}
                       </Text>
                     </Table.Cell>
                   </Table.Row>
@@ -337,7 +258,7 @@ export function RunDetailContent({ repositoryId, boardProjectId, boardRunId }: P
                               color='blue.600'
                               _hover={{ textDecoration: 'underline' }}
                             >
-                              {diff.base_board_run_id.slice(0, 8)}
+                              {shortId(diff.base_board_run_id)}
                             </Text>
                           </Link>
                         </Text>

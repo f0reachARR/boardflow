@@ -3,22 +3,8 @@
 import { Badge, Box, Heading, Table, Text } from '@chakra-ui/react';
 import Link from 'next/link';
 import { $api } from '@/lib/api/react-query';
-
-function statusColor(status: string | null): string {
-  switch (status) {
-    case 'completed':
-      return 'green';
-    case 'failed':
-      return 'red';
-    case 'timed_out':
-      return 'orange';
-    case 'processing':
-    case 'importing':
-      return 'blue';
-    default:
-      return 'gray';
-  }
-}
+import { boardRunStatusColor } from '@/lib/domain/status';
+import { formatDate } from '@/lib/format';
 
 export function RepositoriesList() {
   const { data } = $api.useSuspenseQuery('get', '/api/v1/repositories', {
@@ -73,7 +59,7 @@ export function RepositoriesList() {
                 <Table.Cell>{repo.board_project_count}</Table.Cell>
                 <Table.Cell>
                   {repo.latest_run_status ? (
-                    <Badge colorPalette={statusColor(repo.latest_run_status)}>
+                    <Badge colorPalette={boardRunStatusColor(repo.latest_run_status)}>
                       {repo.latest_run_status}
                     </Badge>
                   ) : (
@@ -84,7 +70,7 @@ export function RepositoriesList() {
                 </Table.Cell>
                 <Table.Cell>
                   <Text fontSize='sm' color='gray.600'>
-                    {new Date(repo.updated_at).toLocaleDateString()}
+                    {formatDate(repo.updated_at)}
                   </Text>
                 </Table.Cell>
               </Table.Row>

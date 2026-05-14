@@ -3,6 +3,7 @@
 import { Badge, Box, Button, HStack, Table, Text } from '@chakra-ui/react';
 import { useState } from 'react';
 import { $api } from '@/lib/api/react-query';
+import { formatDate } from '@/lib/format';
 import { CreateTokenDialog } from './create-token-dialog';
 import { RevokeTokenDialog } from './revoke-token-dialog';
 
@@ -56,12 +57,12 @@ export function TokenList({ repositoryId }: Props) {
                 <Table.Cell fontWeight='medium'>{token.name}</Table.Cell>
                 <Table.Cell>
                   <Text fontSize='sm' color='gray.600'>
-                    {new Date(token.created_at).toLocaleDateString()}
+                    {formatDate(token.created_at)}
                   </Text>
                 </Table.Cell>
                 <Table.Cell>
                   <Text fontSize='sm' color='gray.600'>
-                    {token.last_used_at ? new Date(token.last_used_at).toLocaleDateString() : '—'}
+                    {token.last_used_at ? formatDate(token.last_used_at) : '—'}
                   </Text>
                 </Table.Cell>
                 <Table.Cell>
