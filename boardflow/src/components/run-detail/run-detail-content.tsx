@@ -5,14 +5,8 @@ import Link from 'next/link';
 import { ArtifactViewerSection } from '@/components/artifact-viewer/artifact-viewer-section';
 import { Breadcrumb } from '@/components/ui/breadcrumb';
 import { $api } from '@/lib/api/react-query';
-import type { Artifact, DiffResponse, DiffSummary, ViewerEntry } from '@/lib/api/schema-types';
-import {
-  isArtifactChanges,
-  isBomChanges,
-  isCheckEntry,
-  isFileChanges,
-  isRecord,
-} from '@/lib/domain/guards';
+import type { Artifact, DiffResponse, ViewerEntry } from '@/lib/api/schema-types';
+import { parseDiffSummary } from '@/lib/domain/diff-summary';
 import { artifactStatusColor, boardRunStatusColor, checkStatusColor } from '@/lib/domain/status';
 import { formatBytes, formatDateTime, shortId, shortSha } from '@/lib/format';
 import { routes } from '@/lib/routes';
@@ -245,7 +239,7 @@ export function RunDetailContent({ repositoryId, boardProjectId, boardRunId }: P
               {diff.status === 'ready' &&
                 diff.summary != null &&
                 (() => {
-                  const summary = diff.summary as DiffSummary;
+                  const summary = parseDiffSummary(diff.summary);
                   return (
                     <VStack align='stretch' gap={2}>
                       {diff.base_board_run_id && (
@@ -264,11 +258,11 @@ export function RunDetailContent({ repositoryId, boardProjectId, boardRunId }: P
                           </Link>
                         </Text>
                       )}
-                      {isFileChanges(summary.file_changes) ? (
+                      {summary.fileChanges ? (
                         <HStack gap={4} fontSize='sm'>
                           <Text>
-                            Files: +{summary.file_changes.added} -{summary.file_changes.removed} ~
-                            {summary.file_changes.changed} ({summary.file_changes.unchanged}{' '}
+                            Files: +{summary.fileChanges.added} -{summary.fileChanges.removed} ~
+                            {summary.fileChanges.changed} ({summary.fileChanges.unchanged}{' '}
                             unchanged)
                           </Text>
                         </HStack>
@@ -277,11 +271,11 @@ export function RunDetailContent({ repositoryId, boardProjectId, boardRunId }: P
                           File changes: data format not recognized
                         </Text>
                       )}
-                      {isBomChanges(summary.bom_changes) ? (
+                      {summary.bomChanges ? (
                         <HStack gap={4} fontSize='sm'>
                           <Text>
-                            BOM: +{summary.bom_changes.added} -{summary.bom_changes.removed} ~
-                            {summary.bom_changes.changed}
+                            BOM: +{summary.bomChanges.added} -{summary.bomChanges.removed} ~
+                            {summary.bomChanges.changed}
                           </Text>
                         </HStack>
                       ) : (
@@ -289,35 +283,24 @@ export function RunDetailContent({ repositoryId, boardProjectId, boardRunId }: P
                           BOM changes: data format not recognized
                         </Text>
                       )}
-                      {isRecord(summary.checks) &&
-                        Object.entries(summary.checks).filter(([, v]) => isCheckEntry(v)).length >
-                          0 && (
-                          <HStack gap={4} fontSize='sm' flexWrap='wrap'>
-                            <Text>Checks:</Text>
-                            {Object.entries(summary.checks)
-                              .filter(([, v]) => isCheckEntry(v))
-                              .map(([kind, c]) => {
-                                const check = c as {
-                                  status_change: string;
-                                  error_delta: number;
-                                  warning_delta: number;
-                                };
-                                return (
-                                  <Text key={kind}>
-                                    {kind.toUpperCase()} {check.status_change} (
-                                    {check.error_delta >= 0 ? '+' : ''}
-                                    {check.error_delta}E, {check.warning_delta >= 0 ? '+' : ''}
-                                    {check.warning_delta}W)
-                                  </Text>
-                                );
-                              })}
-                          </HStack>
-                        )}
-                      {isArtifactChanges(summary.artifacts) ? (
+                      {summary.checks.length > 0 && (
+                        <HStack gap={4} fontSize='sm' flexWrap='wrap'>
+                          <Text>Checks:</Text>
+                          {summary.checks.map(([kind, check]) => (
+                            <Text key={kind}>
+                              {kind.toUpperCase()} {check.status_change} (
+                              {check.error_delta >= 0 ? '+' : ''}
+                              {check.error_delta}E, {check.warning_delta >= 0 ? '+' : ''}
+                              {check.warning_delta}W)
+                            </Text>
+                          ))}
+                        </HStack>
+                      )}
+                      {summary.artifactChanges ? (
                         <HStack gap={4} fontSize='sm'>
                           <Text>
-                            Artifacts: +{summary.artifacts.added} -{summary.artifacts.removed} ~
-                            {summary.artifacts.changed}
+                            Artifacts: +{summary.artifactChanges.added} -
+                            {summary.artifactChanges.removed} ~{summary.artifactChanges.changed}
                           </Text>
                         </HStack>
                       ) : (
