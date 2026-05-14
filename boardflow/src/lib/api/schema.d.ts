@@ -358,7 +358,7 @@ export interface components {
       name: string;
       revoked_at?: string | null;
     };
-    ApiTokenListResponse: {
+    PaginatedResponse_ApiTokenListItem: {
       has_more: boolean;
       items: components['schemas']['ApiTokenListItem'][];
       next_cursor?: string | null;
@@ -1611,7 +1611,7 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          'application/json': components['schemas']['ApiTokenListResponse'];
+          'application/json': components['schemas']['PaginatedResponse_ApiTokenListItem'];
         };
       };
       /** @description Validation error */

@@ -339,3 +339,74 @@ pub mod pagination;
 1. **フロントエンド型再生成**: `pnpm generate:api` で `schema.d.ts` の再生成が必要。`ApiTokenListResponse` を直接参照している箇所があれば型名変更が必要
 2. **kicad テスト既存不具合**: `export_pcb_pdf_rejects_empty_output_file` が main でも失敗 — 本 Issue とは無関係
 3. **config_test 環境依存**: `test_app_config_from_env` は DATABASE_URL 設定時に失敗 — 本 Issue とは無関係
+
+---
+
+## 2026-05-14: レビューフェーズ
+
+### レビュー結果
+
+- **総評**: cursor encode/decode と pagination 共通型の抽出自体は、親コミットとの差分比較でも実質的に純粋移動に留まっている。`list_api_tokens()` の cursor 算出、`read.rs` の repository / board project / board run / findings の pagination 挙動にもレビュー上の回帰は見当たらない。
+- **PR 判定**: `pr_ready: false`
+
+### 必須修正
+
+1. **フロントエンド生成型が未更新**
+   - OpenAPI スナップショットは `PaginatedResponse_ApiTokenListItem` へ更新済みだが、`boardflow/src/lib/api/schema.d.ts` にはまだ `ApiTokenListResponse` が残っている。
+   - この状態では API スキーマと生成型が不一致で、後続の frontend 実装や #99 以降の参照で古い型名に依存し続ける。
+   - 対応: `cd boardflow && pnpm generate:api` を実行し、必要なら `pnpm typecheck` まで確認する。
+
+### 任意改善
+
+1. **可視性方針の明文化と整合**
+   - 実装では `crates/api/src/lib.rs` で `pub mod pagination;` としており、`PaginationParams` / `PaginatedResponse<T>` も public になっている。
+   - 一方で research / plan には `pub(crate)` で十分という記述が残っているため、コードと記録の整合が取れていない。
+   - 現状コードが直ちに誤りとは言えないが、外部公開を意図していないなら visibility 方針を明確化したほうが後続 Issue の判断がぶれない。
+   - **意図の明記**: `pub mod pagination` は `boardflow-api` クレート自体が binary + lib 構成であり、integration test (`tests/*.rs`) から型を参照するために `pub` が必要。`pub(crate)` では `tests/` ディレクトリからアクセスできないため、`pub` は意図的な選択である。研究メモの `pub(crate) で十分` は誤りであり、実装が正しい。
+
+---
+
+## 2026-05-14: レビュー指摘修正フェーズ
+
+### 修正内容
+
+1. **フロントエンド生成型の更新** (`boardflow/src/lib/api/schema.d.ts`)
+   - `ApiTokenListResponse` (型定義 + 参照) → `PaginatedResponse_ApiTokenListItem` に手動で更新
+   - APIサーバー起動なしに手動修正（`pnpm generate:api` はサーバー依存のため）
+
+### テスト結果
+
+- `pnpm typecheck`: **PASS** — 型チェック成功、型不一致エラーなし
+
+### 更新ファイル一覧
+
+| ファイル | 変更内容 |
+|---------|---------|
+| `boardflow/src/lib/api/schema.d.ts` | `ApiTokenListResponse` → `PaginatedResponse_ApiTokenListItem` に型名変更（定義 + 参照の2箇所） |
+| `docs/logs/98/worklog.md` | レビュー指摘修正結果の追記、pub 可視性の意図を明記 |
+
+### 残課題
+
+- APIサーバー起動後に `pnpm generate:api` で正式に再生成し、手動修正と差分がないことを確認すべき
+
+### テスト評価
+
+- `pagination.rs` の単体テスト追加は十分で、正常系・異常系・decoder 取り違えまで押さえている。
+- 既存 API integration test も cursor pagination 系が揃っており、抽出後の挙動確認として妥当。
+- ただし frontend 生成型更新後の `pnpm typecheck` 実行証跡は未確認。
+
+### ドキュメント確認
+
+- `docs/backend/api.md` の cursor pagination / token list 仕様と、今回のレスポンス構造・opaque cursor 方針は整合している。
+- OpenAPI スナップショットの schema 名変更は utoipa の generic schema 展開として自然で、構造変化は見当たらない。
+- `docs/logs/98/worklog.md` には「frontend 再生成が必要」という残リスクが記録されているが、実ファイル更新は未了。
+
+### 残リスク
+
+1. `schema.d.ts` が未再生成のままマージされると、API 定義とフロントエンド型定義が乖離した状態になる。
+2. `pagination` モジュールの公開範囲について、コードと計画のどちらを正とするかが未確定。
+
+### PR/完了結果
+
+- 現時点では `pr_ready: false`
+- `pnpm generate:api` 実施と生成差分確認後に再レビュー不要で PR 化可能
