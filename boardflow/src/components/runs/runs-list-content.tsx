@@ -7,6 +7,7 @@ import { CheckBadge } from '@/components/ui/check-badge';
 import { $api } from '@/lib/api/react-query';
 import { boardRunStatusColor } from '@/lib/domain/status';
 import { formatDateTime, shortSha } from '@/lib/format';
+import { routes } from '@/lib/routes';
 
 interface Props {
   repositoryId: string;
@@ -36,14 +37,14 @@ export function RunsListContent({ repositoryId, boardProjectId }: Props) {
     <Box>
       <Breadcrumb
         items={[
-          { label: 'Repositories', href: '/repositories' },
+          { label: 'Repositories', href: routes.repositories() },
           {
             label: `${project.repository.owner}/${project.repository.name}`,
-            href: `/repositories/${repositoryId}`,
+            href: routes.repository(repositoryId),
           },
           {
             label: project.display_name,
-            href: `/repositories/${repositoryId}/boards/${boardProjectId}`,
+            href: routes.board(repositoryId, boardProjectId),
           },
           { label: 'Runs' },
         ]}
@@ -70,9 +71,7 @@ export function RunsListContent({ repositoryId, boardProjectId }: Props) {
             {runs.map((run) => (
               <Table.Row key={run.board_run_id}>
                 <Table.Cell>
-                  <Link
-                    href={`/repositories/${repositoryId}/boards/${boardProjectId}/runs/${run.board_run_id}`}
-                  >
+                  <Link href={routes.run(repositoryId, boardProjectId, run.board_run_id)}>
                     <Badge colorPalette={boardRunStatusColor(run.status)}>{run.status}</Badge>
                   </Link>
                 </Table.Cell>
