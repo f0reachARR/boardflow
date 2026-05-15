@@ -772,3 +772,48 @@ export function parseApiErrorMessage(err: unknown): string | null {
 ### 更新した作業ログパス
 
 - `docs/logs/114/worklog.md`
+
+---
+
+## PR作成フェーズ (pr agent)
+
+**日時**: 2026-05-15
+
+### PR/完了結果
+
+- **PR番号**: #130
+- **PRリンク**: https://github.com/f0reachARR/boardflow/pull/130
+- **タイトル**: `fix(frontend): unknown JSON の型キャストを zod safeParse に置き換え (#114)`
+- **ベースブランチ**: `main`
+- **ヘッドブランチ**: `feat/114-zod-parse-refactor`
+- **Issue リンク**: `Closes #114`
+
+### 作成前の確認
+
+| 確認項目 | 結果 |
+|---|---|
+| review agent `pr_ready: true` | ✅（2ラウンドのレビュー指摘を修正後に確認） |
+| docs agent `docs_ready: true` | ✅ |
+| 未コミット変更なし | ✅（worklog をコミット後にプッシュ） |
+| テスト (vitest / lint / typecheck / build) | ✅ 全通過 |
+
+### コミット履歴 (main から)
+
+- `71e7e85` docs: add docs agent review results to worklog (#114)
+- `30a248d` docs: update worklog for review fix round 2 (#114)
+- `12a6645` fix: add null fallback for checks in run-diff-summary-card
+- `7c5fab8` docs: update worklog with review fix details (#114)
+- `a8339d8` fix: checks malformed data silent drop and use result.data (#114)
+- `8898d12` docs: add implementation phase results to worklog (#114)
+- `c624235` refactor: replace as type casts with zod safeParse for unknown JSON (#114)
+
+### 残リスク
+
+1. **schema と interface の二重管理**: `diff-summary-schema.ts` の zod schema と `diff-summary.ts` の TypeScript interface が並存。将来 `z.infer` で統一可能
+2. **API error 構造の backend 依存**: `parseApiErrorMessage` は backend 変更時に `null` を返しフォールバック表示（安全側）
+3. **`isRecord` の将来移動**: `guards.ts` に `isRecord` のみ残存。`utils.ts` 等への移動検討可能
+4. **`README.md` の lint 記述不整合**: 本 Issue 起因ではない既存問題
+
+### 更新した作業ログパス
+
+- `docs/logs/114/worklog.md`
