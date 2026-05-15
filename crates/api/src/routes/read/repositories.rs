@@ -8,7 +8,8 @@ use crate::github_access::DynGithubAccessChecker;
 use crate::pagination::{PaginatedResponse, PaginationParams, encode_repository_cursor};
 
 use super::dto::{RepositoryDetailResponse, RepositoryListItem, parse_board_run_status};
-use crate::github_access::{access_error_to_app_error, access_result_to_error};
+use crate::github_access::access_error_to_app_error;
+use crate::services::authz::ensure_repository_access;
 
 // ─── GET /api/v1/repositories ────────────────────────────────────────────────
 
@@ -104,20 +105,14 @@ pub async fn get_repository(
     State(pool): State<PgPool>,
     Path(github_repository_id): Path<i64>,
 ) -> Result<Json<RepositoryDetailResponse>, AppError> {
-    let repo = boardflow_db::queries::repository::find_by_github_id(&pool, github_repository_id)
-        .await
-        .map_err(|e| {
-            tracing::error!("get_repository failed: {e}");
-            AppError::internal_error("database error", &request_id)
-        })?
-        .ok_or_else(|| AppError::not_found("repository not found", &request_id))?;
-
-    let result = access_checker
-        .check_access(&session.user.github_access_token, &repo.owner, &repo.name)
-        .await;
-    if let Some(err) = access_result_to_error(&result, "repository not found", &request_id) {
-        return Err(err);
-    }
+    let repo = ensure_repository_access(
+        &pool,
+        &access_checker,
+        &session.user.github_access_token,
+        github_repository_id,
+        &request_id,
+    )
+    .await?;
 
     let board_project_count: i64 =
         sqlx::query_scalar("SELECT COUNT(*) FROM board_projects WHERE repository_id = $1")

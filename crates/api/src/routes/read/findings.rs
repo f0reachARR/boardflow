@@ -12,7 +12,7 @@ use crate::extractors::AuthenticatedSession;
 use crate::github_access::DynGithubAccessChecker;
 use crate::pagination::{PaginatedResponse, decode_findings_cursor, encode_findings_cursor};
 
-use crate::github_access::access_result_to_error;
+use crate::services::authz::ensure_board_run_access;
 
 fn check_kind_str(kind: CheckKind) -> &'static str {
     match kind {
@@ -142,20 +142,14 @@ pub async fn list_findings(
     };
 
     // 5. Check repository access (same pattern as get_board_run)
-    let repo = boardflow_db::queries::board_run::find_repository_by_board_run_id(&pool, br_id)
-        .await
-        .map_err(|e| {
-            tracing::error!("list_findings repo lookup failed: {e}");
-            AppError::internal_error("database error", &request_id)
-        })?
-        .ok_or_else(|| AppError::not_found("board run not found", &request_id))?;
-
-    let result = access_checker
-        .check_access(&session.user.github_access_token, &repo.owner, &repo.name)
-        .await;
-    if let Some(err) = access_result_to_error(&result, "board run not found", &request_id) {
-        return Err(err);
-    }
+    ensure_board_run_access(
+        &pool,
+        &access_checker,
+        &session.user.github_access_token,
+        br_id,
+        &request_id,
+    )
+    .await?;
 
     // 6. Find run_check by board_run_id + check_kind
     let run_check = boardflow_db::queries::run_check::find_by_board_run_and_kind(

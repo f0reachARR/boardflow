@@ -11,7 +11,7 @@ use crate::github_access::DynGithubAccessChecker;
 use crate::pagination::{PaginatedResponse, PaginationParams, encode_cursor};
 
 use super::dto::{ArtifactSummary, BoardRunDetailResponse, BoardRunListItem, CheckInfo};
-use crate::github_access::access_result_to_error;
+use crate::services::authz::{ensure_board_project_access, ensure_board_run_access};
 
 // ─── GET /api/v1/board-projects/{board_project_id}/board-runs ────────────────
 
@@ -42,21 +42,14 @@ pub async fn list_board_runs(
         .map_err(|_| AppError::validation_failed("invalid board_project_id format", &request_id))?;
 
     // Verify board_project exists and check repository access
-    let repo =
-        boardflow_db::queries::board_project::find_repository_by_board_project_id(&pool, bp_id)
-            .await
-            .map_err(|e| {
-                tracing::error!("list_board_runs repo lookup failed: {e}");
-                AppError::internal_error("database error", &request_id)
-            })?
-            .ok_or_else(|| AppError::not_found("board project not found", &request_id))?;
-
-    let result = access_checker
-        .check_access(&session.user.github_access_token, &repo.owner, &repo.name)
-        .await;
-    if let Some(err) = access_result_to_error(&result, "board project not found", &request_id) {
-        return Err(err);
-    }
+    ensure_board_project_access(
+        &pool,
+        &access_checker,
+        &session.user.github_access_token,
+        bp_id,
+        &request_id,
+    )
+    .await?;
 
     let limit = params.effective_limit();
     let cursor = params.decoded_cursor(&request_id)?;
@@ -134,20 +127,14 @@ pub async fn get_board_run(
         .map_err(|_| AppError::validation_failed("invalid board_run_id format", &request_id))?;
 
     // Check repository access via board_run → board_project → repository
-    let repo = boardflow_db::queries::board_run::find_repository_by_board_run_id(&pool, id)
-        .await
-        .map_err(|e| {
-            tracing::error!("get_board_run repo lookup failed: {e}");
-            AppError::internal_error("database error", &request_id)
-        })?
-        .ok_or_else(|| AppError::not_found("board run not found", &request_id))?;
-
-    let result = access_checker
-        .check_access(&session.user.github_access_token, &repo.owner, &repo.name)
-        .await;
-    if let Some(err) = access_result_to_error(&result, "board run not found", &request_id) {
-        return Err(err);
-    }
+    ensure_board_run_access(
+        &pool,
+        &access_checker,
+        &session.user.github_access_token,
+        id,
+        &request_id,
+    )
+    .await?;
 
     let run = boardflow_db::queries::board_run::find_by_id(&pool, id)
         .await
