@@ -752,3 +752,98 @@ After:
 ### 残リスク
 - `database::tests::from_env_succeeds_when_database_url_set` (boardflow-config) が環境変数未設定で失敗するが、本Issue とは無関係の既存問題。
 - tracing ログメッセージが `ensure_*` 関数のものに統一されたため、既存のログ文字列に依存するモニタリングがあれば調整が必要 (ただし内部ログのため外部影響なし)。
+
+---
+
+## レビュー結果 (review フェーズ)
+
+### 対象Issue
+- Issue #97: APIのrepository access認可処理を共通サービス化する
+
+### 総評
+- 実装は Issue の「挙動変更なしの抽出」という方針に沿っており、`Denied -> not_found` の情報秘匿も維持されている。
+- `services/authz.rs` への集約で、repo lookup + access check + `AppError` 変換の重複は解消されている。
+- blocking な不整合は見つからなかったため、PR 作成は可能と判断する。
+
+### セキュリティ確認
+- `check_repo_access()` は [crates/api/src/services/authz.rs](crates/api/src/services/authz.rs#L110) で `access_result_to_error()` に委譲しており、`Denied` は [crates/api/src/github_access/error_conversion.rs](crates/api/src/github_access/error_conversion.rs#L11) で引き続き `not_found` に変換される。
+- `get_board_project` でも [crates/api/src/routes/read/board_projects.rs](crates/api/src/routes/read/board_projects.rs#L138) から `check_repo_access()` を呼んでおり、JOIN 済みの `repo_owner` / `repo_name` で別クエリなしに同じ秘匿ルールを適用している。
+- `not_found_msg` は各パターンで変更前と同じ固定文字列のまま維持されている。
+
+### 実装確認
+- `ensure_repository_access()` の 5 呼び出し、`ensure_board_run_access()` の 5 呼び出し、`ensure_board_project_access()` の 1 呼び出し、`check_repo_access()` の 1 呼び出しを確認し、Issue 本文の置換対象と一致した。
+- `list_repositories` は [crates/api/src/routes/read/repositories.rs](crates/api/src/routes/read/repositories.rs#L33) で従来どおり `list_accessible_repo_ids` + `access_error_to_app_error` を使っており、共通化対象外の特殊パターンとして適切に維持されている。
+- 置換後に `routes/read` 配下へ `check_access()` / `access_result_to_error()` の直接呼び出しは残っていない。
+
+### テスト確認
+- 実行確認: `mise exec -- cargo test -p boardflow-api check_repo_access --lib` → 5 件 pass。
+- 実行確認: `mise exec -- cargo test -p boardflow-api --test read_api_test denied` → 8 件 pass。
+- 実行確認: `mise exec -- cargo test -p boardflow-api --test read_api_test rate_limited` → 2 件 pass。
+- 実行確認: `mise exec -- cargo test -p boardflow-api --test read_api_test upstream` → 2 件 pass。
+- 実行確認: `mise exec -- cargo test -p boardflow-api --test api_token_test denied` → 3 件 pass。
+- `check_repo_access` の unit test は Allowed / Denied / TokenExpired / RateLimited / Upstream を全て網羅している。
+
+### ドキュメント確認
+- [docs/backend/api.md](docs/backend/api.md#L83) と [docs/backend/api.md](docs/backend/api.md#L567) は、「存在しない resource と閲覧不可 resource をともに `404 not_found` で秘匿してよい」という契約を維持しており、今回の抽出実装と整合している。
+- 本 Issue は純粋な内部リファクタリングのため、追加の公開ドキュメント更新は必須ではない。
+
+### 指摘事項
+- blocking な指摘なし。
+
+### 必須修正
+- なし。
+
+### 任意改善
+- [crates/api/src/services/authz.rs](crates/api/src/services/authz.rs#L110) の `check_repo_access()` は `not_found_msg` を呼び出し側に委ねるため、将来の呼び出し追加時にメッセージ取り違えの余地はある。現状 1 箇所のみで問題はないが、必要なら専用 wrapper を増やしてもよい。
+
+### テスト不足
+- 非 blocking。`TokenExpired -> 401` は unit test で確認済みだが、read API / api_token API の HTTP レベル統合テストには今回直接触れられていない。
+- 非 blocking。`RateLimited -> 429` / `Upstream -> 500` の統合テストは repository endpoint で確認できる一方、board_run 系 endpoint では helper 共有による間接担保に留まる。
+
+### plan / research / docs との不整合
+- なし。計画にあった `services/authz.rs` 追加、11 箇所の置換、`get_board_project` の低レベル helper 利用、`list_repositories` 除外、既存挙動維持は実装と一致している。
+
+### PR/完了結果
+- `pr_ready: true`
+
+### 残リスク
+- 共通 helper の採用で変換ロジックは一箇所化されたが、今後新規 endpoint が `check_repo_access()` を直接使う場合は `not_found_msg` の選定ミスに注意が必要。
+
+---
+
+## ドキュメント確認 (docs フェーズ)
+
+### 対象Issue
+- Issue #97: APIのrepository access認可処理を共通サービス化する
+
+### 確認対象
+- `docs/backend/summary.md`
+- `docs/backend/api.md`
+- `docs/spec.md`
+- `AGENTS.md`
+- `docs/logs/97/worklog.md`
+
+### 確認結果
+- `docs/backend/summary.md`: backend 全体の責務、API 契約、認証/認可方針を記述する高レベル文書であり、`crates/api/src/services/` 配下の個別モジュール一覧は管理していない。`services/authz.rs` 追加を反映しなくても記述粒度として整合している。
+- `docs/backend/api.md`: 外部 API 契約の変更はなく、閲覧不可を `404 not_found` で秘匿する方針とも今回の実装は一致しているため更新不要。
+- `docs/spec.md`: SaaS の責務と GitHub 権限ベースの認可方針に変更はなく、Issue #97 に伴う追記は不要。
+- `AGENTS.md`: リポジトリ構成、開発コマンド、一般的なガイドラインのみを記述しており、内部の service helper 抽出による更新は不要。
+- `docs/logs/97/worklog.md`: research / plan / impl / review は記録済みで、この docs フェーズ追記により最新状態になった。
+
+### 外部調査メモとの整合
+- 本 Issue は内部リファクタリングであり、research フェーズでも外部調査不要と整理されている。`docs/external/` の追加確認は不要で、既存成果物との矛盾もない。
+
+### 必須修正
+- なし。
+
+### 任意改善
+- なし。
+
+### docs_ready
+- `docs_ready: true`
+
+### ドキュメント観点の残リスク
+- なし。公開仕様と運用文書に影響する変更は含まれていない。
+
+### 更新した作業ログパス
+- `docs/logs/97/worklog.md`
