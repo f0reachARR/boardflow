@@ -468,3 +468,66 @@ export function parseApiErrorMessage(err: unknown): string | null {
 ### 更新した作業ログパス
 
 - `docs/logs/114/worklog.md`
+
+---
+
+## レビュー修正フェーズ (impl agent - review fix)
+
+**日時**: 2026-05-15
+
+### 修正内容
+
+レビューの必須指摘2件に対応。
+
+#### 1. [Major] checks の malformed データが silent drop される問題
+
+**修正箇所**: `boardflow/src/lib/domain/diff-summary.ts`
+
+**修正前**: `Object.entries().filter(safeParse().success)` で不正 entry を除外。全 entry 失敗でも空配列 `[]` を返していた。
+
+**修正後**: 
+- `for...of` で各 entry を `safeParse` し、`result.data` を `parsed` 配列に push
+- `rawEntries.length > 0 && parsed.length === 0` の場合に `null` を返す
+- これにより `ChecksSection` の `null` チェックが発火し「Data format not recognized」が表示される
+
+#### 2. [任意改善] safeParse の result.data を明示的に使う
+
+**修正箇所**: 同上
+
+`CheckEntrySchema.safeParse(value)` の `result.data` を明示的に `parsed` に push する形に変更。将来 schema に transform/default が入っても安全。
+
+### 追加テスト
+
+**新規ファイル**: `boardflow/src/lib/domain/__tests__/diff-summary.test.ts` (vitest)
+
+テスト観点 (18テスト):
+- **checks 正常系**: 全 entry 有効時に全件パースされること
+- **checks 部分不正**: 一部不正 entry がある場合、有効分のみ返ること
+- **checks 全件不正 (silent drop fix)**: 全 entry 不正時に `null` が返ること（今回の主要修正）
+- **checks キー欠落**: `checks` がない場合 `null`
+- **checks 非オブジェクト**: string, array, null の場合 `null`
+- **checks 空オブジェクト**: `{}` の場合は空配列 `[]`（正常な空）
+- **result.data 使用の検証**: extra field が strip されること
+- **fileChanges 正常/不正**: safeParse 成功/失敗
+- **bomChanges 正常/不正**: safeParse 成功/失敗
+- **artifactChanges 正常/不正**: safeParse 成功/失敗
+- **edge cases**: non-object, null, array の raw input
+
+### テスト結果
+
+| チェック | 結果 |
+|---|---|
+| `vitest run` (18 tests) | ✅ 全パス |
+| `pnpm lint` | ✅ パス |
+| `pnpm typecheck` | ✅ パス |
+| `pnpm build` | ✅ パス |
+
+### 残リスク
+
+1. **schema と interface の二重管理**: 変更なし（将来 `z.infer` で統一可能）
+2. **API error 構造の backend 依存**: 変更なし（fallback が安全側に倒れる）
+3. **`parseApiErrorMessage` のテスト不足**: レビューで任意指摘。今回のスコープ外だが将来追加推奨
+
+### 更新した作業ログパス
+
+- `docs/logs/114/worklog.md`
