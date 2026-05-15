@@ -8,8 +8,8 @@ use crate::error::{AppError, RequestId};
 use crate::extractors::AuthenticatedSession;
 use crate::github_access::DynGithubAccessChecker;
 
-use super::access::access_result_to_error;
 use super::dto::{BoardRunDiffResponse, DiffMetadataResponse};
+use crate::github_access::access_result_to_error;
 
 // ─── GET /api/v1/board-runs/{board_run_id}/diff ──────────────────────────────
 

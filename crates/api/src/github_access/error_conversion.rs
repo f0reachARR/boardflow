@@ -1,5 +1,6 @@
 use crate::error::AppError;
-use crate::github_access::{AccessError, AccessResult};
+
+use super::types::{AccessError, AccessResult};
 
 // Helper: convert AccessResult::Denied/Error to AppError
 pub fn access_result_to_error(
