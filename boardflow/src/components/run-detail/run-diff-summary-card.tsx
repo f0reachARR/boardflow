@@ -86,18 +86,24 @@ export function RunDiffSummaryCard({
                         BOM changes: data format not recognized
                       </Text>
                     )}
-                    {summary.checks != null && summary.checks.length > 0 && (
-                      <HStack gap={4} fontSize='sm' flexWrap='wrap'>
-                        <Text>Checks:</Text>
-                        {summary.checks.map(([kind, check]) => (
-                          <Text key={kind}>
-                            {kind.toUpperCase()} {check.status_change} (
-                            {check.error_delta >= 0 ? '+' : ''}
-                            {check.error_delta}E, {check.warning_delta >= 0 ? '+' : ''}
-                            {check.warning_delta}W)
-                          </Text>
-                        ))}
-                      </HStack>
+                    {summary.checks === null ? (
+                      <Text fontSize='sm' color='gray.500'>
+                        Checks: data format not recognized
+                      </Text>
+                    ) : (
+                      summary.checks.length > 0 && (
+                        <HStack gap={4} fontSize='sm' flexWrap='wrap'>
+                          <Text>Checks:</Text>
+                          {summary.checks.map(([kind, check]) => (
+                            <Text key={kind}>
+                              {kind.toUpperCase()} {check.status_change} (
+                              {check.error_delta >= 0 ? '+' : ''}
+                              {check.error_delta}E, {check.warning_delta >= 0 ? '+' : ''}
+                              {check.warning_delta}W)
+                            </Text>
+                          ))}
+                        </HStack>
+                      )
                     )}
                     {summary.artifactChanges ? (
                       <HStack gap={4} fontSize='sm'>
