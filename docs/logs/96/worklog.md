@@ -465,3 +465,42 @@ fn hash_token(raw_token: &str) -> String
 
 ### 残リスク
 - `services/api_token.rs` は空スタブ — Step 3 で実装予定
+
+---
+
+## Step 3 実装フェーズ (2026-05-15)
+
+### 実装内容
+
+`crates/api/src/routes/api_token.rs` (291行) からユースケースロジックを `crates/api/src/services/api_token.rs` に抽出。
+
+#### 移動したもの
+- **Request/Response 型**: `CreateApiTokenRequest`, `CreateApiTokenResponse`, `ApiTokenListItem`, `ApiTokenDetailResponse` (全て `utoipa::ToSchema` derive 付き)
+- **Private helpers**: `generate_raw_token()`, `hash_token()` → `services/api_token.rs` 内部関数
+- **Service関数**:
+  - `pub(crate) async fn execute_create_api_token()` — create handler のユースケースロジック (name validation, repo lookup, access check, token生成, DB insert)
+  - `pub(crate) async fn execute_list_api_tokens()` — list handler のユースケースロジック (repo lookup, access check, pagination, DB query, cursor encode)
+  - `pub(crate) async fn execute_revoke_api_token()` — revoke handler のユースケースロジック (UUID parse, repo lookup, access check, DB revoke)
+
+#### handler の簡素化
+- `routes/api_token.rs`: 291行 → 114行
+- 各 handler は extractor parse → service 呼び出し → `Ok(Json(response))` に統一
+- `create_api_token` は `StatusCode::CREATED` を handler 側で付与 (service は `CreateApiTokenResponse` のみ返す)
+- `#[utoipa::path]` アトリビュートはそのまま handler に残存
+- Request/Response 型は `use crate::services::api_token::*` ではなく個別 import で参照
+
+### ファイル変更
+| パス | 変更 |
+|------|------|
+| `crates/api/src/services/api_token.rs` | 空スタブ → 224行 (4 型定義 + 2 private helper + 3 service関数) |
+| `crates/api/src/routes/api_token.rs` | 291行 → 114行に簡素化 |
+
+### テスト結果
+- `cargo fmt --all -- --check`: 通過
+- `cargo clippy --workspace --all-targets -- -D warnings`: 通過
+- `cargo insta test -p boardflow-api`: **全73テスト通過** (63 integration + 10 webhook)
+  - `api_token_test.rs`: **15件全通過**
+- **OpenAPI snapshot 差分: なし** ("no snapshots to review")
+
+### 残リスク
+- `AppError` がservice層でHTTP概念を含む点は変わらず (将来的にdomain error分離が望ましいが、このリファクタリングのスコープ外)
