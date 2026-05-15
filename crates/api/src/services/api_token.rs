@@ -7,8 +7,9 @@ use utoipa::ToSchema;
 use uuid::Uuid;
 
 use crate::error::AppError;
-use crate::github_access::{DynGithubAccessChecker, access_result_to_error};
+use crate::github_access::DynGithubAccessChecker;
 use crate::pagination::{PaginatedResponse, PaginationParams, encode_cursor};
+use crate::services::authz::ensure_repository_access;
 
 // ─── Request / Response types ────────────────────────────────────────────────
 
@@ -77,22 +78,15 @@ pub(crate) async fn execute_create_api_token(
         ));
     }
 
-    // Lookup repository
-    let repo = boardflow_db::queries::repository::find_by_github_id(pool, github_repository_id)
-        .await
-        .map_err(|e| {
-            tracing::error!("find_by_github_id failed: {e}");
-            AppError::internal_error("database error", request_id)
-        })?
-        .ok_or_else(|| AppError::not_found("repository not found", request_id))?;
-
-    // Access check
-    let result = access_checker
-        .check_access(github_access_token, &repo.owner, &repo.name)
-        .await;
-    if let Some(err) = access_result_to_error(&result, "repository not found", request_id) {
-        return Err(err);
-    }
+    // Lookup repository + access check
+    let repo = ensure_repository_access(
+        pool,
+        access_checker,
+        github_access_token,
+        github_repository_id,
+        request_id,
+    )
+    .await?;
 
     // Generate token
     let raw_token = generate_raw_token();
@@ -129,22 +123,15 @@ pub(crate) async fn execute_list_api_tokens(
     params: &PaginationParams,
     request_id: &str,
 ) -> Result<PaginatedResponse<ApiTokenListItem>, AppError> {
-    // Lookup repository
-    let repo = boardflow_db::queries::repository::find_by_github_id(pool, github_repository_id)
-        .await
-        .map_err(|e| {
-            tracing::error!("find_by_github_id failed: {e}");
-            AppError::internal_error("database error", request_id)
-        })?
-        .ok_or_else(|| AppError::not_found("repository not found", request_id))?;
-
-    // Access check
-    let result = access_checker
-        .check_access(github_access_token, &repo.owner, &repo.name)
-        .await;
-    if let Some(err) = access_result_to_error(&result, "repository not found", request_id) {
-        return Err(err);
-    }
+    // Lookup repository + access check
+    let repo = ensure_repository_access(
+        pool,
+        access_checker,
+        github_access_token,
+        github_repository_id,
+        request_id,
+    )
+    .await?;
 
     // Pagination
     let limit = params.effective_limit();
@@ -201,22 +188,15 @@ pub(crate) async fn execute_revoke_api_token(
     let token_id = Uuid::parse_str(token_id_str)
         .map_err(|_| AppError::validation_failed("invalid token_id format", request_id))?;
 
-    // Lookup repository
-    let repo = boardflow_db::queries::repository::find_by_github_id(pool, github_repository_id)
-        .await
-        .map_err(|e| {
-            tracing::error!("find_by_github_id failed: {e}");
-            AppError::internal_error("database error", request_id)
-        })?
-        .ok_or_else(|| AppError::not_found("repository not found", request_id))?;
-
-    // Access check
-    let result = access_checker
-        .check_access(github_access_token, &repo.owner, &repo.name)
-        .await;
-    if let Some(err) = access_result_to_error(&result, "repository not found", request_id) {
-        return Err(err);
-    }
+    // Lookup repository + access check
+    let repo = ensure_repository_access(
+        pool,
+        access_checker,
+        github_access_token,
+        github_repository_id,
+        request_id,
+    )
+    .await?;
 
     // Revoke (idempotent: COALESCE keeps existing revoked_at)
     let token = boardflow_db::queries::api_token::revoke(pool, token_id, repo.id)

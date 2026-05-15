@@ -12,7 +12,7 @@ use crate::extractors::AuthenticatedSession;
 use crate::github_access::DynGithubAccessChecker;
 
 use super::dto::ArtifactListItem;
-use crate::github_access::access_result_to_error;
+use crate::services::authz::ensure_board_run_access;
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct ArtifactListResponse {
@@ -44,20 +44,14 @@ pub async fn list_artifacts(
         .map_err(|_| AppError::validation_failed("invalid board_run_id format", &request_id))?;
 
     // Check repository access via board_run → board_project → repository
-    let repo = boardflow_db::queries::board_run::find_repository_by_board_run_id(&pool, id)
-        .await
-        .map_err(|e| {
-            tracing::error!("list_artifacts repo lookup failed: {e}");
-            AppError::internal_error("database error", &request_id)
-        })?
-        .ok_or_else(|| AppError::not_found("board run not found", &request_id))?;
-
-    let result = access_checker
-        .check_access(&session.user.github_access_token, &repo.owner, &repo.name)
-        .await;
-    if let Some(err) = access_result_to_error(&result, "board run not found", &request_id) {
-        return Err(err);
-    }
+    ensure_board_run_access(
+        &pool,
+        &access_checker,
+        &session.user.github_access_token,
+        id,
+        &request_id,
+    )
+    .await?;
 
     let artifacts = boardflow_db::queries::artifact::list_by_board_run(&pool, id)
         .await

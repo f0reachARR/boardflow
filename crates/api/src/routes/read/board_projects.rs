@@ -13,7 +13,7 @@ use super::dto::{
     BoardProjectDetailResponse, BoardProjectListItem, RepositoryRef, derive_board_project_state,
     parse_board_run_status,
 };
-use crate::github_access::access_result_to_error;
+use crate::services::authz::{check_repo_access, ensure_repository_access};
 
 // ─── GET /api/v1/repositories/{github_repository_id}/board-projects ──────────
 
@@ -38,20 +38,14 @@ pub async fn list_board_projects(
     Path(github_repository_id): Path<i64>,
     Query(params): Query<PaginationParams>,
 ) -> Result<Json<PaginatedResponse<BoardProjectListItem>>, AppError> {
-    let repo = boardflow_db::queries::repository::find_by_github_id(&pool, github_repository_id)
-        .await
-        .map_err(|e| {
-            tracing::error!("list_board_projects repo lookup failed: {e}");
-            AppError::internal_error("database error", &request_id)
-        })?
-        .ok_or_else(|| AppError::not_found("repository not found", &request_id))?;
-
-    let result = access_checker
-        .check_access(&session.user.github_access_token, &repo.owner, &repo.name)
-        .await;
-    if let Some(err) = access_result_to_error(&result, "repository not found", &request_id) {
-        return Err(err);
-    }
+    let repo = ensure_repository_access(
+        &pool,
+        &access_checker,
+        &session.user.github_access_token,
+        github_repository_id,
+        &request_id,
+    )
+    .await?;
 
     let limit = params.effective_limit();
     let cursor = params.decoded_cursor(&request_id)?;
@@ -141,19 +135,15 @@ pub async fn get_board_project(
         })?
         .ok_or_else(|| AppError::not_found("board project not found", &request_id))?;
 
-    if let Some(err) = access_result_to_error(
-        &access_checker
-            .check_access(
-                &session.user.github_access_token,
-                &row.repo_owner,
-                &row.repo_name,
-            )
-            .await,
+    check_repo_access(
+        &access_checker,
+        &session.user.github_access_token,
+        &row.repo_owner,
+        &row.repo_name,
         "board project not found",
         &request_id,
-    ) {
-        return Err(err);
-    }
+    )
+    .await?;
 
     // Get latest run status for state derivation
     let latest_run_status = boardflow_db::queries::board_project::get_latest_run_status(&pool, id)
