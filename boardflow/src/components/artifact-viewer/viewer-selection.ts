@@ -57,8 +57,11 @@ export function getVisibleViewerTabs(viewers: Record<string, ViewerEntry>): TabD
       (def.key === 'schematic' || def.key === 'pcb_preview') &&
       (viewer.status === 'missing' || viewer.status === 'failed')
     ) {
-      const relevantKind = def.key === 'schematic' ? 'schematic' : 'board';
-      return canUseKicanvasFallback(viewers, relevantKind);
+      const kicanvasViewer = viewers.kicanvas;
+      if (kicanvasViewer?.status === 'available' && kicanvasViewer.sources?.length) {
+        const relevantKind = def.key === 'schematic' ? 'schematic' : 'board';
+        return kicanvasViewer.sources.some((s) => s.kind === relevantKind);
+      }
     }
     return true;
   });
