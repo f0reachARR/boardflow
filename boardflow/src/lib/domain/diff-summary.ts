@@ -1,4 +1,9 @@
-import { isArtifactChanges, isBomChanges, isCheckEntry, isFileChanges, isRecord } from './guards';
+import {
+  ArtifactChangesSchema,
+  BomChangesSchema,
+  CheckEntrySchema,
+  FileChangesSchema,
+} from './diff-summary-schema';
 
 export interface FileChanges {
   added: number;
@@ -33,15 +38,33 @@ export interface ParsedDiffSummary {
 }
 
 export function parseDiffSummary(raw: unknown): ParsedDiffSummary {
-  const obj = isRecord(raw) ? raw : {};
+  const obj =
+    typeof raw === 'object' && raw !== null && !Array.isArray(raw)
+      ? (raw as Record<string, unknown>)
+      : {};
+
+  const fileResult = FileChangesSchema.safeParse(obj.file_changes);
+  const bomResult = BomChangesSchema.safeParse(obj.bom_changes);
+  const artifactResult = ArtifactChangesSchema.safeParse(obj.artifacts);
+
+  let checks: [string, CheckEntry][] | null = null;
+  if (typeof obj.checks === 'object' && obj.checks !== null && !Array.isArray(obj.checks)) {
+    const rawEntries = Object.entries(obj.checks as Record<string, unknown>);
+    const parsed: [string, CheckEntry][] = [];
+    for (const [key, value] of rawEntries) {
+      const result = CheckEntrySchema.safeParse(value);
+      if (result.success) {
+        parsed.push([key, result.data]);
+      }
+    }
+    // If original had entries but none parsed, treat as unrecognized format (null)
+    checks = rawEntries.length > 0 && parsed.length === 0 ? null : parsed;
+  }
+
   return {
-    fileChanges: isFileChanges(obj.file_changes) ? obj.file_changes : null,
-    bomChanges: isBomChanges(obj.bom_changes) ? obj.bom_changes : null,
-    checks: isRecord(obj.checks)
-      ? Object.entries(obj.checks).filter((entry): entry is [string, CheckEntry] =>
-          isCheckEntry(entry[1]),
-        )
-      : null,
-    artifactChanges: isArtifactChanges(obj.artifacts) ? obj.artifacts : null,
+    fileChanges: fileResult.success ? fileResult.data : null,
+    bomChanges: bomResult.success ? bomResult.data : null,
+    checks,
+    artifactChanges: artifactResult.success ? artifactResult.data : null,
   };
 }

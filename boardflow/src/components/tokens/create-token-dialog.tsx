@@ -15,6 +15,7 @@ import { useForm } from '@tanstack/react-form';
 import { useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { z } from 'zod';
+import { parseApiErrorMessage } from '@/lib/api/error';
 import { $api } from '@/lib/api/react-query';
 
 const createTokenSchema = z.object({
@@ -61,8 +62,7 @@ export function CreateTokenDialog({ repositoryId, open, onOpenChange }: Props) {
           queryKey: ['get', '/api/v1/repositories/{github_repository_id}/api-tokens'],
         });
       } catch (err: unknown) {
-        const apiErr = err as { error?: { message?: string } };
-        setServerError(apiErr.error?.message ?? 'トークンの作成に失敗しました');
+        setServerError(parseApiErrorMessage(err) ?? 'トークンの作成に失敗しました');
       }
     },
   });
