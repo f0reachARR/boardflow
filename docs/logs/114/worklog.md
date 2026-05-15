@@ -471,6 +471,77 @@ export function parseApiErrorMessage(err: unknown): string | null {
 
 ---
 
+## 再レビューフェーズ (review agent)
+
+**日時**: 2026-05-15
+
+### レビュー結果
+
+- **判定**: `pr_ready: false`
+- **総評**: 前回の必須修正だった `parseDiffSummary()` の `checks` 全件 malformed 時の `null` 化は反映され、追加された unit test でも再現ケースは検証できている。`pnpm lint` / `pnpm typecheck` / `pnpm build` / `vitest` も通っている。一方で、Run 詳細画面の summary card では `summary.checks === null` を明示表示しておらず、parse failure が依然として無言で消えるため、前回指摘の UI 観点は未解消。
+
+### 調査結果
+
+- `git diff main...HEAD` でコード差分、research 文書、worklog 更新を確認。
+- `docs/spec.md`、`README.md`、`docs/external/zod-v4-safeparse-unknown-json.md` を確認。今回の変更は frontend 内部リファクタリング中心で、README/spec の追加更新は不要。
+- repository 内に `CONTRIBUTING.md` は存在せず、確認対象なし。
+- Web 調査でも、zod の `safeParse` をフィールド単位に適用して fallback を維持する方針自体は妥当と確認。
+
+### 重大度順の指摘
+
+1. **[Major] Run 詳細の summary card では、`checks` parse failure がまだ silent drop になる**
+  - `parseDiffSummary()` は `rawEntries.length > 0 && parsed.length === 0` のとき `checks = null` を返すようになっており、前回の parser 側の問題自体は解消されている。
+  - しかし `RunDiffSummaryCard` は `summary.checks != null && summary.checks.length > 0` の場合しか `Checks:` 行を表示しないため、`summary.checks === null` のときに「Data format not recognized」相当の表示へ落ちない。
+  - そのため、`checks: { erc: 'broken' }` のような payload では diff 詳細ページ側の `ChecksSection` では fallback 表示できても、Run 詳細ページの card では何も表示されず、前回レビューで指摘した silent drop が UI 上まだ残る。
+
+### 必須修正
+
+- `RunDiffSummaryCard` でも `summary.checks === null` を明示的に扱い、他セクションと同様に「Data format not recognized」相当の fallback を表示すること。
+
+### 任意改善
+
+- `parseApiErrorMessage()` は helper 化としては十分だが、この helper 自体の単体テストを追加しておくと fallback メッセージ退行を検知しやすい。
+
+### テスト結果
+
+- `pnpm vitest run src/lib/domain/__tests__/diff-summary.test.ts` ✅
+- `pnpm lint` ✅
+- `pnpm typecheck` ✅
+- `pnpm build` ✅
+
+### テスト不足
+
+- `RunDiffSummaryCard` の `checks === null` 時の fallback 表示を検証する UI テストまたは component test がない。
+- `parseApiErrorMessage()` の成功系 / fallback 系を直接検証する unit test がない。
+
+### ドキュメント確認
+
+- `docs/spec.md`: 影響なし。
+- `README.md`: 影響なし。
+- `docs/external/zod-v4-safeparse-unknown-json.md`: 実装方針と整合。
+- `docs/logs/114/worklog.md`: 実装差分と前回レビュー修正は記録されているが、Run 詳細 card 側の残課題を今回追記。
+
+### plan / research / docs との不整合
+
+- research / plan では「不正な形式の場合は既存の `Data format not recognized` 相当の表示に落とす」としているが、Run 詳細の summary card における `checks` 表示は未達。
+- `parseApiErrorMessage()` を zod ではなく軽量 helper にした点は worklog 上で差分明記済みで、blocking ではない。
+
+### PR/完了結果
+
+- `pr_ready: false`
+- 理由: 前回の parser 側修正は確認できたが、Run 詳細の summary card における `checks` malformed fallback 表示が未実装のため。
+
+### 残リスク
+
+- backend が壊れた `checks` payload を返した場合、Run 詳細ページでは「checks が存在しない」ように見えて原因切り分けが難しい。
+- 現在の unit test は parser 中心で、表示面の退行は捕捉できない。
+
+### 更新した作業ログパス
+
+- `docs/logs/114/worklog.md`
+
+---
+
 ## レビュー修正フェーズ (impl agent - review fix)
 
 **日時**: 2026-05-15
@@ -527,6 +598,48 @@ export function parseApiErrorMessage(err: unknown): string | null {
 1. **schema と interface の二重管理**: 変更なし（将来 `z.infer` で統一可能）
 2. **API error 構造の backend 依存**: 変更なし（fallback が安全側に倒れる）
 3. **`parseApiErrorMessage` のテスト不足**: レビューで任意指摘。今回のスコープ外だが将来追加推奨
+
+### 更新した作業ログパス
+
+- `docs/logs/114/worklog.md`
+
+---
+
+## レビュー修正 2回目 — checks null fallback (2026-05-15)
+
+### 指摘内容
+
+- `run-diff-summary-card.tsx` の checks セクションが `summary.checks === null`（malformed data）のとき何も表示せず silent drop していた
+- 他セクション（fileChanges, bomChanges, artifactChanges）は三項演算子で "data format not recognized" fallback を表示済み
+
+### 修正内容
+
+| ファイル | 変更 |
+|---|---|
+| `boardflow/src/components/run-detail/run-diff-summary-card.tsx` | checks 描画を三項演算子に変更。`null` → "Checks: data format not recognized" fallback、非 null かつ非空 → 既存の checks 表示、非 null かつ空 → 非表示（変化なし） |
+
+### 他セクション確認
+
+- `fileChanges`: 三項演算子で fallback あり ✅
+- `bomChanges`: 三項演算子で fallback あり ✅
+- `artifactChanges`: 三項演算子で fallback あり ✅
+- `checks`: 今回修正で fallback 追加 ✅
+
+### チェック結果
+
+| チェック | 結果 |
+|---|---|
+| `pnpm lint` | ✅ パス |
+| `pnpm typecheck` | ✅ パス |
+| `pnpm build` | ✅ パス |
+
+### コミット
+
+- `12a6645` fix: add null fallback for checks in run-diff-summary-card
+
+### 残リスク
+
+- 変更なし（前回と同様）
 
 ### 更新した作業ログパス
 
