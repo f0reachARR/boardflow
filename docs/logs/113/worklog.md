@@ -28,6 +28,56 @@
 2. `$api.queryOptions()` で options 定義 → `serverClient.GET()` で queryFn を手書き (options と queryFn で同じ path/params を二重記述)
 3. primary: `fetchQuery().catch(() => null)` + `if (!result) notFound()` (5ファイル)
 4. secondary: `prefetchQuery()` で queryFn 手書き (全8ファイル、合計13箇所)
+
+## 計画
+
+- `boardflow/src/lib/api/server-prefetch.ts` に3つのヘルパー関数を作成
+  - `fetchPrimary<T>`: fetchQuery + catch + notFound
+  - `prefetchSecondary`: prefetchQuery ラッパー (await しない)
+  - `withServerFetcher<T>`: queryOptions の queryKey を維持しつつ serverClient.GET を queryFn に注入
+- 8ページファイルでインラインの prefetch コードをヘルパー呼び出しに置換
+- 挙動変更なし: Streaming SSR / hydration / notFound のタイミングは同一
+
+## 実装内容
+
+### 2026-05-15: 実装完了
+
+**新規ファイル:**
+- `boardflow/src/lib/api/server-prefetch.ts` — 3ヘルパー関数
+
+**変更ファイル (8ページ):**
+1. `repositories/page.tsx` — パターンA: prefetchSecondary + withServerFetcher
+2. `repositories/[repositoryId]/page.tsx` — パターンB: fetchPrimary + prefetchSecondary
+3. `.../boards/[boardProjectId]/page.tsx` — パターンB
+4. `.../boards/[boardProjectId]/runs/page.tsx` — パターンB
+5. `.../settings/tokens/page.tsx` — パターンB
+6. `.../runs/[boardRunId]/page.tsx` — パターンC: fetchPrimary + 3x prefetchSecondary
+7. `.../runs/[boardRunId]/diff/page.tsx` — パターンD: 2x prefetchSecondary のみ
+8. `.../runs/[boardRunId]/checks/[checkKind]/page.tsx` — パターンD (バリデーションロジック変更なし)
+
+**型修正:**
+- `withServerFetcher` の `serverFetcher` 引数型を `{ data?: T; error?: unknown }` に修正（openapi-fetch の FetchResponse は `data` がオプショナルプロパティ）
+
+**削除されたインポート:**
+- パターンB の5ファイルから `import { notFound } from 'next/navigation'` を削除（fetchPrimary 内で呼ばれるため）
+
+## テスト結果
+
+| チェック | 結果 |
+|---|---|
+| `pnpm typecheck` | ✅ パス |
+| `pnpm lint` (Biome) | ✅ パス (フォーマット自動修正後) |
+| `pnpm build` | ✅ パス (全ルート正常ビルド) |
+
+## ドキュメント確認
+
+- クライアントコンポーネント変更なし
+- HydrationBoundary / dehydrate パターン維持
+- checks ページのバリデーションロジック変更なし
+
+## 残リスク
+
+- なし。純粋なリファクタリングで挙動変更なし。
 5. `<HydrationBoundary state={dehydrate(queryClient)}>` ラッパー (全8ファイル)
 
 **クライアント側の消費:**
