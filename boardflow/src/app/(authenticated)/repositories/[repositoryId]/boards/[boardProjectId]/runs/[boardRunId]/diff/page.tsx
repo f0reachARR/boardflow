@@ -4,6 +4,7 @@ import { Suspense } from 'react';
 import { DiffContent } from '@/components/diff/diff-content';
 import { $api } from '@/lib/api/react-query';
 import { createServerClient } from '@/lib/api/server';
+import { prefetchSecondary, withServerFetcher } from '@/lib/api/server-prefetch';
 import { getQueryClient } from '@/lib/query-client';
 
 interface Props {
@@ -15,35 +16,31 @@ export default async function DiffPage({ params }: Props) {
   const queryClient = getQueryClient();
   const serverClient = await createServerClient();
 
-  const diffOptions = $api.queryOptions('get', '/api/v1/board-runs/{board_run_id}/diff', {
-    params: { path: { board_run_id: boardRunId } },
-  });
-
-  const projectOptions = $api.queryOptions('get', '/api/v1/board-projects/{board_project_id}', {
-    params: { path: { board_project_id: boardProjectId } },
-  });
-
-  queryClient.prefetchQuery({
-    ...diffOptions,
-    queryFn: async () => {
-      const { data, error } = await serverClient.GET('/api/v1/board-runs/{board_run_id}/diff', {
+  prefetchSecondary(
+    queryClient,
+    withServerFetcher(
+      $api.queryOptions('get', '/api/v1/board-runs/{board_run_id}/diff', {
         params: { path: { board_run_id: boardRunId } },
-      });
-      if (error) throw new Error('Failed to fetch diff');
-      return data;
-    },
-  });
+      }),
+      () =>
+        serverClient.GET('/api/v1/board-runs/{board_run_id}/diff', {
+          params: { path: { board_run_id: boardRunId } },
+        }),
+    ),
+  );
 
-  queryClient.prefetchQuery({
-    ...projectOptions,
-    queryFn: async () => {
-      const { data, error } = await serverClient.GET('/api/v1/board-projects/{board_project_id}', {
+  prefetchSecondary(
+    queryClient,
+    withServerFetcher(
+      $api.queryOptions('get', '/api/v1/board-projects/{board_project_id}', {
         params: { path: { board_project_id: boardProjectId } },
-      });
-      if (error) throw new Error('Failed to fetch project');
-      return data;
-    },
-  });
+      }),
+      () =>
+        serverClient.GET('/api/v1/board-projects/{board_project_id}', {
+          params: { path: { board_project_id: boardProjectId } },
+        }),
+    ),
+  );
 
   return (
     <HydrationBoundary state={dehydrate(queryClient)}>

@@ -4,6 +4,7 @@ import { Suspense } from 'react';
 import { FindingsContent } from '@/components/checks/findings-content';
 import { $api } from '@/lib/api/react-query';
 import { createServerClient } from '@/lib/api/server';
+import { prefetchSecondary, withServerFetcher } from '@/lib/api/server-prefetch';
 import { getQueryClient } from '@/lib/query-client';
 
 interface Props {
@@ -57,25 +58,11 @@ export default async function FindingsPage({ params, searchParams }: Props) {
   const queryClient = getQueryClient();
   const serverClient = await createServerClient();
 
-  const findingsOptions = $api.queryOptions(
-    'get',
-    '/api/v1/board-runs/{board_run_id}/checks/{check_kind}/findings',
-    {
-      params: {
-        path: { board_run_id: boardRunId, check_kind: validCheckKind },
-        query: validSeverityParam ? { severity: validSeverityParam } : undefined,
-      },
-    },
-  );
-
-  const projectOptions = $api.queryOptions('get', '/api/v1/board-projects/{board_project_id}', {
-    params: { path: { board_project_id: boardProjectId } },
-  });
-
-  queryClient.prefetchQuery({
-    ...findingsOptions,
-    queryFn: async () => {
-      const { data, error } = await serverClient.GET(
+  prefetchSecondary(
+    queryClient,
+    withServerFetcher(
+      $api.queryOptions(
+        'get',
         '/api/v1/board-runs/{board_run_id}/checks/{check_kind}/findings',
         {
           params: {
@@ -83,22 +70,29 @@ export default async function FindingsPage({ params, searchParams }: Props) {
             query: validSeverityParam ? { severity: validSeverityParam } : undefined,
           },
         },
-      );
-      if (error) throw new Error('Failed to fetch findings');
-      return data;
-    },
-  });
+      ),
+      () =>
+        serverClient.GET('/api/v1/board-runs/{board_run_id}/checks/{check_kind}/findings', {
+          params: {
+            path: { board_run_id: boardRunId, check_kind: validCheckKind },
+            query: validSeverityParam ? { severity: validSeverityParam } : undefined,
+          },
+        }),
+    ),
+  );
 
-  queryClient.prefetchQuery({
-    ...projectOptions,
-    queryFn: async () => {
-      const { data, error } = await serverClient.GET('/api/v1/board-projects/{board_project_id}', {
+  prefetchSecondary(
+    queryClient,
+    withServerFetcher(
+      $api.queryOptions('get', '/api/v1/board-projects/{board_project_id}', {
         params: { path: { board_project_id: boardProjectId } },
-      });
-      if (error) throw new Error('Failed to fetch project');
-      return data;
-    },
-  });
+      }),
+      () =>
+        serverClient.GET('/api/v1/board-projects/{board_project_id}', {
+          params: { path: { board_project_id: boardProjectId } },
+        }),
+    ),
+  );
 
   return (
     <HydrationBoundary state={dehydrate(queryClient)}>
