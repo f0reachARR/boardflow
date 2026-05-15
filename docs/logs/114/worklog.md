@@ -354,3 +354,44 @@ export function parseApiErrorMessage(err: unknown): string | null {
 ### 更新した作業ログパス
 
 `docs/logs/114/worklog.md`
+
+---
+
+## 実装フェーズ (impl agent)
+
+**日時**: 2026-05-15
+
+### 実装内容
+
+計画に沿って7ファイルを変更。計画からの差分として `guards.ts` は完全削除ではなく `isRecord` を残存させた（3コンポーネントが使用中のため）。
+
+#### 変更ファイル一覧
+
+| # | ファイル | 操作 | 内容 |
+|---|---|---|---|
+| 1 | `boardflow/src/lib/domain/diff-summary-schema.ts` | **新規** | `FileChangesSchema`, `BomChangesSchema`, `CheckEntrySchema`, `ArtifactChangesSchema` の zod schema |
+| 2 | `boardflow/src/lib/domain/diff-summary.ts` | **編集** | `guards.ts` の import → schema import に切替。`parseDiffSummary` 内部を `safeParse` ベースに書き換え。interface・シグネチャは維持 |
+| 3 | `boardflow/src/lib/domain/guards.ts` | **編集** | `isFileChanges`, `isBomChanges`, `isCheckEntry`, `isArtifactChanges` を削除。`isRecord` のみ残存（`file-changes-section.tsx`, `artifact-changes-section.tsx`, `preview-links-section.tsx` が使用） |
+| 4 | `boardflow/src/lib/api/error.ts` | **新規** | `parseApiErrorMessage(err: unknown): string \| null` helper。typeof チェックで `{ error: { message: string } }` を検査 |
+| 5 | `boardflow/src/components/run-detail/run-detail-content.tsx` | **編集** | `as Record<...>` キャスト → `parseApiErrorMessage(diffError)` に置換 |
+| 6 | `boardflow/src/components/tokens/create-token-dialog.tsx` | **編集** | `as { error?: ... }` キャスト → `parseApiErrorMessage(err)` に置換 |
+| 7 | `boardflow/src/lib/api/schema-types.ts` | **編集** | 未使用 `DiffSummary` interface とコメントを削除 |
+
+#### 計画からの差分
+
+- **`guards.ts` 完全削除 → `isRecord` のみ残存**: 計画では「`diff-summary.ts` 以外から import なし」としていたが、実際は `file-changes-section.tsx`, `artifact-changes-section.tsx`, `preview-links-section.tsx` の3ファイルが `isRecord` を import していた。`isRecord` は汎用ユーティリティなので残存が妥当。
+- **`parseApiErrorMessage` の実装**: 計画では zod `safeParse` を使う案もあったが、2層の typeof チェックのみのシンプルな実装を採用。zod を import する追加コストに見合わないため。
+
+### テスト結果
+
+| チェック | 結果 |
+|---|---|
+| `pnpm lint` | ✅ パス (Checked 89 files, No errors) |
+| `pnpm typecheck` | ✅ パス (`tsc --noEmit` 成功) |
+| `pnpm build` | ✅ パス (Next.js 16.2.4 production build 成功) |
+
+### 残リスク
+
+1. **schema と interface の二重管理**: `diff-summary-schema.ts` の zod schema と `diff-summary.ts` の TypeScript interface が並存。将来 `z.infer<typeof Schema>` に統一すれば解消可能。
+2. **API error 構造の backend 依存**: `{ error: { message: string } }` は OpenAPI schema で定義されていない。backend 変更時は `parseApiErrorMessage` が `null` を返し fallback メッセージが表示される（安全側に倒れる）。
+3. **`isRecord` の将来移動**: `guards.ts` に `isRecord` のみが残っている状態。必要に応じて `utils.ts` 等に移動する検討が可能。
