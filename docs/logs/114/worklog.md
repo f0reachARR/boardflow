@@ -471,6 +471,74 @@ export function parseApiErrorMessage(err: unknown): string | null {
 
 ---
 
+## レビューフェーズ (final review after round 2)
+
+**日時**: 2026-05-15
+
+### レビュー結果
+
+- 対象Issue: #114 のみをレビュー
+- ベース差分を再確認: `main...HEAD` で 13 ファイル変更を確認
+- 変更ファイル 13 件を読了し、前回 2 件の指摘 (`checks` の silent drop、Run 詳細 card の null fallback 不足) がどちらも解消済みであることを確認
+- `parseDiffSummary()` は `checks` の全 entry 不正時に `null` を返し、Run 詳細 card 側は `summary.checks === null` で明示 fallback を表示するため、前回 blocker は解消
+- 追加テスト `src/lib/domain/__tests__/diff-summary.test.ts` は通過し、all-malformed checks のケースもカバーされている
+- `pnpm lint` / `pnpm typecheck` / `pnpm build` を再実行して通過を確認
+- Web 調査および `docs/external/zod-v4-safeparse-unknown-json.md` を再確認し、`safeParse` をフィールド単位で適用して部分的 fallback を維持する方針は妥当と判断
+
+### 総評
+
+- 今回の差分は Issue #114 の意図に沿った純粋リファクタリングの範囲に収まっている
+- 主要な unknown JSON 起点の危険な型キャストは削減され、runtime parse 失敗時の表示も Run 詳細と Diff 詳細で一貫して扱われている
+- 正常系表示を壊す兆候は、追加テスト・lint・typecheck・build の範囲では確認できなかった
+
+### 指摘
+
+- 重大な指摘なし
+
+### 必須修正
+
+- なし
+
+### 任意改善
+
+- なし
+
+### テスト結果
+
+| チェック | 結果 |
+|---|---|
+| `pnpm vitest run src/lib/domain/__tests__/diff-summary.test.ts` | ✅ パス |
+| `pnpm lint` | ✅ パス |
+| `pnpm typecheck` | ✅ パス |
+| `pnpm build` | ✅ パス |
+
+### ドキュメント確認
+
+- `docs/spec.md`: frontend 内部の runtime parse リファクタリングとして矛盾なし
+- `README.md`: 既存の frontend 検証コマンド記述と整合
+- `CONTRIBUTING.md`: リポジトリ内に存在しないことを確認
+- `docs/external/zod-v4-safeparse-unknown-json.md`: 実装内容と整合
+
+### plan / research / docs との整合
+
+- plan で重視していた `checks` malformed 時の明示 fallback は実装済み
+- `parseApiErrorMessage()` は zod helper ではなく軽量 helper 実装だが、Issue 完了条件とユーザー要望（挙動不変・純粋リファクタリング）には抵触しない
+- worklog 上の前回レビュー指摘は今回の修正内容と整合
+
+### PR/完了結果
+
+- `pr_ready: true`
+
+### 残リスク
+
+- `parseApiErrorMessage()` は helper 化で十分だが、zod parse へ完全統一は未実施。ただし Issue 完了条件の blocker ではない
+
+### 更新した作業ログパス
+
+- `docs/logs/114/worklog.md`
+
+---
+
 ## 再レビューフェーズ (review agent)
 
 **日時**: 2026-05-15
@@ -640,6 +708,66 @@ export function parseApiErrorMessage(err: unknown): string | null {
 ### 残リスク
 
 - 変更なし（前回と同様）
+
+### 更新した作業ログパス
+
+- `docs/logs/114/worklog.md`
+
+---
+
+## ドキュメント確認フェーズ (docs agent)
+
+**日時**: 2026-05-15
+
+### 確認対象
+
+- `docs/spec.md`
+- `docs/frontend/summary.md`
+- `docs/technology.md`
+- `AGENTS.md`
+- `README.md`
+- `docs/external/zod-v4-safeparse-unknown-json.md`
+
+### 確認結果
+
+- Issue #114 の変更は frontend 内部の runtime parse リファクタリングであり、仕様追加・API 追加・運用手順変更を伴わないため、`docs/spec.md` / `docs/frontend/summary.md` / `docs/technology.md` / `AGENTS.md` に今回の変更起因の更新要否はなし
+- `docs/frontend/summary.md` の「フォーム / バリデーションは TanStack Form + zod」方針は、今回の zod schema 導入と整合
+- `docs/external/zod-v4-safeparse-unknown-json.md` は、`safeParse` による unknown JSON の部分バリデーションという観点で実装と整合
+- `parseApiErrorMessage()` は最終的に zod ではなく軽量 helper 実装だが、external メモは調査メモとして妥当であり、Issue #114 の採用判断と矛盾しない
+- `README.md` には Issue #114 とは無関係な既存不整合を1件確認: `pnpm lint` の説明が「ESLint 実行」だが、実装は `biome check`
+
+### ドキュメント観点の判定
+
+- `docs_ready: true`
+
+### 必須修正
+
+- なし
+
+### 任意改善
+
+- `README.md` の `pnpm lint` 説明を実装に合わせて Biome ベースの記述へ更新すると、`AGENTS.md` と一致する
+
+### 不整合のあるドキュメント
+
+- `README.md` の主要コマンド表にある `pnpm lint` 説明（ESLint 実行）は現状実装と不一致
+
+### 不足しているドキュメント
+
+- なし
+
+### 外部調査メモに関する指摘
+
+- `docs/external/zod-v4-safeparse-unknown-json.md` は `diff.summary` の zod `safeParse` 方針を十分に裏付けている
+- API error helper も zod 化可能という示唆は妥当だが、実装は軽量 helper を採用しているため、今後このメモを実装記録として再利用する場合は「採用案の一部は未採用」と明記するとより正確
+
+### PR/完了結果
+
+- Issue #114 の PR 作成をドキュメント観点で阻害する事項はなし
+
+### 残リスク
+
+- `README.md` の lint 記述不整合は今回の変更起因ではないが、新規参加者には混乱要因になりうる
 
 ### 更新した作業ログパス
 
