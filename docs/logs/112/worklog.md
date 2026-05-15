@@ -415,3 +415,29 @@ Issue #112 は ArtifactViewer の責務を `artifact-viewer-section.tsx` から�
 ### 残リスク
 
 - ドキュメント上の残課題はないが、実装面では pure function 群に専用テストがないため将来の条件変更時に回帰余地は残る
+
+## PR作成結果 (2026-05-15)
+
+### PR情報
+
+- PR URL: https://github.com/f0reachARR/boardflow/pull/126
+- タイトル: `refactor: extract viewer selection logic and content components #112`
+- ブランチ: `refactor/issue-112-viewer-selection-split` → `main`
+- Closes #112
+
+### コミット内容
+
+1. `28e5180` refactor: split ArtifactViewerSection into viewer-selection, use-viewer-sources, viewer-content  
+2. `b2e8dd6` refactor: extract viewer selection logic and content components #112  
+   （`viewer-selection.ts` の KiCanvas fallback 条件修正 + `docs/logs/112/worklog.md` 追加）
+
+### 最終チェック
+
+- `pr_ready: true` (3回目レビューで承認)
+- `docs_ready: true`
+- 未コミット変更なし
+- `pnpm typecheck` / `pnpm lint` / `pnpm build` すべて OK
+
+### 残リスク
+
+- 抽出した pure function 群に専用ユニットテストがないため、将来の条件変更で同種の回帰が起きる余地は残る
