@@ -660,3 +660,15 @@ export function withServerFetcher<T>(
 
 - `docs/frontend/summary.md` と実装のズレを放置すると、次回の refactor で「404 のみ notFound 扱い」と誤解した変更が入りうる。
 - worklog の件数ずれと古い断片の混在を放置すると、PR 監査時に Issue #113 の実際の変更範囲を誤認しやすい。
+
+## PR/完了結果
+
+### 2026-05-15: PR 作成完了
+
+**PR**: https://github.com/f0reachARR/boardflow/pull/129
+**タイトル**: frontend: Server Component の React Query prefetch パターンを共通化する
+**ベースブランチ**: main ← issue-113-prefetch-commonize
+**コミット数**: 6
+
+**残リスク**:
+- なし。純粋なリファクタリングで Streaming SSR / hydration / notFound のタイミングは変更前と同一。
