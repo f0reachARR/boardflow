@@ -696,3 +696,59 @@ After:
 ### 更新した作業ログパス
 
 `docs/logs/97/worklog.md`
+
+---
+
+## 実装結果 (impl フェーズ)
+
+### 実装内容
+
+#### 新規ファイル
+- `crates/api/src/services/authz.rs` — 4つの公開関数 + 5つのユニットテスト
+  - `ensure_repository_access`: github_repository_id → repo lookup → check_access (パターンA)
+  - `ensure_board_run_access`: board_run_id → repo lookup → check_access (パターンB)
+  - `ensure_board_project_access`: board_project_id → repo lookup → check_access (パターンC)
+  - `check_repo_access`: owner/name だけで access check (get_board_project の変形パターン用)
+
+#### 変更ファイル (11箇所の置き換え)
+- `services/mod.rs` — `pub mod authz;` 追加
+- `services/api_token.rs` — 3関数 (`execute_create/list/revoke_api_token`) を `ensure_repository_access` に置き換え
+- `routes/read/repositories.rs` — `get_repository` を `ensure_repository_access` に置き換え
+- `routes/read/board_projects.rs` — `list_board_projects` を `ensure_repository_access`、`get_board_project` を `check_repo_access` に置き換え
+- `routes/read/board_runs.rs` — `list_board_runs` を `ensure_board_project_access`、`get_board_run` を `ensure_board_run_access` に置き換え
+- `routes/read/diff.rs` — `get_board_run_diff` を `ensure_board_run_access` に置き換え
+- `routes/read/viewer_sources.rs` — `get_viewer_sources` を `ensure_board_run_access` に置き換え
+- `routes/read/findings.rs` — `list_findings` を `ensure_board_run_access` に置き換え
+- `routes/read/artifacts.rs` — `list_artifacts` を `ensure_board_run_access` に置き換え
+
+#### import 整理
+- `access_result_to_error` の直接 import を 8 ファイルから削除 (authz.rs 内部で使用)
+- `access_error_to_app_error` は `repositories.rs` の `list_repositories` で引き続き使用 (共通化対象外のパターン)
+- `DynGithubAccessChecker` は全 handler の Extension 抽出で引き続き使用
+
+### テスト結果
+
+#### ユニットテスト (5件, services::authz::tests)
+- `check_repo_access_allowed` — Allowed → Ok(())
+- `check_repo_access_denied_returns_not_found` — Denied → not_found (セキュリティ挙動保証)
+- `check_repo_access_token_expired` — TokenExpired → 401
+- `check_repo_access_rate_limited` — RateLimited → 429
+- `check_repo_access_upstream_error` — UpstreamError → 500
+
+#### 統合テスト (63件, boardflow-api 全テスト)
+- 全テスト通過。認可関連テスト (`test_get_board_run_denied_returns_404`, `test_list_repositories_denied_returns_empty` 等) も変更なしでパス。
+
+#### CI チェック
+- `cargo fmt --all -- --check` — OK
+- `cargo clippy --workspace --all-targets -- -D warnings` — OK (warning なし)
+
+### 更新ドキュメント
+- `docs/logs/97/worklog.md` (本ファイル)
+
+### 未変更 (対象外)
+- `list_repositories` — `list_accessible_repo_ids` を使う特殊パターン。共通化対象外。
+- `error_conversion.rs` — `access_result_to_error` / `access_error_to_app_error` は変更なし。authz.rs から内部利用。
+
+### 残リスク
+- `database::tests::from_env_succeeds_when_database_url_set` (boardflow-config) が環境変数未設定で失敗するが、本Issue とは無関係の既存問題。
+- tracing ログメッセージが `ensure_*` 関数のものに統一されたため、既存のログ文字列に依存するモニタリングがあれば調整が必要 (ただし内部ログのため外部影響なし)。
