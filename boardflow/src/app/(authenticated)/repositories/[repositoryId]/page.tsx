@@ -41,6 +41,7 @@ export default async function RepositoryDetailPage({ params }: Props) {
         serverClient.GET('/api/v1/repositories/{github_repository_id}/board-projects', {
           params: { path: { github_repository_id: Number(repositoryId) }, query: { limit: 50 } },
         }),
+      'Failed to fetch board projects',
     ),
   );
 

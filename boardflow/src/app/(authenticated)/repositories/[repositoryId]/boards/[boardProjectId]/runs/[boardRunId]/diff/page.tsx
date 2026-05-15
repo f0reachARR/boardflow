@@ -26,6 +26,7 @@ export default async function DiffPage({ params }: Props) {
         serverClient.GET('/api/v1/board-runs/{board_run_id}/diff', {
           params: { path: { board_run_id: boardRunId } },
         }),
+      'Failed to fetch diff',
     ),
   );
 
@@ -39,6 +40,7 @@ export default async function DiffPage({ params }: Props) {
         serverClient.GET('/api/v1/board-projects/{board_project_id}', {
           params: { path: { board_project_id: boardProjectId } },
         }),
+      'Failed to fetch project',
     ),
   );
 

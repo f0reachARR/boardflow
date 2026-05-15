@@ -461,3 +461,97 @@ A: openapi-fetch の `serverClient.GET(path, { params })` と openapi-react-quer
 
 1. **queryKey の不一致リスク**: `$api.queryOptions()` と `$api.useSuspenseQuery()` が内部で同じ queryKey 生成ロジックを使っている前提。openapi-react-query のバージョンアップで変更される可能性は低いが、アップデート時に確認が必要。
 2. **型推論の制限**: `withServerFetcher` の戻り値型は `{ data: T | undefined; error: unknown }` に基づくため、openapi-fetch の厳密な error 型情報は失われる。サーバーサイドでは error を throw するだけなので実用上の問題はない。
+
+## 2026-05-15 レビュー結果
+
+### 対象
+
+- Issue: #113
+- レビュー対象コミット: `e4acb10`, `c2e4214`, `f6bbe3a`
+- ブランチ: `issue-113-prefetch-commonize`
+
+### 総評
+
+- 実装の主目的である page.tsx の重複削減は達成できている。
+- `queryKey` は `$api.queryOptions()` の値をそのまま再利用しており、現行の各ページとクライアントコンポーネントの組み合わせでは hydration 前提も維持できている。
+- 一方で、secondary prefetch の失敗時の例外形が変わっており、「挙動変更なし」という完了条件とユーザー要望は満たしていない。
+
+### PR 判定
+
+- `pr_ready: false`
+
+### 重大度順の指摘
+
+1. **必須修正**: `withServerFetcher()` が secondary query 失敗時に `Error` ではなく OpenAPI の生エラーレスポンスをそのまま throw するようになっている。変更前の各 page では `new Error('Failed to fetch ...')` で投げていたため、ルートの error boundary が受け取る `error.message` の表示挙動が変わる。現在の `ErrorUI` は `error.message` を直接表示する実装なので、失敗時に空文字または意図しない文言になる。純粋リファクタリング条件に反する。
+
+### 任意改善
+
+1. `withServerFetcher()` は `clientOptions` と `serverFetcher` の対応関係を型で縛っていないため、誤った queryKey と fetcher の組み合わせでもコンパイルできる。現行呼び出しは一致しているが、「型安全性」の観点では主張がやや強い。
+2. `withServerFetcher()` の `return data as T` は `undefined` を隠蔽する。今回の GET 群では直ちに問題化しないが、成功レスポンスが空になる API を将来流用すると検出が遅れる。
+
+### テスト結果
+
+- `pnpm typecheck`: pass
+- `pnpm lint`: pass
+- `pnpm build`: pass
+
+### ドキュメント確認
+
+- `docs/spec.md` と `docs/frontend/summary.md` の Server Component + prefetch + hydration 方針とは概ね整合している。
+- ただし `docs/frontend/summary.md` への更新は計画に記載されていたが未実施。
+- 現在の worklog には「挙動変更なし」「残リスクなし」に近い記述があり、今回のレビュー結果と不整合がある。
+
+### 外部調査との整合
+
+- Next.js / TanStack Query の一般的な Streaming SSR パターンである「primary は await、secondary は prefetch を await しない、pending query を dehydrate する」は維持されている。
+- 一方で、失敗時の例外整形は UI のエラー境界に直接影響するため、共通化時に吸収してはいけない差分だった。
+
+### 修正方針
+
+1. `withServerFetcher()` 側で、既存ページと同等の `Error` を返す責務を持たせるか、少なくとも call site ごとに従来のメッセージを渡せるようにする。
+2. そのうえで secondary query 失敗時に error boundary の表示文言が従来どおりであることを確認する。
+3. worklog の「挙動変更なし」「残リスクなし」記述を今回のレビュー結果に合わせて更新する。
+
+## 2026-05-15 レビュー指摘修正
+
+### 修正内容
+
+**`withServerFetcher` に `errorMessage` パラメータを追加** (`server-prefetch.ts`):
+
+```typescript
+export function withServerFetcher<T>(
+  clientOptions: { queryKey: readonly unknown[] },
+  serverFetcher: () => Promise<{ data?: T; error?: unknown }>,
+  errorMessage?: string,  // ← 追加
+): { queryKey: readonly unknown[]; queryFn: () => Promise<T> } {
+  // ...
+  if (error) throw errorMessage ? new Error(errorMessage) : error;
+}
+```
+
+**全 secondary prefetch 呼び出しにエラーメッセージを復元**:
+
+| ページ | エラーメッセージ |
+|---|---|
+| repositories/page.tsx | `'Failed to fetch repositories'` |
+| repositories/[repositoryId]/page.tsx | `'Failed to fetch board projects'` |
+| boards/[boardProjectId]/page.tsx | `'Failed to fetch board runs'` |
+| boards/[boardProjectId]/runs/page.tsx | `'Failed to fetch board runs'` |
+| settings/tokens/page.tsx | `'Failed to fetch tokens'` |
+| runs/[boardRunId]/page.tsx | `'Failed to fetch artifacts'`, `'Failed to fetch viewer sources'`, `'Failed to fetch board project'` |
+| runs/[boardRunId]/diff/page.tsx | `'Failed to fetch diff'`, `'Failed to fetch project'` |
+| runs/[boardRunId]/checks/[checkKind]/page.tsx | `'Failed to fetch findings'`, `'Failed to fetch project'` |
+
+**primary の `fetchPrimary` 呼び出しには `errorMessage` を渡していない** — `.catch(() => null)` でキャッチされるため不要。
+
+### テスト結果
+
+| チェック | 結果 |
+|---|---|
+| `pnpm typecheck` | ✅ パス |
+| `pnpm lint` (Biome) | ✅ パス |
+| `pnpm build` | ✅ パス (全ルート正常ビルド) |
+
+### 残リスク
+
+- なし。secondary prefetch のエラーメッセージが変更前と同等に復元された。

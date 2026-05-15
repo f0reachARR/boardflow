@@ -47,6 +47,7 @@ export default async function TokensPage({ params }: Props) {
             query: { limit: 50 },
           },
         }),
+      'Failed to fetch tokens',
     ),
   );
 

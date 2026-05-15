@@ -41,6 +41,7 @@ export default async function RunDetailPage({ params }: Props) {
         serverClient.GET('/api/v1/board-runs/{board_run_id}/artifacts', {
           params: { path: { board_run_id: boardRunId } },
         }),
+      'Failed to fetch artifacts',
     ),
   );
 
@@ -54,6 +55,7 @@ export default async function RunDetailPage({ params }: Props) {
         serverClient.GET('/api/v1/board-runs/{board_run_id}/viewer-sources', {
           params: { path: { board_run_id: boardRunId } },
         }),
+      'Failed to fetch viewer sources',
     ),
   );
 
@@ -67,6 +69,7 @@ export default async function RunDetailPage({ params }: Props) {
         serverClient.GET('/api/v1/board-projects/{board_project_id}', {
           params: { path: { board_project_id: boardProjectId } },
         }),
+      'Failed to fetch board project',
     ),
   );
 

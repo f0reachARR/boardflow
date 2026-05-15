@@ -22,6 +22,7 @@ export default async function RepositoriesPage() {
         serverClient.GET('/api/v1/repositories', {
           params: { query: { limit: 50 } },
         }),
+      'Failed to fetch repositories',
     ),
   );
 

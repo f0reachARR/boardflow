@@ -41,6 +41,7 @@ export default async function RunsPage({ params }: Props) {
         serverClient.GET('/api/v1/board-projects/{board_project_id}/board-runs', {
           params: { path: { board_project_id: boardProjectId }, query: { limit: 50 } },
         }),
+      'Failed to fetch board runs',
     ),
   );
 

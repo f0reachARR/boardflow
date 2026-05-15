@@ -74,6 +74,7 @@ export default async function FindingsPage({ params, searchParams }: Props) {
             query: validSeverityParam ? { severity: validSeverityParam } : undefined,
           },
         }),
+      'Failed to fetch findings',
     ),
   );
 
@@ -87,6 +88,7 @@ export default async function FindingsPage({ params, searchParams }: Props) {
         serverClient.GET('/api/v1/board-projects/{board_project_id}', {
           params: { path: { board_project_id: boardProjectId } },
         }),
+      'Failed to fetch project',
     ),
   );
 
