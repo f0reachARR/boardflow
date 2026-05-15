@@ -49,10 +49,16 @@ export function parseDiffSummary(raw: unknown): ParsedDiffSummary {
 
   let checks: [string, CheckEntry][] | null = null;
   if (typeof obj.checks === 'object' && obj.checks !== null && !Array.isArray(obj.checks)) {
-    const entries = Object.entries(obj.checks as Record<string, unknown>).filter(
-      (entry): entry is [string, CheckEntry] => CheckEntrySchema.safeParse(entry[1]).success,
-    );
-    checks = entries;
+    const rawEntries = Object.entries(obj.checks as Record<string, unknown>);
+    const parsed: [string, CheckEntry][] = [];
+    for (const [key, value] of rawEntries) {
+      const result = CheckEntrySchema.safeParse(value);
+      if (result.success) {
+        parsed.push([key, result.data]);
+      }
+    }
+    // If original had entries but none parsed, treat as unrecognized format (null)
+    checks = rawEntries.length > 0 && parsed.length === 0 ? null : parsed;
   }
 
   return {

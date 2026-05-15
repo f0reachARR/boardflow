@@ -395,3 +395,76 @@ export function parseApiErrorMessage(err: unknown): string | null {
 1. **schema と interface の二重管理**: `diff-summary-schema.ts` の zod schema と `diff-summary.ts` の TypeScript interface が並存。将来 `z.infer<typeof Schema>` に統一すれば解消可能。
 2. **API error 構造の backend 依存**: `{ error: { message: string } }` は OpenAPI schema で定義されていない。backend 変更時は `parseApiErrorMessage` が `null` を返し fallback メッセージが表示される（安全側に倒れる）。
 3. **`isRecord` の将来移動**: `guards.ts` に `isRecord` のみが残っている状態。必要に応じて `utils.ts` 等に移動する検討が可能。
+
+---
+
+## レビューフェーズ (review agent)
+
+**日時**: 2026-05-15
+
+### レビュー結果
+
+- **判定**: `pr_ready: false`
+- **総評**: `diff.summary` の file/bom/artifact 向け runtime parse を zod `safeParse` に寄せ、API error の危険な `as` キャストも helper 化されており、変更範囲は概ね Issue の意図に沿っている。一方で、`checks` フィールドの不正形式が依然として「Data format not recognized」相当の表示に落ちず、空配列として黙って非表示になる経路が残っているため、完了条件の「runtime parse 失敗時の表示が明確に扱われている」は未充足と判断した。
+
+### 調査結果
+
+- ベース差分を確認: `git diff <merge-base>..HEAD` でコード変更 7 ファイルに加え、research 文書 `docs/external/zod-v4-safeparse-unknown-json.md` と `docs/logs/114/worklog.md` の更新を確認。
+- `docs/spec.md`、`docs/frontend/summary.md`、`README.md` を確認。今回の変更は frontend 内部リファクタリングの範囲で、追加の仕様/README 更新は不要。
+- repository 内に `CONTRIBUTING.md` は存在せず、確認対象なし。
+- Web 調査では、zod の `safeParse` は部分バリデーションに有効であり、動的キーは `z.record()` などで扱えることを再確認。今回の方針自体は妥当。
+
+### 重大度順の指摘
+
+1. **[Major] `checks` の parse failure が UI 上で明確に扱われず、Issue の完了条件を満たしていない**
+  - `parseDiffSummary()` は `checks` が object である限り、各 entry を `safeParse` 成功分だけ残して `checks` に代入するため、全 entry が不正でも `[]` を返す。`null` にはならない。該当: `boardflow/src/lib/domain/diff-summary.ts`.
+  - `ChecksSection` は `summary.checks === null` の場合だけ「Data format not recognized」を表示し、空配列は `return null` で何も出さない。該当: `boardflow/src/components/diff/checks-section.tsx`.
+  - `RunDiffSummaryCard` 側も `summary.checks != null && summary.checks.length > 0` のときしか checks を描画せず、不正データ時は無言で消える。該当: `boardflow/src/components/run-detail/run-diff-summary-card.tsx`.
+  - 例として backend が `checks: { erc: 123 }` を返した場合、file/bom/artifact と違って「format not recognized」系の fallback が出ず、利用者には「checks が無い」のか「壊れている」のか判別できない。
+
+### 必須修正
+
+- `checks` の不正形式を `null` 扱いにして fallback 表示へ落とすか、少なくとも「entry が存在したが 1 件も parse できなかった」ケースを明示表示に変えること。
+
+### 任意改善
+
+- `parseApiErrorMessage()` は helper 化としては十分だが、計画/research では zod ベース案を採っていたため、worklog 上で「zod を使わない判断理由」はもう少し明確に残しておくと差分説明がしやすい。
+- `checks` の parse は `filter(...safeParse(...).success)` ではなく、`safeParse` 結果から `result.data` を明示的に取り出す実装の方が、将来 schema に transform/default が入っても挙動がぶれにくい。
+
+### テスト結果
+
+- `pnpm lint` ✅
+- `pnpm typecheck` ✅
+- `pnpm build` ✅
+- ただし、runtime parse failure を直接検証する unit/component test は追加されていない。
+
+### テスト不足
+
+- `parseDiffSummary()` に対して、`checks` が object だが entry が壊れているケースを検証する unit test がない。
+- `parseApiErrorMessage()` に対して、`{ error: { message } }` 以外の shape を fallback へ落とすケースの回帰検知がない。
+
+### ドキュメント確認
+
+- `docs/spec.md`: 影響なし。
+- `docs/frontend/summary.md`: 「フォーム/バリデーションに zod を使う」方針と矛盾なし。
+- `README.md`: 今回の内部リファクタリングで更新不要。
+- `docs/external/zod-v4-safeparse-unknown-json.md`: 実装方針と概ね整合。ただし `checks` の malformed データを明示表示へ落とす点は実装に未反映。
+
+### plan / research / docs との不整合
+
+- research と plan は「不正な形式の場合は既存の `Data format not recognized` 相当の表示に落とす」としているが、`checks` については未達。
+- plan 上の `parseApiErrorMessage` は zod ベース案だったが、実装は軽量な手書き helper。これは仕様違反ではないが、計画との差分として明示されているため blocker ではない。
+
+### PR/完了結果
+
+- `pr_ready: false`
+- 理由: `checks` malformed 時の fallback 表示が未実装で、Issue #114 の完了条件を満たしていないため。
+
+### 残リスク
+
+- malformed `checks` を silent drop する現状だと、backend schema 逸脱の検知が UI 上で遅れる。
+- `parseApiErrorMessage` の期待 shape は OpenAPI に載っていないため、backend 側変更時の退行は unit test なしでは見落としやすい。
+
+### 更新した作業ログパス
+
+- `docs/logs/114/worklog.md`
