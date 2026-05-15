@@ -116,6 +116,28 @@
 
 **残リスク:**
 - なし。ドキュメント修正のみで実装変更なし。
+
+### 2026-05-15: docs 再確認完了
+
+**対象:**
+- Issue #113 の前回 docs 指摘 2 点の修正確認のみを実施。
+
+**確認結果:**
+- `docs/frontend/summary.md` の Issue #113 追記は、`boardflow/src/lib/api/server-prefetch.ts` に `fetchPrimary` / `prefetchSecondary` / `withServerFetcher` が集約され、各 page.tsx から利用されている現状と整合している。
+- primary error handling の記述は、`fetchPrimary()` が `queryClient.fetchQuery(...).catch(() => null)` の後に `!result` で `notFound()` を呼ぶ実装と整合しており、`not_found` に限らず取得失敗全般を `notFound()` 扱いとする説明になっていることを確認した。
+- 今回確認した範囲では、Issue #113 に関する docs / 実装 / worklog 間の不整合は解消されている。
+
+**判定:**
+- `docs_ready: true`
+
+**必須修正:**
+- なし。
+
+**任意改善:**
+- なし。
+
+**残リスク:**
+- なし。
 5. `<HydrationBoundary state={dehydrate(queryClient)}>` ラッパー (全8ファイル)
 
 **クライアント側の消費:**
