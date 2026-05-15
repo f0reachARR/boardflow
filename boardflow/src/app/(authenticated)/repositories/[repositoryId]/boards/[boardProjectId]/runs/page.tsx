@@ -34,13 +34,9 @@ export default async function RunsPage({ params }: Props) {
   prefetchSecondary(
     queryClient,
     withServerFetcher(
-      $api.queryOptions(
-        'get',
-        '/api/v1/board-projects/{board_project_id}/board-runs',
-        {
-          params: { path: { board_project_id: boardProjectId }, query: { limit: 50 } },
-        },
-      ),
+      $api.queryOptions('get', '/api/v1/board-projects/{board_project_id}/board-runs', {
+        params: { path: { board_project_id: boardProjectId }, query: { limit: 50 } },
+      }),
       () =>
         serverClient.GET('/api/v1/board-projects/{board_project_id}/board-runs', {
           params: { path: { board_project_id: boardProjectId }, query: { limit: 50 } },

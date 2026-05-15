@@ -30,7 +30,7 @@ export function prefetchSecondary(
  */
 export function withServerFetcher<T>(
   clientOptions: { queryKey: readonly unknown[] },
-  serverFetcher: () => Promise<{ data: T | undefined; error: unknown }>,
+  serverFetcher: () => Promise<{ data?: T; error?: unknown }>,
 ): { queryKey: readonly unknown[]; queryFn: () => Promise<T> } {
   return {
     queryKey: clientOptions.queryKey,

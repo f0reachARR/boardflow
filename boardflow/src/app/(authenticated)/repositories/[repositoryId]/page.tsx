@@ -34,13 +34,9 @@ export default async function RepositoryDetailPage({ params }: Props) {
   prefetchSecondary(
     queryClient,
     withServerFetcher(
-      $api.queryOptions(
-        'get',
-        '/api/v1/repositories/{github_repository_id}/board-projects',
-        {
-          params: { path: { github_repository_id: Number(repositoryId) }, query: { limit: 50 } },
-        },
-      ),
+      $api.queryOptions('get', '/api/v1/repositories/{github_repository_id}/board-projects', {
+        params: { path: { github_repository_id: Number(repositoryId) }, query: { limit: 50 } },
+      }),
       () =>
         serverClient.GET('/api/v1/repositories/{github_repository_id}/board-projects', {
           params: { path: { github_repository_id: Number(repositoryId) }, query: { limit: 50 } },

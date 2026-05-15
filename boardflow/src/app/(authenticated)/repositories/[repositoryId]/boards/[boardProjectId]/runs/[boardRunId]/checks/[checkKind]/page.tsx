@@ -61,16 +61,12 @@ export default async function FindingsPage({ params, searchParams }: Props) {
   prefetchSecondary(
     queryClient,
     withServerFetcher(
-      $api.queryOptions(
-        'get',
-        '/api/v1/board-runs/{board_run_id}/checks/{check_kind}/findings',
-        {
-          params: {
-            path: { board_run_id: boardRunId, check_kind: validCheckKind },
-            query: validSeverityParam ? { severity: validSeverityParam } : undefined,
-          },
+      $api.queryOptions('get', '/api/v1/board-runs/{board_run_id}/checks/{check_kind}/findings', {
+        params: {
+          path: { board_run_id: boardRunId, check_kind: validCheckKind },
+          query: validSeverityParam ? { severity: validSeverityParam } : undefined,
         },
-      ),
+      }),
       () =>
         serverClient.GET('/api/v1/board-runs/{board_run_id}/checks/{check_kind}/findings', {
           params: {
