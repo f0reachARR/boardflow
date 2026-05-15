@@ -847,3 +847,23 @@ After:
 
 ### 更新した作業ログパス
 - `docs/logs/97/worklog.md`
+
+---
+
+## PR作成結果 (pr フェーズ)
+
+### PR情報
+- PR #128: https://github.com/f0reachARR/boardflow/pull/128
+- タイトル: `refactor: extract authorization helpers into services/authz (#97)`
+- ブランチ: `issue-97/authz-service` → `main`
+
+### PR作成条件確認
+- review: `pr_ready: true` — blocking な指摘なし ✓
+- docs: `docs_ready: true` — ドキュメント更新不要 ✓
+- 未コミット変更: なし ✓
+- テスト: 63件全パス ✓
+- cargo clippy / fmt: クリーン ✓
+
+### 残リスク
+- `database::tests::from_env_succeeds_when_database_url_set` は環境変数未設定で失敗するが本 Issue とは無関係の既存問題。
+- tracing ログメッセージが `ensure_*` 関数のものに統一されたため、ログ文字列依存のモニタリングがあれば調整が必要（内部ログのため外部影響なし）。
