@@ -78,6 +78,44 @@
 ## 残リスク
 
 - なし。純粋なリファクタリングで挙動変更なし。
+
+## レビュー結果
+
+### 2026-05-15: レビュー完了
+
+**総評:**
+- 前回の重大指摘だった secondary prefetch 時のエラーメッセージ消失は修正済み。`withServerFetcher` の `errorMessage` 追加と各 secondary call site への明示指定をコード上で確認した。
+- `fetchPrimary` / `prefetchSecondary` / `withServerFetcher` への抽出により、primary と secondary の責務分離は読みやすくなっており、`HydrationBoundary + dehydrate(queryClient)` の既存パターンも維持されている。
+
+**確認内容:**
+- `boardflow/src/lib/api/server-prefetch.ts` で `errorMessage?: string` が実装され、secondary 側のみメッセージを付与できることを確認。
+- 対象 8 ページで helper 利用を確認。primary は 5 箇所で `errorMessage` なし、secondary は 12 箇所すべてで明示メッセージ付き。
+- `boardflow/src/lib/query-client.ts` で `shouldDehydrateQuery` が `pending` を含む設定になっており、secondary の `prefetchQuery` 非 await による Streaming SSR 前提が維持されることを確認。
+- 再検証として `pnpm typecheck` / `pnpm lint` / `pnpm build` を実行し、すべて成功を確認。
+
+**指摘:**
+- 非ブロッカー: 記録上は secondary prefetch が 13 箇所となっているが、現行コード上の call site は 12 箇所だった。PR 説明や worklog の件数は実コードに合わせて修正した方がよい。
+- 非ブロッカー: `docs/frontend/summary.md` では primary resource の `not_found` のみ `notFound()` に寄せる整理になっている一方、実装は従来どおり `fetchPrimary(...).catch(() => null)` 相当で全エラーを `notFound()` 扱いしている。この Issue の回帰ではないが、仕様との差は残っている。
+
+**PR/完了結果:**
+- `pr_ready: true`
+
+**残リスク:**
+- 今回の共通化自体に起因する追加の挙動回帰は確認できなかった。
+- ただし、件数の記載ずれと primary error handling の仕様表現ずれは、次のレビューや将来の保守で混乱源になりうる。
+
+### 2026-05-15: docs レビュー指摘対応
+
+**修正内容:**
+
+1. `docs/frontend/summary.md` line 120 付近: データ取得基盤の説明に Issue #113 で追加した共通ヘルパー (`fetchPrimary`, `prefetchSecondary`, `withServerFetcher`) と `src/lib/api/server-prefetch.ts` への集約について追記。
+2. `docs/frontend/summary.md` line 123: primary error handling の記述を実装実態に合わせて修正。旧: `not_found` のみ `notFound()` → 新: 全エラーで `notFound()` を返す旨に変更。
+
+**テスト結果:**
+- `pnpm lint`: ✅ パス
+
+**残リスク:**
+- なし。ドキュメント修正のみで実装変更なし。
 5. `<HydrationBoundary state={dehydrate(queryClient)}>` ラッパー (全8ファイル)
 
 **クライアント側の消費:**
@@ -555,3 +593,48 @@ export function withServerFetcher<T>(
 ### 残リスク
 
 - なし。secondary prefetch のエラーメッセージが変更前と同等に復元された。
+
+## 2026-05-15 ドキュメント確認
+
+### 対象Issue
+
+- Issue #113
+
+### 確認結果
+
+- `boardflow/src/lib/api/server-prefetch.ts` と対象 8 ページを確認し、primary を `fetchPrimary()`、secondary を `prefetchSecondary()` へ寄せる実装自体は一貫していた。
+- `boardflow/src/lib/query-client.ts` の `shouldDehydrateQuery` は `pending` を含んでおり、secondary prefetch 非 await の Streaming SSR 前提は維持されている。
+- `AGENTS.md` はリポジトリ運用ルールの文書であり、今回の frontend リファクタリングに伴う更新は不要。
+- README / `docs/spec.md` に今回の共通化を反映すべき必須更新は見当たらなかった。
+
+### レビュー結果
+
+- `docs_ready: false`
+
+### 必須修正
+
+1. `docs/frontend/summary.md` の API 連携方針には「primary resource 取得で `not_found` のみ `notFound()` に寄せる」とあるが、実装中の `fetchPrimary()` は `queryClient.fetchQuery(...).catch(() => null)` により全エラーを `notFound()` 扱いする。現状実装に合わせて記述を修正するか、実装を文書どおりに変更するかを明確化する必要がある。
+2. この worklog 内の secondary prefetch 件数は一部で 13 件と記載されているが、実コードの call site は 12 件だった。加えて、レビュー結果の後ろに旧計画・旧レビュー断片が連結されており、同一ログ内で整合しない記述が残っているため、Issue #113 の記録として整理が必要。
+
+### 任意改善
+
+1. worklog は「調査結果」「計画」「実装内容」「レビュー結果」「ドキュメント確認」を最新状態だけに畳み、旧案や修正前メモは別節へ退避した方が後続レビューで読みやすい。
+
+### 不整合のあるドキュメント
+
+- `docs/frontend/summary.md`
+- `docs/logs/113/worklog.md`
+
+### 不足しているドキュメント
+
+- 追加で必須となる文書はなし。今回必要なのは既存 2 ファイルの整合修正のみ。
+
+### 外部調査メモに関する指摘
+
+- `pending` query の dehydrate と secondary prefetch 非 await による Streaming SSR 方針は、既存の外部調査メモと矛盾していない。
+- 外部調査メモの更新は不要だが、`docs/frontend/summary.md` の primary error handling 記述だけは現行実装との差分が残っている。
+
+### 残リスク
+
+- `docs/frontend/summary.md` と実装のズレを放置すると、次回の refactor で「404 のみ notFound 扱い」と誤解した変更が入りうる。
+- worklog の件数ずれと古い断片の混在を放置すると、PR 監査時に Issue #113 の実際の変更範囲を誤認しやすい。
