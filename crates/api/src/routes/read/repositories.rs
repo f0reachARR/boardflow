@@ -7,8 +7,8 @@ use crate::extractors::AuthenticatedSession;
 use crate::github_access::DynGithubAccessChecker;
 use crate::pagination::{PaginatedResponse, PaginationParams, encode_repository_cursor};
 
-use super::access::{access_error_to_app_error, access_result_to_error};
 use super::dto::{RepositoryDetailResponse, RepositoryListItem, parse_board_run_status};
+use crate::github_access::{access_error_to_app_error, access_result_to_error};
 
 // ─── GET /api/v1/repositories ────────────────────────────────────────────────
 

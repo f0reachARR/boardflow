@@ -10,8 +10,8 @@ use crate::extractors::AuthenticatedSession;
 use crate::github_access::DynGithubAccessChecker;
 use crate::pagination::{PaginatedResponse, PaginationParams, encode_cursor};
 
-use super::access::access_result_to_error;
 use super::dto::{ArtifactSummary, BoardRunDetailResponse, BoardRunListItem, CheckInfo};
+use crate::github_access::access_result_to_error;
 
 // ─── GET /api/v1/board-projects/{board_project_id}/board-runs ────────────────
 

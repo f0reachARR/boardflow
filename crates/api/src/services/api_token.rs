@@ -7,9 +7,8 @@ use utoipa::ToSchema;
 use uuid::Uuid;
 
 use crate::error::AppError;
-use crate::github_access::DynGithubAccessChecker;
+use crate::github_access::{DynGithubAccessChecker, access_result_to_error};
 use crate::pagination::{PaginatedResponse, PaginationParams, encode_cursor};
-use crate::routes::read::access_result_to_error;
 
 // ─── Request / Response types ────────────────────────────────────────────────
 

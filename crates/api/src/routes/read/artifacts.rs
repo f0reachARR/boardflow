@@ -11,8 +11,8 @@ use crate::error::{AppError, RequestId};
 use crate::extractors::AuthenticatedSession;
 use crate::github_access::DynGithubAccessChecker;
 
-use super::access::access_result_to_error;
 use super::dto::ArtifactListItem;
+use crate::github_access::access_result_to_error;
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct ArtifactListResponse {

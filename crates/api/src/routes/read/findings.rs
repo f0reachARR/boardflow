@@ -12,7 +12,7 @@ use crate::extractors::AuthenticatedSession;
 use crate::github_access::DynGithubAccessChecker;
 use crate::pagination::{PaginatedResponse, decode_findings_cursor, encode_findings_cursor};
 
-use super::access::access_result_to_error;
+use crate::github_access::access_result_to_error;
 
 fn check_kind_str(kind: CheckKind) -> &'static str {
     match kind {

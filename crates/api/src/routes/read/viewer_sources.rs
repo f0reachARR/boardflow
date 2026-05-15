@@ -11,11 +11,11 @@ use crate::extractors::AuthenticatedSession;
 use crate::github_access::DynGithubAccessChecker;
 use crate::{ArtifactBaseUrl, ArtifactSecret};
 
-use super::access::access_result_to_error;
 use super::dto::{
     ViewerAvailabilityStatus, ViewerDownload, ViewerMap, ViewerSource, ViewerSourceKind,
     ViewerSourcesResponse, ViewerStatus,
 };
+use crate::github_access::access_result_to_error;
 
 fn find_artifact(artifacts: &[Artifact], artifact_type: ArtifactType) -> Option<&Artifact> {
     artifacts
