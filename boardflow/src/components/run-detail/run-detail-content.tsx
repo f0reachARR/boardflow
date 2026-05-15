@@ -8,6 +8,7 @@ import { RunChecksSection } from '@/components/run-detail/run-checks-section';
 import { RunDiffSummaryCard } from '@/components/run-detail/run-diff-summary-card';
 import { RunHeader } from '@/components/run-detail/run-header';
 import { Breadcrumb } from '@/components/ui/breadcrumb';
+import { parseApiErrorMessage } from '@/lib/api/error';
 import { $api } from '@/lib/api/react-query';
 import type { Artifact, DiffResponse, ViewerEntry } from '@/lib/api/schema-types';
 import { shortId } from '@/lib/format';
@@ -59,11 +60,9 @@ export function RunDetailContent({ repositoryId, boardProjectId, boardRunId }: P
   const artifacts: Artifact[] = artifactsData?.items ?? [];
   const viewers: Record<string, ViewerEntry> = viewerData?.viewers ?? {};
   const diff: DiffResponse | null = diffData ?? null;
-  const diffErrorMessage =
-    diffError && (diffError as Record<string, unknown>)?.error
-      ? ((diffError as Record<string, { message?: string }>).error?.message ??
-        'Failed to load diff data.')
-      : null;
+  const diffErrorMessage = diffError
+    ? (parseApiErrorMessage(diffError) ?? 'Failed to load diff data.')
+    : null;
 
   return (
     <Box>
