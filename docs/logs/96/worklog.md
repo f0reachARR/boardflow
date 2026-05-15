@@ -504,3 +504,170 @@ fn hash_token(raw_token: &str) -> String
 
 ### 残リスク
 - `AppError` がservice層でHTTP概念を含む点は変わらず (将来的にdomain error分離が望ましいが、このリファクタリングのスコープ外)
+
+---
+
+## レビューフェーズ (2026-05-15)
+
+### 対象Issue
+- Issue #96: `plan/board_run系API handlerからユースケース処理をservice層へ切り出す`
+
+### レビュー結果
+- handler の簡素化自体は達成されている。`plan.rs`, `board_run.rs`, `api_token.rs` は extractor parse + service 呼び出し + response 返却にほぼ整理されている。
+- `services/` 配下の execute 関数は全て `pub(crate)` で、axum の `Extension`, `State`, `Path`, `Json` などにも依存していない。
+- `board_run` の `generate_upload_info` は空の `request_id` を維持しており、`import_artifact_bundle` の transaction も service 内に移動している。
+- `api_token` の Request/Response 型は `utoipa::ToSchema` を維持しており、OpenAPI 影響なしという実装報告とも整合している。
+
+### 重大度順の指摘
+1. **中**: `services/api_token.rs` が `crate::routes::read::access_result_to_error` に依存しており、service 層が routes 層へ逆参照している。handler/service 分離の目的に対して依存方向が崩れているため、共通 helper は `routes/` 配下ではなく中立な module へ移すべき。
+    - 該当: `crates/api/src/services/api_token.rs:12`
+    - 参照先: `crates/api/src/routes/read/access.rs:5`
+2. **低**: `lib.rs` で `pub mod services;` を追加しており、今回の内部リファクタリングに不要な public API surface が増えている。crate 内利用だけで足りるため、`mod services;` で十分。
+    - 該当: `crates/api/src/lib.rs:9`
+
+### 必須修正
+- `access_result_to_error` を `routes/read/access.rs` から外し、`github_access` 近傍または `services` 共通 helper など、routes に依存しない module へ移す。`services/api_token.rs` と read handlers の双方はそこを参照する形に揃える。
+
+### 任意改善
+- `lib.rs` の `pub mod services;` は `mod services;` に縮小し、不要な外部公開を避ける。
+
+### テスト結果
+- 実行確認: `mise exec -- cargo test -p boardflow-api --test plan_test --test board_run_test --test api_token_test`
+- 結果: `plan_test` 16件、`board_run_test` 19件、`api_token_test` 15件が全件通過
+
+### ドキュメント確認
+- `docs/spec.md`, `README.md`, `docs/backend/api.md`, `docs/logs/96/worklog.md` を確認
+- 振る舞い変更を伴う修正ではないため、公開API仕様書・README の追加更新は不要と判断
+- issue の plan / research / 実装概要とは概ね整合。ただし service 層の依存方向だけは plan の意図より後退している
+
+### PR/完了結果
+- `pr_ready: false`
+- 理由: service 層が routes 層 helper に依存しており、Issue #96 の「handler から service へユースケース処理を切り出す」という層分離の目的をまだ完全には満たしていない
+
+### 残リスク
+- 上記依存を放置すると、将来 service の再利用先を増やした際に `routes` 依存が広がる
+- `pub mod services` を残すと、内部実装モジュールの公開範囲が今後も拡張されやすい
+
+## レビュー指摘修正
+
+### 対応内容
+- `access_result_to_error` と `access_error_to_app_error` を `crates/api/src/routes/read/access.rs` から `crates/api/src/github_access/error_conversion.rs` へ移動
+  - `github_access` モジュールは `AccessResult`/`AccessError` 型の定義元であり、変換関数の置き場として最も自然
+- `routes/read/access.rs` を削除し `routes/read/mod.rs` から `mod access` / `pub use access::*` を除去
+- `routes/read/` 配下6ファイルの import を `super::access::` → `crate::github_access::` に変更
+- `services/api_token.rs` の import を `crate::routes::read::access_result_to_error` → `crate::github_access::access_result_to_error` に変更（同モジュールの `DynGithubAccessChecker` import と統合）
+- `lib.rs` の `pub mod services;` を `mod services;` に変更（外部参照なしを `grep` で確認済み）
+- `access_error_to_app_error` は `pub(crate)` のため `mod.rs` での再エクスポートも `pub(crate) use` に修正
+
+### 検証結果
+- `cargo fmt --all -- --check` 通過
+- `cargo clippy --workspace --all-targets -- -D warnings` 通過
+- `cargo test --workspace` 全テスト通過
+- `cargo insta test -p boardflow-api` snapshot 差分なし
+
+### 残リスク
+- なし（レイヤ違反解消済み、振る舞い変更なし）
+
+---
+
+## 再レビューフェーズ (2026-05-15)
+
+### 対象Issue
+- Issue #96: `plan/board_run系API handlerからユースケース処理をservice層へ切り出す`
+
+### 確認対象
+- `crates/api/src/github_access/mod.rs`
+- `crates/api/src/github_access/error_conversion.rs`
+- `crates/api/src/routes/read/mod.rs`
+- `crates/api/src/services/api_token.rs`
+- `crates/api/src/lib.rs`
+- `docs/spec.md`
+- `README.md`
+- `docs/backend/api.md`
+
+### 調査結果
+- 前回必須指摘だった `services/api_token.rs` → `routes/read/access.rs` の逆依存は解消済み
+- `access_result_to_error` / `access_error_to_app_error` は `github_access/error_conversion.rs` に移され、read handlers と services の双方が `crate::github_access` を参照する構成に整理済み
+- `routes/read/access.rs` は削除済みで、`routes/read/mod.rs` からも関連する `mod access` / `pub use access::*` は除去済み
+- `lib.rs` の `services` 公開範囲は `mod services;` に縮小済み
+- `docs/spec.md`, `README.md`, `docs/backend/api.md` の観点では今回の修正は内部リファクタリングの範囲に収まっており、追加の公開ドキュメント更新は不要
+- 外部調査でも、handler/service 間の依存方向を内側へ保つ方針と今回の修正内容は整合している
+
+### テスト結果
+- ユーザー提示の再実行結果を確認
+- `cargo fmt --all -- --check`: 通過
+- `cargo clippy --workspace --all-targets -- -D warnings`: 通過
+- `cargo test --workspace`: 全通過
+- `cargo insta test -p boardflow-api`: 通過、snapshot 差分なし
+
+### レビュー結果
+- 前回の必須修正・任意改善はともに解消済み
+- 今回の再レビュー範囲では、新たな重大な問題や PR ブロッカーは見当たらない
+
+### 重大度順の指摘
+- なし
+
+### 必須修正
+- なし
+
+### 任意改善
+- なし
+
+### テスト不足
+- なし（既存の HTTP レベル統合テストと OpenAPI snapshot 確認で今回のリファクタリング回帰は十分にカバーされている）
+
+### ドキュメント更新漏れ
+- なし
+
+### plan / research / docs との不整合
+- なし
+
+### PR/完了結果
+- `pr_ready: true`
+
+### 残リスク
+- service 層が `AppError` を返し続けるため、HTTP 指向のエラー型が service に残る点は将来的な設計課題として残るが、Issue #96 のスコープ外
+
+---
+
+## ドキュメント確認フェーズ (2026-05-15)
+
+### 対象Issue
+- Issue #96: `plan/board_run系API handlerからユースケース処理をservice層へ切り出す`
+
+### 確認対象
+- `docs/spec.md`
+- `docs/backend/api.md`
+- `docs/backend/summary.md`
+- `docs/frontend/summary.md`
+- `README.md`
+- `AGENTS.md`
+
+### 確認結果
+- 今回の変更は `routes/plan.rs` の handler からユースケース処理を `services/plan.rs` へ抽出し、`access_result_to_error` を `github_access` 側へ寄せる内部リファクタリングであり、公開 API の path、request/response schema、認証方式、エラー契約、運用手順に変更はない。
+- `docs/spec.md` と `docs/backend/api.md` に記載された Plan API の契約は、現在の `routes/plan.rs` と `services/plan.rs` の実装内容と整合している。`decision` / `reason`、validation 条件、認可エラーの扱いにも差分はない。
+- `docs/backend/summary.md` の「HTTP 層は薄く保つ」という方針には今回の変更が一致しており、記述の更新は不要。
+- `docs/frontend/summary.md` は read API / viewer 仕様中心で、今回の command handler 内部整理の影響を受けないため更新不要。
+- `README.md` と `AGENTS.md` の開発手順、テスト手順、構成説明も変更不要。
+- research 成果物は不要な内部リファクタリングという整理で問題なく、`docs/external/` に追加確認が必要な外部トピックもない。
+
+### 判定
+- `docs_ready: true`
+
+### 必須修正
+- なし
+
+### 任意改善
+- なし
+
+### 不整合のあるドキュメント
+- なし
+
+### 不足しているドキュメント
+- なし
+
+### 外部調査メモに関する指摘
+- なし（内部リファクタリングのため外部調査不要）
+
+### 残リスク
+- なし。将来的な `AppError` と service 層の分離は設計課題として残るが、既存ドキュメントを更新すべき差分ではない。
