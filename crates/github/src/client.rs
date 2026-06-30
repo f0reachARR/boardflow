@@ -2,7 +2,7 @@ use secrecy::{ExposeSecret, SecretString};
 
 use crate::config::GitHubAppConfig;
 use crate::error::GitHubClientError;
-use crate::types::{CreatedComment, CreatedIssue, IssueInfo, IssueState};
+use crate::types::{CreatedComment, CreatedIssue, InstallationRepoInfo, IssueInfo, IssueState};
 
 /// Trait for GitHub App client operations.
 /// Production implementation uses octocrab; tests can mock this trait.
@@ -52,6 +52,21 @@ pub trait GitHubAppClient: Send + Sync {
         comment_id: u64,
         body: &str,
     ) -> Result<(), GitHubClientError>;
+
+    /// List installations for the authenticated GitHub App.
+    /// Default returns an empty list; the worker reconciler tolerates that as "nothing to sync".
+    async fn list_installation_ids(&self) -> Result<Vec<u64>, GitHubClientError> {
+        Ok(Vec::new())
+    }
+
+    /// List repositories accessible to the given installation.
+    /// Default returns an empty list.
+    async fn list_installation_repositories(
+        &self,
+        _installation_id: u64,
+    ) -> Result<Vec<InstallationRepoInfo>, GitHubClientError> {
+        Ok(Vec::new())
+    }
 }
 
 /// Production implementation backed by octocrab.
@@ -199,6 +214,76 @@ impl GitHubAppClient for OctocrabGitHubAppClient {
             .map_err(GitHubClientError::from)?;
 
         Ok(())
+    }
+
+    async fn list_installation_ids(&self) -> Result<Vec<u64>, GitHubClientError> {
+        let mut ids = Vec::new();
+        let mut page = 1u32;
+        loop {
+            let result = self
+                .octocrab
+                .apps()
+                .installations()
+                .per_page(100u8)
+                .page(page)
+                .send()
+                .await
+                .map_err(GitHubClientError::from)?;
+
+            let items = result.items;
+            if items.is_empty() {
+                break;
+            }
+            for inst in &items {
+                ids.push(inst.id.0);
+            }
+            if items.len() < 100 {
+                break;
+            }
+            page += 1;
+        }
+        Ok(ids)
+    }
+
+    async fn list_installation_repositories(
+        &self,
+        installation_id: u64,
+    ) -> Result<Vec<InstallationRepoInfo>, GitHubClientError> {
+        let installation_crab = self
+            .octocrab
+            .installation(octocrab::models::InstallationId(installation_id))
+            .map_err(GitHubClientError::from)?;
+
+        let mut repos = Vec::new();
+        let mut page = 1u32;
+        loop {
+            let route = format!("/installation/repositories?per_page=100&page={page}");
+            let resp: octocrab::models::InstallationRepositories = installation_crab
+                .get(&route, None::<&()>)
+                .await
+                .map_err(GitHubClientError::from)?;
+
+            let count = resp.repositories.len();
+            for r in &resp.repositories {
+                let owner = match r.owner.as_ref().map(|a| a.login.clone()) {
+                    Some(o) => o,
+                    None => match r.full_name.as_ref().and_then(|fn_| fn_.split_once('/')) {
+                        Some((o, _)) => o.to_string(),
+                        None => continue,
+                    },
+                };
+                repos.push(InstallationRepoInfo {
+                    id: r.id.0 as i64,
+                    owner,
+                    name: r.name.clone(),
+                });
+            }
+            if count < 100 {
+                break;
+            }
+            page += 1;
+        }
+        Ok(repos)
     }
 }
 

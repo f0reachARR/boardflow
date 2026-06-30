@@ -457,6 +457,95 @@ async fn test_webhook_repos_removed_different_installation() {
     );
 }
 
+// --- Issue #105: webhook events stamp installation sync_state ---
+
+#[tokio::test]
+#[serial]
+async fn test_webhook_installation_created_stamps_sync_state() {
+    let Some(pool) = setup_pool().await else {
+        return;
+    };
+
+    let installation_id = rand_i64();
+    let body = serde_json::json!({
+        "action": "created",
+        "installation": { "id": installation_id },
+        "repositories": []
+    });
+    let body_bytes = serde_json::to_vec(&body).unwrap();
+    let signature = compute_signature(WEBHOOK_SECRET, &body_bytes);
+
+    let app = create_test_app(pool.clone());
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/github/webhook")
+                .header("Content-Type", "application/json")
+                .header("X-GitHub-Event", "installation")
+                .header("X-Hub-Signature-256", &signature)
+                .body(Body::from(body_bytes))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let state = boardflow_db::queries::github_installation_sync_state::find_by_installation_id(
+        &pool,
+        installation_id,
+    )
+    .await
+    .unwrap()
+    .expect("sync_state row should exist after webhook");
+    assert!(state.webhook_seen_at.is_some());
+}
+
+#[tokio::test]
+#[serial]
+async fn test_webhook_repos_added_stamps_sync_state() {
+    let Some(pool) = setup_pool().await else {
+        return;
+    };
+
+    let installation_id = rand_i64();
+    let body = serde_json::json!({
+        "action": "added",
+        "installation": { "id": installation_id },
+        "repositories_added": [],
+        "repositories_removed": []
+    });
+    let body_bytes = serde_json::to_vec(&body).unwrap();
+    let signature = compute_signature(WEBHOOK_SECRET, &body_bytes);
+
+    let app = create_test_app(pool.clone());
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/github/webhook")
+                .header("Content-Type", "application/json")
+                .header("X-GitHub-Event", "installation_repositories")
+                .header("X-Hub-Signature-256", &signature)
+                .body(Body::from(body_bytes))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let state = boardflow_db::queries::github_installation_sync_state::find_by_installation_id(
+        &pool,
+        installation_id,
+    )
+    .await
+    .unwrap()
+    .expect("sync_state row should exist after webhook");
+    assert!(state.webhook_seen_at.is_some());
+}
+
 // --- Test: unknown event returns 200 ---
 
 #[tokio::test]

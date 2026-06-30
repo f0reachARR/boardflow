@@ -130,6 +130,19 @@ async fn handle_installation_event(pool: &PgPool, body: &[u8]) -> StatusCode {
         }
     };
 
+    if let Err(err) = boardflow_db::queries::github_installation_sync_state::upsert_webhook_seen(
+        pool,
+        event.installation.id,
+    )
+    .await
+    {
+        tracing::warn!(
+            error = %err,
+            installation_id = event.installation.id,
+            "failed to stamp installation webhook_seen_at"
+        );
+    }
+
     match event.action.as_str() {
         "created" => {
             for repo in &event.repositories {
@@ -189,6 +202,19 @@ async fn handle_installation_repositories_event(pool: &PgPool, body: &[u8]) -> S
             return StatusCode::BAD_REQUEST;
         }
     };
+
+    if let Err(err) = boardflow_db::queries::github_installation_sync_state::upsert_webhook_seen(
+        pool,
+        event.installation.id,
+    )
+    .await
+    {
+        tracing::warn!(
+            error = %err,
+            installation_id = event.installation.id,
+            "failed to stamp installation webhook_seen_at"
+        );
+    }
 
     match event.action.as_str() {
         "added" => {

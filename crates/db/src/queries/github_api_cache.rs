@@ -86,8 +86,11 @@ pub async fn delete_cache(
 pub async fn cleanup_expired_cache(
     executor: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
 ) -> Result<u64, sqlx::Error> {
+    // Issue #105: the stale-while-error window for accessible_repo_ids is 24h
+    // past expiration. Keep entries around for at least that long so the
+    // cleanup job does not delete data still usable as fallback.
     let result =
-        sqlx::query("DELETE FROM github_api_cache WHERE expires_at < NOW() - INTERVAL '1 hour'")
+        sqlx::query("DELETE FROM github_api_cache WHERE expires_at < NOW() - INTERVAL '24 hours'")
             .execute(executor)
             .await?;
     Ok(result.rows_affected())

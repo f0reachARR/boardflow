@@ -8,10 +8,13 @@ use super::types::{AccessError, AccessResult, GithubAccessChecker};
 pub(super) const GITHUB_API_BASE_URL: &str = "https://api.github.com";
 
 pub(super) const CACHE_TYPE_REPO_IDS: &str = "accessible_repo_ids";
-pub(super) const CACHE_TTL_SECONDS: i64 = 600; // 10 minutes
-pub(super) const STALE_MAX_SECONDS: i64 = 3600; // 1 hour
+// Issue #105: relaxed cache lifetimes. The repositories table is reconciled
+// independently by webhook + worker sync, so we can serve cached user→repo
+// mappings for longer without risking long-term staleness.
+pub(super) const CACHE_TTL_SECONDS: i64 = 3600; // 1 hour (valid)
+pub(super) const STALE_MAX_SECONDS: i64 = 86_400; // 24 hours (stale-while-error)
 pub(super) const SYNC_CACHE_TYPE: &str = "installation_repos_sync";
-pub(super) const SYNC_TTL_SECONDS: i64 = 600; // 10 minutes
+pub(super) const SYNC_TTL_SECONDS: i64 = 1800; // 30 minutes
 
 /// Caching decorator that stores `list_accessible_repo_ids` results in PostgreSQL.
 /// Falls back to stale cache on rate-limit errors (stale-while-error).
@@ -148,8 +151,11 @@ impl GithubAccessChecker for CachedGithubAccessChecker {
                 }
                 Ok(result)
             }
-            Err(ref e @ AccessError::RateLimited) => {
-                // 5. On RateLimited only – try stale cache
+            Err(e) => {
+                // 5. On any error – try stale cache so a transient GitHub failure
+                // (rate limit, expired user token, upstream blip) does not break the
+                // repository list. The repositories table itself is reconciled by
+                // webhook + worker sync, so the cached id set is still meaningful.
                 let stale_duration = chrono::Duration::seconds(STALE_MAX_SECONDS);
                 if let Ok(Some(stale)) = boardflow_db::queries::github_api_cache::get_stale_cache(
                     &self.pool,
@@ -163,15 +169,11 @@ impl GithubAccessChecker for CachedGithubAccessChecker {
                         tracing::warn!(
                             user_id = %user_id,
                             error = %format!("{e:?}"),
-                            "using stale cache for accessible_repo_ids due to rate limiting"
+                            "using stale cache for accessible_repo_ids after GitHub error"
                         );
                         return Ok(Some(ids));
                     }
                 }
-                Err(AccessError::RateLimited)
-            }
-            Err(e) => {
-                // 6. Non-rate-limit errors (TokenExpired, Upstream) – propagate directly
                 Err(e)
             }
         }

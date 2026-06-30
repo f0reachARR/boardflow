@@ -279,10 +279,11 @@ async fn test_cleanup_expired_cache() {
     };
     let user_id = create_test_user_with_token(&pool, "gho_cache_test_8").await;
 
-    // Insert expired >1 hour ago (should be cleaned)
+    // Issue #105: cleanup preserves entries up to 24h past expiration so they
+    // remain available as stale-while-error fallbacks. Insert expired >24h ago.
     sqlx::query(
         "INSERT INTO github_api_cache (user_id, cache_type, value_json, expires_at, created_at, updated_at) \
-         VALUES ($1, 'cleanup_type', '[1]'::jsonb, NOW() - INTERVAL '2 hours', NOW(), NOW()) \
+         VALUES ($1, 'cleanup_type', '[1]'::jsonb, NOW() - INTERVAL '36 hours', NOW(), NOW()) \
          ON CONFLICT (user_id, cache_type) DO UPDATE SET value_json = EXCLUDED.value_json, expires_at = EXCLUDED.expires_at",
     )
     .bind(user_id)
@@ -294,6 +295,40 @@ async fn test_cleanup_expired_cache() {
         .await
         .unwrap();
     assert!(deleted >= 1);
+}
+
+#[tokio::test]
+#[serial]
+async fn test_cleanup_preserves_recent_stale_cache() {
+    let Some(pool) = setup_pool().await else {
+        return;
+    };
+    let user_id = create_test_user_with_token(&pool, "gho_cache_cleanup_preserve").await;
+
+    // Expired 2 hours ago — within the 24h stale window, must survive cleanup.
+    sqlx::query(
+        "INSERT INTO github_api_cache (user_id, cache_type, value_json, expires_at, created_at, updated_at) \
+         VALUES ($1, 'preserve_type', '[2]'::jsonb, NOW() - INTERVAL '2 hours', NOW(), NOW()) \
+         ON CONFLICT (user_id, cache_type) DO UPDATE SET value_json = EXCLUDED.value_json, expires_at = EXCLUDED.expires_at",
+    )
+    .bind(user_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    boardflow_db::queries::github_api_cache::cleanup_expired_cache(&pool)
+        .await
+        .unwrap();
+
+    let stale = boardflow_db::queries::github_api_cache::get_stale_cache(
+        &pool,
+        user_id,
+        "preserve_type",
+        chrono::Duration::hours(24),
+    )
+    .await
+    .unwrap();
+    assert_eq!(stale, Some(serde_json::json!([2])));
 }
 
 // ─── CachedGithubAccessChecker integration tests ─────────────────────────────
@@ -450,10 +485,11 @@ async fn test_cached_checker_stale_fallback_with_mock_inner_rate_limited() {
     assert_eq!(result, Ok(Some(vec![5001, 5002, 5003])));
 }
 
-/// Test: TokenExpired from inner does NOT use stale cache – propagates error
+/// Issue #105: TokenExpired from inner falls back to stale cache so a
+/// transient GitHub token failure does not break the repository list.
 #[tokio::test]
 #[serial]
-async fn test_cached_checker_token_expired_no_stale_fallback() {
+async fn test_cached_checker_token_expired_stale_fallback() {
     use boardflow_api::github_access::TokenExpiredGithubAccessChecker;
 
     let Some(pool) = setup_pool().await else {
@@ -478,14 +514,13 @@ async fn test_cached_checker_token_expired_no_stale_fallback() {
     let checker = CachedGithubAccessChecker::with_inner(inner, pool.clone(), None);
 
     let result = checker.list_accessible_repo_ids(token).await;
-    // Should propagate TokenExpired error, NOT return stale cache
-    assert_eq!(result, Err(AccessError::TokenExpired));
+    assert_eq!(result, Ok(Some(vec![6001, 6002])));
 }
 
-/// Test: Upstream error from inner does NOT use stale cache – propagates error
+/// Issue #105: Upstream error from inner falls back to stale cache.
 #[tokio::test]
 #[serial]
-async fn test_cached_checker_upstream_error_no_stale_fallback() {
+async fn test_cached_checker_upstream_error_stale_fallback() {
     use boardflow_api::github_access::UpstreamErrorGithubAccessChecker;
 
     let Some(pool) = setup_pool().await else {
@@ -510,7 +545,46 @@ async fn test_cached_checker_upstream_error_no_stale_fallback() {
     let checker = CachedGithubAccessChecker::with_inner(inner, pool.clone(), None);
 
     let result = checker.list_accessible_repo_ids(token).await;
-    // Should propagate Upstream error, NOT return stale cache
+    assert_eq!(result, Ok(Some(vec![7001, 7002])));
+}
+
+/// Issue #105: TokenExpired with no stale cache still propagates the error
+/// (the caller decides — e.g. list_repositories — but the cache layer must
+/// not fabricate an empty list).
+#[tokio::test]
+#[serial]
+async fn test_cached_checker_token_expired_no_stale_returns_error() {
+    use boardflow_api::github_access::TokenExpiredGithubAccessChecker;
+
+    let Some(pool) = setup_pool().await else {
+        return;
+    };
+    let token = "gho_mock_token_expired_no_stale";
+    let _user_id = create_test_user_with_token(&pool, token).await;
+
+    let inner: Arc<dyn GithubAccessChecker> = Arc::new(TokenExpiredGithubAccessChecker);
+    let checker = CachedGithubAccessChecker::with_inner(inner, pool.clone(), None);
+
+    let result = checker.list_accessible_repo_ids(token).await;
+    assert_eq!(result, Err(AccessError::TokenExpired));
+}
+
+/// Issue #105: Upstream error with no stale cache still propagates the error.
+#[tokio::test]
+#[serial]
+async fn test_cached_checker_upstream_error_no_stale_returns_error() {
+    use boardflow_api::github_access::UpstreamErrorGithubAccessChecker;
+
+    let Some(pool) = setup_pool().await else {
+        return;
+    };
+    let token = "gho_mock_upstream_error_no_stale";
+    let _user_id = create_test_user_with_token(&pool, token).await;
+
+    let inner: Arc<dyn GithubAccessChecker> = Arc::new(UpstreamErrorGithubAccessChecker);
+    let checker = CachedGithubAccessChecker::with_inner(inner, pool.clone(), None);
+
+    let result = checker.list_accessible_repo_ids(token).await;
     assert!(matches!(result, Err(AccessError::Upstream(_))));
 }
 

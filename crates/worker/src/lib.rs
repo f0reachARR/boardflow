@@ -6,5 +6,6 @@ pub mod comment_body;
 pub mod config;
 pub mod dispatcher;
 pub mod handlers;
+pub mod installation_sync;
 
 pub use config::WorkerConfig;

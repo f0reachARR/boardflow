@@ -6,4 +6,4 @@ pub mod types;
 pub use client::{GitHubAppClient, OctocrabGitHubAppClient};
 pub use config::GitHubAppConfig;
 pub use error::GitHubClientError;
-pub use types::{CreatedComment, CreatedIssue, IssueInfo, IssueState};
+pub use types::{CreatedComment, CreatedIssue, InstallationRepoInfo, IssueInfo, IssueState};
