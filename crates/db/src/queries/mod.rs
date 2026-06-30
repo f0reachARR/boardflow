@@ -5,6 +5,7 @@ pub mod board_project;
 pub mod board_run;
 pub mod diff;
 pub mod github_api_cache;
+pub mod github_installation_sync_state;
 pub mod github_job;
 pub mod repository;
 pub mod run_check;

@@ -3,7 +3,7 @@ use boardflow_github::{GitHubAppClient, OctocrabGitHubAppClient};
 use secrecy::SecretString;
 
 use boardflow_worker::config::WorkerConfig;
-use boardflow_worker::dispatcher;
+use boardflow_worker::{dispatcher, installation_sync};
 
 #[tokio::main]
 async fn main() {
@@ -81,6 +81,9 @@ async fn main() {
     ));
     cache_cleanup_interval.tick().await; // 初回tickを消化
 
+    let mut installation_sync_interval = installation_sync::interval(&config);
+    installation_sync_interval.tick().await; // 初回tickを消化
+
     let shutdown = tokio::signal::ctrl_c();
     tokio::pin!(shutdown);
 
@@ -102,6 +105,11 @@ async fn main() {
             }
             _ = cache_cleanup_interval.tick() => {
                 dispatcher::sweep_expired_cache(&pool).await;
+            }
+            _ = installation_sync_interval.tick() => {
+                if let Some(client) = github_client.as_deref() {
+                    installation_sync::sync_stale_installations(&pool, &config, client).await;
+                }
             }
         }
     }

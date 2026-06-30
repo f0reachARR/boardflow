@@ -23,3 +23,10 @@ pub enum IssueState {
 pub struct CreatedComment {
     pub id: u64,
 }
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InstallationRepoInfo {
+    pub id: i64,
+    pub owner: String,
+    pub name: String,
+}

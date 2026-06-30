@@ -8,6 +8,10 @@ pub struct WorkerConfig {
     pub poll_interval_secs: u64,
     pub timeout_sweep_interval_secs: u64,
     pub cache_cleanup_interval_secs: u64,
+    pub installation_sync_interval_secs: u64,
+    pub installation_sync_stale_after_secs: u64,
+    pub installation_sync_min_interval_secs: u64,
+    pub installation_sync_max_per_sweep: u64,
     pub github_app_id: Option<u64>,
     pub github_private_key_pem: Option<String>,
     pub app_domain: String,
@@ -33,12 +37,34 @@ impl WorkerConfig {
             });
         }
 
+        let installation_sync_interval_secs =
+            parse_env_or("INSTALLATION_SYNC_INTERVAL_SECS", 1800u64)?;
+        if installation_sync_interval_secs == 0 {
+            return Err(ConfigError::InvalidValue {
+                var: "INSTALLATION_SYNC_INTERVAL_SECS".to_string(),
+                reason: "must be greater than 0".to_string(),
+            });
+        }
+
         Ok(Self {
             db: DatabaseConfig::from_env()?,
             s3: S3Config::from_env(),
             poll_interval_secs: parse_env_or("POLL_INTERVAL_SECS", 2u64)?,
             timeout_sweep_interval_secs: parse_env_or("TIMEOUT_SWEEP_INTERVAL_SECS", 60u64)?,
             cache_cleanup_interval_secs,
+            installation_sync_interval_secs,
+            installation_sync_stale_after_secs: parse_env_or(
+                "INSTALLATION_SYNC_STALE_AFTER_SECS",
+                86_400u64,
+            )?,
+            installation_sync_min_interval_secs: parse_env_or(
+                "INSTALLATION_SYNC_MIN_INTERVAL_SECS",
+                3600u64,
+            )?,
+            installation_sync_max_per_sweep: parse_env_or(
+                "INSTALLATION_SYNC_MAX_PER_SWEEP",
+                50u64,
+            )?,
             github_app_id,
             github_private_key_pem: optional_env("GITHUB_PRIVATE_KEY_PEM"),
             app_domain: std::env::var("BOARDFLOW_APP_DOMAIN").unwrap_or_else(|_| {
