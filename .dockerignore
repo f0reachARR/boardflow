@@ -1,0 +1,7 @@
+target
+.git
+.github
+docs
+samples
+boardflow/node_modules
+boardflow/.next
